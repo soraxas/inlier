@@ -102,21 +102,52 @@ pub trait TerminationCriterion<S> {
     ) -> bool;
 }
 
-/// Simple RANSAC-style termination criterion using a fixed maximum iteration
-/// budget. More advanced criteria can be added later.
-pub struct FixedIterationTermination;
+/// Simple RANSAC-style termination criterion that updates the maximum number of
+/// iterations using the current best inlier ratio and desired confidence.
+///
+/// The update rule follows the standard formula
+/// `N = log(1 - confidence) / log(1 - inlier_ratio^sample_size)`.
+pub struct RansacTerminationCriterion {
+    /// Desired confidence in \[0, 1\].
+    pub confidence: f64,
+}
 
-impl<S> TerminationCriterion<S> for FixedIterationTermination {
+impl crate::core::TerminationCriterion<crate::scoring::Score> for RansacTerminationCriterion {
     fn check(
         &mut self,
-        _data: &DataMatrix,
-        _best_score: &S,
-        _sample_size: usize,
+        data: &DataMatrix,
+        best_score: &crate::scoring::Score,
+        sample_size: usize,
         max_iterations: &mut usize,
     ) -> bool {
-        // Do not change `max_iterations` or terminate early; the outer loop
-        // will stop once the fixed budget is exhausted.
-        let _ = max_iterations;
+        let n = data.nrows() as f64;
+        if n <= 0.0 {
+            return false;
+        }
+
+        let inlier_ratio = (best_score.inlier_count as f64 / n).clamp(0.0, 1.0);
+        if inlier_ratio <= 0.0 || inlier_ratio >= 1.0 {
+            return false;
+        }
+
+        let p_good_sample = inlier_ratio.powi(sample_size as i32);
+        if p_good_sample <= 0.0 || p_good_sample >= 1.0 {
+            return false;
+        }
+
+        let log_one_minus_conf = (1.0 - self.confidence).ln();
+        let log_one_minus_p = (1.0 - p_good_sample).ln();
+        if !log_one_minus_conf.is_finite() || !log_one_minus_p.is_finite() {
+            return false;
+        }
+
+        let required = (log_one_minus_conf / log_one_minus_p).ceil().max(1.0) as usize;
+        if required < *max_iterations {
+            *max_iterations = required;
+        }
+
+        // Do not force immediate termination; the outer loop will stop once
+        // the (possibly updated) iteration budget is exhausted.
         false
     }
 }
