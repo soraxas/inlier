@@ -6,7 +6,9 @@
 //! added later.
 
 use crate::core::Estimator;
-use crate::models::Homography;
+use crate::models::{
+    AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, RigidTransform,
+};
 use crate::types::DataMatrix;
 use nalgebra::{DMatrix, Matrix3, SVD};
 
@@ -107,6 +109,122 @@ impl Estimator for HomographyEstimator {
         let min_det = 1e-4;
         let max_det = 1e4;
         det > min_det && det < max_det
+    }
+}
+
+/// Skeleton estimator for the fundamental matrix.
+pub struct FundamentalEstimator;
+
+impl Estimator for FundamentalEstimator {
+    type Model = FundamentalMatrix;
+
+    fn sample_size(&self) -> usize {
+        7
+    }
+
+    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
+        sample.len() >= self.sample_size()
+    }
+
+    fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
+        Vec::new()
+    }
+
+    fn is_valid_model(
+        &self,
+        _model: &Self::Model,
+        _data: &DataMatrix,
+        _sample: &[usize],
+        _threshold: f64,
+    ) -> bool {
+        true
+    }
+}
+
+/// Skeleton estimator for the essential matrix.
+pub struct EssentialEstimator;
+
+impl Estimator for EssentialEstimator {
+    type Model = EssentialMatrix;
+
+    fn sample_size(&self) -> usize {
+        5
+    }
+
+    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
+        sample.len() >= self.sample_size()
+    }
+
+    fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
+        Vec::new()
+    }
+
+    fn is_valid_model(
+        &self,
+        _model: &Self::Model,
+        _data: &DataMatrix,
+        _sample: &[usize],
+        _threshold: f64,
+    ) -> bool {
+        true
+    }
+}
+
+/// Skeleton estimator for absolute pose (OnP).
+pub struct AbsolutePoseEstimator;
+
+impl Estimator for AbsolutePoseEstimator {
+    type Model = AbsolutePose;
+
+    fn sample_size(&self) -> usize {
+        4
+    }
+
+    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
+        sample.len() >= self.sample_size()
+    }
+
+    fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
+        Vec::new()
+    }
+
+    fn is_valid_model(
+        &self,
+        _model: &Self::Model,
+        _data: &DataMatrix,
+        _sample: &[usize],
+        _threshold: f64,
+    ) -> bool {
+        true
+    }
+}
+
+/// Skeleton estimator for rigid 3D transform.
+pub struct RigidTransformEstimator;
+
+impl Estimator for RigidTransformEstimator {
+    type Model = RigidTransform;
+
+    fn sample_size(&self) -> usize {
+        3
+    }
+
+    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
+        sample.len() >= self.sample_size()
+    }
+
+    fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
+        Vec::new()
+    }
+
+    fn is_valid_model(
+        &self,
+        _model: &Self::Model,
+        _data: &DataMatrix,
+        _sample: &[usize],
+        _threshold: f64,
+    ) -> bool {
+        true
     }
 }
 
