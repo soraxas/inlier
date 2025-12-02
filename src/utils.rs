@@ -70,6 +70,26 @@ where
             }
         }
     }
+
+    /// Generate a set of unique random integers using the *current* distribution.
+    ///
+    /// This mirrors the C++ overload that relies on the previously configured
+    /// range in `reset`.
+    pub fn gen_unique_current(&mut self, out: &mut [T])
+    where
+        T: Eq,
+    {
+        let n = out.len();
+        for i in 0..n {
+            loop {
+                let candidate = self.next();
+                if out[..i].iter().all(|&v| v != candidate) {
+                    out[i] = candidate;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
