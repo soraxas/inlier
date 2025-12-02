@@ -5,10 +5,16 @@
 //! layout or set of helpers. We start with simple `nalgebra` aliases that can
 //! be extended or optimized later.
 
-use nalgebra::DMatrix;
+use nalgebra::{DMatrix, Vector2, Vector3};
 
 /// Dynamic matrix of `f64`, conceptually equivalent to the C++ `DataMatrix`
 /// alias (`Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>`).
 ///
 /// Many estimators and samplers in the original code operate on this type.
 pub type DataMatrix = DMatrix<f64>;
+
+/// 2D point used in many geometric problems.
+pub type Point2 = Vector2<f64>;
+
+/// 3D point / vector used in pose and rigid transform problems.
+pub type Point3 = Vector3<f64>;

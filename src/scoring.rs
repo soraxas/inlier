@@ -1,24 +1,25 @@
 //! Scoring primitives for SupeRANSAC.
 //!
-//! This module provides a basic score type and a simple RANSAC-style
-//! inlier-count scoring implementation that plugs into the generic
-//! `Scoring` trait from `core`.
+//! This module provides a `Score` type analogous to the C++ implementation
+//! in `include/scoring/score.h` and a simple RANSAC-style inlier-count
+//! scorer. More advanced variants (MSAC, MAGSAC, ACRANSAC) can be built
+//! on top of the same interface in later phases.
 
 use crate::core::Scoring;
 use crate::types::DataMatrix;
 
-/// Simple scalar score storing an inlier count and an optional quality value.
+/// Scalar score storing an inlier count and a floating-point quality value.
 ///
-/// This is intentionally minimal; it mirrors the idea of the C++ `Score`
-/// class while remaining generic enough for early experimentation.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// This mirrors the C++ `scoring::Score` class: scores are compared primarily
+/// by their `value` field, not the raw inlier count.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Score {
     pub inlier_count: usize,
-    pub value: usize,
+    pub value: f64,
 }
 
 impl Score {
-    pub fn new(inlier_count: usize, value: usize) -> Self {
+    pub fn new(inlier_count: usize, value: f64) -> Self {
         Self { inlier_count, value }
     }
 }
@@ -79,7 +80,9 @@ where
             }
         }
 
-        Score::new(inlier_count, inlier_count)
+        // For a pure inlier-count RANSAC objective, we just use the inlier
+        // count as both the quality value and count.
+        Score::new(inlier_count, inlier_count as f64)
     }
 }
 
@@ -109,7 +112,7 @@ mod tests {
         let s: Score = scoring.score(&data, &model, &mut inliers);
 
         assert_eq!(s.inlier_count, 3);
-        assert_eq!(s.value, 3);
+        assert_eq!(s.value, 3.0);
         assert_eq!(inliers, vec![0, 1, 4]);
     }
 }

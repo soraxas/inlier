@@ -70,6 +70,24 @@ pub trait LocalOptimizer<M, S: Clone> {
     ) -> (M, S, Vec<usize>);
 }
 
+/// Trivial local optimizer that returns the input model/score/inliers unchanged.
+///
+/// This is primarily useful as a placeholder during early porting phases or
+/// when local optimization is disabled in the settings.
+pub struct NoopLocalOptimizer;
+
+impl<M: Clone, S: Clone> LocalOptimizer<M, S> for NoopLocalOptimizer {
+    fn run(
+        &mut self,
+        _data: &DataMatrix,
+        inliers: &[usize],
+        model: &M,
+        best_score: &S,
+    ) -> (M, S, Vec<usize>) {
+        (model.clone(), best_score.clone(), inliers.to_vec())
+    }
+}
+
 /// Termination criterion deciding when the RANSAC loop can stop.
 pub trait TerminationCriterion<S> {
     /// Update the termination state.
@@ -84,10 +102,39 @@ pub trait TerminationCriterion<S> {
     ) -> bool;
 }
 
+/// Simple RANSAC-style termination criterion using a fixed maximum iteration
+/// budget. More advanced criteria can be added later.
+pub struct FixedIterationTermination;
+
+impl<S> TerminationCriterion<S> for FixedIterationTermination {
+    fn check(
+        &mut self,
+        _data: &DataMatrix,
+        _best_score: &S,
+        _sample_size: usize,
+        max_iterations: &mut usize,
+    ) -> bool {
+        // Do not change `max_iterations` or terminate early; the outer loop
+        // will stop once the fixed budget is exhausted.
+        let _ = max_iterations;
+        false
+    }
+}
+
 /// Optional inlier selector (e.g. space-partitioning RANSAC).
 pub trait InlierSelector<M> {
     /// Select a (possibly reduced) set of inliers to consider during scoring.
     fn select(&mut self, data: &DataMatrix, model: &M) -> Vec<usize>;
+}
+
+/// Trivial inlier selector that defers entirely to the scoring function by
+/// returning an empty pre-selection (i.e. "use all points").
+pub struct NoopInlierSelector;
+
+impl<M> InlierSelector<M> for NoopInlierSelector {
+    fn select(&mut self, _data: &DataMatrix, _model: &M) -> Vec<usize> {
+        Vec::new()
+    }
 }
 
 /// Generic SupeRANSAC pipeline orchestrating the above components.
