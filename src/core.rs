@@ -358,25 +358,31 @@ where
 /// Iteratively Reweighted Least Squares (IRLS) local optimizer.
 ///
 /// This performs multiple iterations of weighted least squares, where weights
-/// are updated based on residuals from the previous iteration.
-pub struct IRLSOptimizer<E>
+/// are updated based on residuals from the previous iteration using MSAC-style weighting.
+pub struct IRLSOptimizer<E, F>
 where
     E: Estimator,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
 {
     estimator: E,
+    residual_fn: F,
+    threshold: f64,
     max_iterations: usize,
     convergence_threshold: f64,
     use_inliers: bool,
 }
 
-impl<E> IRLSOptimizer<E>
+impl<E, F> IRLSOptimizer<E, F>
 where
     E: Estimator,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
 {
-    pub fn new(estimator: E) -> Self {
+    pub fn new(estimator: E, residual_fn: F, threshold: f64) -> Self {
         Self {
             estimator,
-            max_iterations: 10,
+            residual_fn,
+            threshold,
+            max_iterations: 100,
             convergence_threshold: 1e-6,
             use_inliers: true,
         }
@@ -389,12 +395,33 @@ where
     pub fn set_use_inliers(&mut self, use_inliers: bool) {
         self.use_inliers = use_inliers;
     }
+
+    /// Compute MSAC-style weights: w = 1 - r^2 / t^2 for inliers, 0 for outliers
+    fn compute_weights(&self, data: &DataMatrix, model: &E::Model, indices: &[usize]) -> Vec<f64> {
+        let thresh_sq = self.threshold * self.threshold;
+        let mut weights = Vec::with_capacity(indices.len());
+
+        for &idx in indices {
+            let r = (self.residual_fn)(data, model, idx);
+            let r_sq = r * r;
+
+            if r_sq < thresh_sq {
+                // MSAC weight: linear decay from 1.0 to 0.0
+                weights.push(1.0 - r_sq / thresh_sq);
+            } else {
+                weights.push(0.0);
+            }
+        }
+
+        weights
+    }
 }
 
-impl<E, S> LocalOptimizer<E::Model, S> for IRLSOptimizer<E>
+impl<E, F, S> LocalOptimizer<E::Model, S> for IRLSOptimizer<E, F>
 where
     E: Estimator,
     E::Model: Clone,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
     S: Clone,
 {
     fn run(
@@ -408,27 +435,27 @@ where
             return (model.clone(), best_score.clone(), inliers.to_vec());
         }
 
-        // Simplified IRLS: iterate a few times with refitting
-        // A full implementation would compute weights based on residuals
         let mut current_model = model.clone();
-        let weights: Vec<f64> = vec![1.0; inliers.len()];
+        let mut updated = true;
 
         for _iteration in 0..self.max_iterations {
-            // Use weighted non-minimal estimation (like C++)
+            if !updated {
+                break;
+            }
+            updated = false;
+
+            // Compute weights based on current model (MSAC-style)
+            let weights = self.compute_weights(data, &current_model, inliers);
+
+            // Refit with weighted least squares
             let refined_models = self.estimator.estimate_model_nonminimal(data, inliers, Some(&weights));
             if refined_models.is_empty() {
                 break;
             }
 
-            // Check for convergence (simplified: just use the refined model)
+            // Check if model improved (simplified: always accept if we got a model)
             current_model = refined_models[0].clone();
-
-            // In a full implementation, we would:
-            // 1. Compute residuals for all inliers
-            // 2. Compute weights (e.g., using robust loss functions)
-            // 3. Refit with weighted least squares
-            // 4. Check convergence
-            // For now, we just iterate without weight updates
+            updated = true;
         }
 
         (current_model, best_score.clone(), inliers.to_vec())

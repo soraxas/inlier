@@ -239,6 +239,90 @@ pub trait NeighborhoodGraph {
     fn neighbors(&self, index: usize) -> &[usize];
 }
 
+/// Grid-based neighborhood graph that partitions points into spatial cells.
+///
+/// Points in the same cell are considered neighbors. This is a simplified
+/// 2D implementation for image coordinates.
+pub struct GridNeighborhoodGraph {
+    /// Grid cells: maps cell index to point indices
+    grid: std::collections::HashMap<usize, Vec<usize>>,
+    /// Cell index for each point
+    point_to_cell: Vec<usize>,
+    /// Cell size along x and y axes
+    cell_size_x: f64,
+    cell_size_y: f64,
+    /// Number of cells along each axis
+    cells_per_axis: usize,
+    /// Empty vector for points with no neighbors
+    empty: Vec<usize>,
+}
+
+impl GridNeighborhoodGraph {
+    /// Create a new grid neighborhood graph.
+    ///
+    /// `cell_size_x` and `cell_size_y` are the sizes of each cell.
+    /// `cells_per_axis` is the number of cells along each axis.
+    pub fn new(cell_size_x: f64, cell_size_y: f64, cells_per_axis: usize) -> Self {
+        Self {
+            grid: std::collections::HashMap::new(),
+            point_to_cell: Vec::new(),
+            cell_size_x,
+            cell_size_y,
+            cells_per_axis,
+            empty: Vec::new(),
+        }
+    }
+
+    /// Initialize the grid with data points.
+    ///
+    /// Assumes data has at least 2 columns (x, y coordinates).
+    pub fn initialize(&mut self, data: &DataMatrix) -> bool {
+        if data.ncols() < 2 {
+            return false;
+        }
+
+        self.grid.clear();
+        self.point_to_cell = vec![0; data.nrows()];
+
+        for row in 0..data.nrows() {
+            let x = data[(row, 0)];
+            let y = data[(row, 1)];
+
+            if x < 0.0 || y < 0.0 {
+                continue; // Skip negative coordinates
+            }
+
+            // Compute cell indices
+            let cell_x = (x / self.cell_size_x).floor() as usize;
+            let cell_y = (y / self.cell_size_y).floor() as usize;
+
+            // Clamp to valid range
+            let cell_x = cell_x.min(self.cells_per_axis.saturating_sub(1));
+            let cell_y = cell_y.min(self.cells_per_axis.saturating_sub(1));
+
+            // Compute linear cell index
+            let cell_idx = cell_y * self.cells_per_axis + cell_x;
+
+            // Add point to cell
+            self.grid.entry(cell_idx).or_insert_with(Vec::new).push(row);
+            self.point_to_cell[row] = cell_idx;
+        }
+
+        !self.grid.is_empty()
+    }
+}
+
+impl NeighborhoodGraph for GridNeighborhoodGraph {
+    fn neighbors(&self, index: usize) -> &[usize] {
+        if index >= self.point_to_cell.len() {
+            return &self.empty;
+        }
+
+        let cell_idx = self.point_to_cell[index];
+        self.grid.get(&cell_idx).map(|v| v.as_slice()).unwrap_or(&self.empty)
+    }
+}
+
 /// NAPSAC sampler: draws samples from spatial neighborhoods instead of
 /// globally uniform over all points.
 pub struct NapsacSampler<N: NeighborhoodGraph> {
