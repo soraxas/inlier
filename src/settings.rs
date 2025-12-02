@@ -207,11 +207,6 @@ mod tests {
             cfg.final_optimization_settings,
             LocalOptimizationSettings::default()
         );
-        assert_eq!(
-            cfg.neighborhood_settings,
-            NeighborhoodSettings::default()
-        );
+        assert_eq!(cfg.neighborhood_settings, NeighborhoodSettings::default());
     }
 }
-
-

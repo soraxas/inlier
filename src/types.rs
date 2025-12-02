@@ -12,6 +12,3 @@ use nalgebra::DMatrix;
 ///
 /// Many estimators and samplers in the original code operate on this type.
 pub type DataMatrix = DMatrix<f64>;
-
-
-
