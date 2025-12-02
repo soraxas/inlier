@@ -545,8 +545,9 @@ impl<M> InlierSelector<M> for NoopInlierSelector {
 /// Space-partitioning inlier selector that pre-filters candidates using
 /// spatial partitioning (e.g., grid-based or kd-tree based).
 ///
-/// This is a simplified implementation. A full implementation would use
-/// proper spatial data structures like grids or kd-trees.
+/// This implementation uses a simple grid-based approach. A full implementation
+/// would use proper spatial data structures with model-based cell projection
+/// (as in the C++ version for homography/fundamental matrix).
 pub struct SpacePartitioningInlierSelector<F>
 where
     F: Fn(&DataMatrix, usize) -> f64,

@@ -158,14 +158,17 @@ where
 
 /// MAGSAC-style scoring: uses a soft inlier/outlier threshold with marginalization.
 ///
-/// This is a simplified implementation. A full MAGSAC implementation would
-/// marginalize over the inlier threshold and use a more sophisticated cost function.
+/// This implementation uses an improved approximation of MAGSAC's marginalization
+/// approach. A full MAGSAC implementation would use incomplete gamma functions
+/// from special function libraries (like boost::math in C++).
 pub struct MagsacScoring<M, F>
 where
     F: Fn(&DataMatrix, &M, usize) -> f64,
 {
     threshold: f64,
     residual_fn: F,
+    sigma_max: f64,
+    degrees_of_freedom: usize,
     _marker: std::marker::PhantomData<M>,
 }
 
@@ -177,7 +180,90 @@ where
         Self {
             threshold,
             residual_fn,
+            sigma_max: threshold * 2.0, // Default: 2x threshold
+            degrees_of_freedom: 2, // Default: 2D residuals
             _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_sigma_max(mut self, sigma_max: f64) -> Self {
+        self.sigma_max = sigma_max;
+        self
+    }
+
+    pub fn with_degrees_of_freedom(mut self, dof: usize) -> Self {
+        self.degrees_of_freedom = dof;
+        self
+    }
+
+    /// Approximate upper incomplete gamma function using series expansion.
+    /// For MAGSAC, we need Γ(a, x) where a = (dof-1)/2 and x = r^2/(2*σ_max^2)
+    /// This is a simplified approximation that works reasonably well.
+    fn approximate_upper_incomplete_gamma(&self, a: f64, x: f64) -> f64 {
+        // For small x, use series expansion
+        if x < 1.0 {
+            // Γ(a, x) ≈ Γ(a) - x^a * e^(-x) * (1 + x/(a+1) + ...)
+            let gamma_a = self.approximate_gamma(a);
+            let x_pow_a = x.powf(a);
+            let exp_neg_x = (-x).exp();
+            let series = 1.0 + x / (a + 1.0) + x * x / ((a + 1.0) * (a + 2.0));
+            gamma_a - x_pow_a * exp_neg_x * series
+        } else {
+            // For large x, use asymptotic expansion
+            // Γ(a, x) ≈ x^(a-1) * e^(-x) * (1 + (a-1)/x + ...)
+            let x_pow_a_minus_1 = x.powf(a - 1.0);
+            let exp_neg_x = (-x).exp();
+            let asymptotic = 1.0 + (a - 1.0) / x;
+            x_pow_a_minus_1 * exp_neg_x * asymptotic
+        }
+    }
+
+    /// Approximate gamma function using Stirling's approximation for a > 0
+    fn approximate_gamma(&self, a: f64) -> f64 {
+        if a <= 0.0 {
+            return 1.0;
+        }
+        if a < 0.5 {
+            // Use reflection formula: Γ(1-z) = π / (Γ(z) * sin(πz))
+            let z = 1.0 - a;
+            let gamma_z = self.approximate_gamma(z);
+            std::f64::consts::PI / (gamma_z * (std::f64::consts::PI * a).sin())
+        } else {
+            // Stirling's approximation: Γ(a) ≈ sqrt(2π/a) * (a/e)^a * (1 + 1/(12a) + ...)
+            let sqrt_2pi = (2.0 * std::f64::consts::PI).sqrt();
+            let base = (sqrt_2pi / a).sqrt() * (a / std::f64::consts::E).powf(a);
+            base * (1.0 + 1.0 / (12.0 * a))
+        }
+    }
+
+    /// Compute MAGSAC-style loss for a given squared residual
+    fn compute_loss(&self, r_sq: f64) -> f64 {
+        let thresh_sq = self.threshold * self.threshold;
+        let sigma_max_sq = self.sigma_max * self.sigma_max;
+        let two_sigma_max_sq = 2.0 * sigma_max_sq;
+
+        if r_sq < thresh_sq {
+            // Inlier: compute marginalization loss
+            let n_plus_1_per_2 = (self.degrees_of_freedom + 1) as f64 / 2.0;
+            let n_minus_1_per_2 = (self.degrees_of_freedom - 1) as f64 / 2.0;
+
+            let residual_norm = r_sq / two_sigma_max_sq;
+
+            // Approximate lower incomplete gamma: γ(a, x) = Γ(a) - Γ(a, x)
+            // For small x: γ(a, x) ≈ x^a / a * (1 - x/(a+1) + ...)
+            let gamma_a = self.approximate_gamma(n_plus_1_per_2);
+            let upper_gamma_lower = self.approximate_upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
+            let lower_gamma = gamma_a - upper_gamma_lower;
+
+            // Upper incomplete gamma approximation
+            let upper_gamma = self.approximate_upper_incomplete_gamma(n_minus_1_per_2, residual_norm);
+            let value0 = self.approximate_upper_incomplete_gamma(n_minus_1_per_2, 0.0);
+
+            // MAGSAC loss formula (simplified)
+            sigma_max_sq / 2.0 * lower_gamma + sigma_max_sq / 4.0 * (upper_gamma - value0)
+        } else {
+            // Outlier: fixed loss
+            self.threshold * self.threshold
         }
     }
 }
@@ -205,25 +291,22 @@ where
         let mut inlier_count = 0usize;
         let mut cost = 0.0f64;
 
-        // MAGSAC uses a soft threshold: points contribute based on their residual
-        // with a smooth transition rather than a hard cutoff
+        // MAGSAC: marginalize over threshold and compute loss for each point
         for i in 0..n {
             let r = (self.residual_fn)(data, model, i);
-            let r2 = r * r;
+            let r_sq = r * r;
 
-            // Soft threshold: use exponential decay for outliers
-            if r2 <= thresh_sq {
+            let loss = self.compute_loss(r_sq);
+            cost += loss;
+
+            // Still track inliers for compatibility
+            if r_sq <= thresh_sq {
                 inliers_out.push(i);
                 inlier_count += 1;
-                cost += r2;
-            } else {
-                // Soft penalty for outliers (simplified MAGSAC)
-                let excess = r2 - thresh_sq;
-                cost += thresh_sq + excess * f64::exp(-excess / (thresh_sq * 2.0));
             }
         }
 
-        // Larger scores should be better
+        // Larger scores should be better (negate cost)
         Score::new(inlier_count, -cost)
     }
 }
