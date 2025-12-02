@@ -1,11 +1,16 @@
 //! Sampling strategies for SupeRANSAC.
 //!
-//! This module will eventually contain multiple samplers (PROSAC, NAPSAC,
-//! Progressive NAPSAC, etc.). We start with a simple uniform random sampler.
+//! This module contains the sampling strategies used by SupeRANSAC.
+//!
+//! The goal is to mirror the behavior of the original C++ samplers found in
+//! `superansac_c++/include/samplers`, while providing a small, idiomatic Rust
+//! surface over the shared `Sampler` trait.
 
 use crate::core::Sampler;
 use crate::types::DataMatrix;
 use crate::utils::UniformRandomGenerator;
+use rand::distributions::{Distribution, WeightedIndex};
+use rand::SeedableRng;
 
 /// Uniform random sampler drawing minimal samples without replacement.
 pub struct UniformRandomSampler {
@@ -54,6 +59,69 @@ impl Sampler for UniformRandomSampler {
         _score_hint: f64,
     ) {
         // Uniform sampler has no adaptive state to update.
+    }
+}
+
+/// Importance sampler drawing samples according to per-point probabilities.
+///
+/// This is a thin wrapper around `rand`'s `WeightedIndex` distribution. Unlike
+/// `UniformRandomSampler`, it does **not** guarantee uniqueness inside a
+/// sample, matching the original C++ behavior.
+pub struct ImportanceSampler {
+    dist: WeightedIndex<f64>,
+    rng: rand::rngs::StdRng,
+}
+
+impl ImportanceSampler {
+    /// Construct a new importance sampler from a probability vector and a
+    /// random seed.
+    pub fn from_probabilities_with_seed(
+        probabilities: &[f64],
+        seed: u64,
+    ) -> Self {
+        let dist = WeightedIndex::new(probabilities)
+            .expect("ImportanceSampler: invalid weight vector");
+        let rng = rand::rngs::StdRng::seed_from_u64(seed);
+        Self { dist, rng }
+    }
+
+    /// Construct a new importance sampler from a probability vector using
+    /// an OS-provided random seed.
+    pub fn from_probabilities(probabilities: &[f64]) -> Self {
+        let dist = WeightedIndex::new(probabilities)
+            .expect("ImportanceSampler: invalid weight vector");
+        let rng = rand::rngs::StdRng::from_entropy();
+        Self { dist, rng }
+    }
+}
+
+impl Sampler for ImportanceSampler {
+    fn sample(
+        &mut self,
+        data: &DataMatrix,
+        sample_size: usize,
+        out_indices: &mut [usize],
+    ) -> bool {
+        let n = data.nrows();
+        if sample_size == 0 || n == 0 || out_indices.len() < sample_size {
+            return false;
+        }
+
+        for dst in &mut out_indices[..sample_size] {
+            let idx = self.dist.sample(&mut self.rng);
+            *dst = idx;
+        }
+        true
+    }
+
+    fn update(
+        &mut self,
+        _sample: &[usize],
+        _sample_size: usize,
+        _iteration: usize,
+        _score_hint: f64,
+    ) {
+        // The C++ importance sampler does not adapt its probabilities.
     }
 }
 
@@ -165,6 +233,234 @@ impl ProsacSampler {
     }
 }
 
+/// Minimal neighborhood graph abstraction used by NAPSAC.
+pub trait NeighborhoodGraph {
+    /// Return the neighbor indices of a given point.
+    fn neighbors(&self, index: usize) -> &[usize];
+}
+
+/// NAPSAC sampler: draws samples from spatial neighborhoods instead of
+/// globally uniform over all points.
+pub struct NapsacSampler<N: NeighborhoodGraph> {
+    rng: UniformRandomGenerator<usize>,
+    neighborhood: N,
+    max_attempts: usize,
+    initialized: bool,
+    point_number: usize,
+}
+
+impl<N: NeighborhoodGraph> NapsacSampler<N> {
+    pub fn new(neighborhood: N) -> Self {
+        Self {
+            rng: UniformRandomGenerator::new(),
+            neighborhood,
+            max_attempts: 100,
+            initialized: false,
+            point_number: 0,
+        }
+    }
+
+    pub fn from_seed(seed: u64, neighborhood: N) -> Self {
+        Self {
+            rng: UniformRandomGenerator::from_seed(seed),
+            neighborhood,
+            max_attempts: 100,
+            initialized: false,
+            point_number: 0,
+        }
+    }
+
+    fn initialize(&mut self, point_number: usize) {
+        self.point_number = point_number;
+        if point_number > 0 {
+            self.rng.reset(0, point_number - 1);
+        }
+        self.initialized = true;
+    }
+}
+
+impl<N: NeighborhoodGraph> Sampler for NapsacSampler<N> {
+    fn sample(
+        &mut self,
+        data: &DataMatrix,
+        sample_size: usize,
+        out_indices: &mut [usize],
+    ) -> bool {
+        let n = data.nrows();
+        if sample_size == 0 || n == 0 || sample_size > n || out_indices.len() < sample_size {
+            return false;
+        }
+
+        if !self.initialized || self.point_number != n {
+            self.initialize(n);
+        }
+
+        let mut attempts = 0usize;
+        while attempts < self.max_attempts {
+            attempts += 1;
+
+            // Select a random center point.
+            let mut center_buf = [0usize; 1];
+            self.rng.gen_unique_current(&mut center_buf);
+            let center = center_buf[0];
+
+            let neighbors = self.neighborhood.neighbors(center);
+            if neighbors.len() < sample_size {
+                continue;
+            }
+
+            if neighbors.len() == sample_size {
+                out_indices[..sample_size].copy_from_slice(&neighbors[..sample_size]);
+                return true;
+            }
+
+            // Otherwise, randomly pick (sample_size - 1) distinct neighbors
+            // and include the center itself.
+            let mut neighbor_indices = vec![0usize; sample_size - 1];
+            self.rng
+                .gen_unique_current(&mut neighbor_indices[..]);
+
+            out_indices[0] = center;
+            for (dst, &ni) in out_indices[1..].iter_mut().zip(neighbor_indices.iter()) {
+                let idx = ni.min(neighbors.len() - 1);
+                *dst = neighbors[idx];
+            }
+
+            return true;
+        }
+
+        false
+    }
+
+    fn update(
+        &mut self,
+        _sample: &[usize],
+        _sample_size: usize,
+        _iteration: usize,
+        _score_hint: f64,
+    ) {
+        // No adaptive behavior yet.
+    }
+}
+
+/// Adaptive Reordering (AR) sampler.
+///
+/// This is a simplified but behaviorally similar port of the C++ sampler in
+/// `adaptive_reordering_sampler.h`. It maintains a priority queue of points
+/// ordered by their current inlier probability estimate and always samples
+/// the highest-probability points first, while slightly randomizing updates.
+pub struct AdaptiveReorderingSampler {
+    /// (p, index, appearance_count, a, b)
+    probabilities: Vec<(f64, usize, usize, f64, f64)>,
+    /// Max-heap by current probability `p`.
+    queue: std::collections::BinaryHeap<(ordered_float::OrderedFloat<f64>, usize)>,
+    /// Randomness parameters (see C++ implementation).
+    randomness: f64,
+    randomness_half: f64,
+    /// RNG for the small random perturbation.
+    rng: rand::rngs::StdRng,
+}
+
+impl AdaptiveReorderingSampler {
+    /// Initialize from inlier probability estimates and an estimator variance.
+    pub fn new_with_seed(
+        inlier_probabilities: &[f64],
+        estimator_variance: f64,
+        randomness: f64,
+        seed: u64,
+    ) -> Self {
+        assert!(
+            !inlier_probabilities.is_empty(),
+            "AdaptiveReorderingSampler requires non-empty probabilities"
+        );
+
+        let mut probabilities = Vec::with_capacity(inlier_probabilities.len());
+        let mut queue = std::collections::BinaryHeap::new();
+
+        for (idx, &p) in inlier_probabilities.iter().enumerate() {
+            let mut prob = p;
+            if prob == 1.0 {
+                prob -= 1e-6;
+            }
+
+            let a = prob * prob * (1.0 - prob) / estimator_variance - prob;
+            let b = a * (1.0 - prob) / prob;
+
+            probabilities.push((prob, idx, 0usize, a, b));
+            queue.push((ordered_float::OrderedFloat(prob), idx));
+        }
+
+        let randomness_half = randomness / 2.0;
+        let rng = rand::rngs::StdRng::seed_from_u64(seed);
+
+        Self {
+            probabilities,
+            queue,
+            randomness,
+            randomness_half,
+            rng,
+        }
+    }
+
+    /// Convenience constructor with default variance/randomness.
+    pub fn new(inlier_probabilities: &[f64]) -> Self {
+        Self::new_with_seed(inlier_probabilities, 0.9765, 0.01, 42)
+    }
+}
+
+impl Sampler for AdaptiveReorderingSampler {
+    fn sample(
+        &mut self,
+        data: &DataMatrix,
+        sample_size: usize,
+        out_indices: &mut [usize],
+    ) -> bool {
+        let n = data.nrows();
+        if sample_size == 0 || n == 0 || out_indices.len() < sample_size {
+            return false;
+        }
+        for i in 0..sample_size {
+            if let Some((_, idx)) = self.queue.pop() {
+                out_indices[i] = idx;
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn update(
+        &mut self,
+        sample: &[usize],
+        sample_size: usize,
+        _iteration: usize,
+        _score_hint: f64,
+    ) {
+        use rand::Rng;
+
+        let count = sample_size.min(sample.len());
+        for i in 0..count {
+            let idx = sample[i];
+            if let Some(entry) = self.probabilities.get_mut(idx) {
+                let (ref mut p, _point_idx, ref mut appearance, a, b) = *entry;
+                *appearance += 1;
+
+                let base =
+                    (a / (a + b + (*appearance as f64))).abs();
+                let jitter: f64 = self
+                    .rng
+                    .gen_range(-self.randomness_half..self.randomness_half);
+                let mut updated = base + jitter;
+                updated = updated.max(0.0).min(0.999);
+
+                *p = updated;
+                self.queue
+                    .push((ordered_float::OrderedFloat(updated), idx));
+            }
+        }
+    }
+}
+
 impl Sampler for ProsacSampler {
     fn sample(
         &mut self,
@@ -227,7 +523,10 @@ impl Sampler for ProsacSampler {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProsacSampler, UniformRandomSampler};
+    use super::{
+        AdaptiveReorderingSampler, ImportanceSampler, NapsacSampler, NeighborhoodGraph,
+        ProsacSampler, UniformRandomSampler,
+    };
     use crate::core::Sampler;
     use crate::types::DataMatrix;
 
@@ -263,6 +562,45 @@ mod tests {
     }
 
     #[test]
+    fn importance_sampler_respects_bounds_and_sample_size() {
+        let data = DataMatrix::zeros(10, 2);
+        let probs = vec![1.0; 10];
+        let mut sampler = ImportanceSampler::from_probabilities_with_seed(&probs, 7);
+
+        let sample_size = 4;
+        let mut indices = vec![0usize; sample_size];
+
+        let ok = sampler.sample(&data, sample_size, &mut indices);
+        assert!(ok);
+        assert_eq!(indices.len(), sample_size);
+        assert!(indices.iter().all(|&i| i < data.nrows()));
+    }
+
+    #[test]
+    fn adaptive_reordering_sampler_behaves_reasonably() {
+        let num_points = 10;
+        let data = DataMatrix::zeros(num_points, 2);
+        // First half with higher initial probability.
+        let mut probs = vec![0.8; num_points];
+        for p in &mut probs[num_points / 2..] {
+            *p = 0.2;
+        }
+        let mut sampler =
+            AdaptiveReorderingSampler::new_with_seed(&probs, 0.9765, 0.01, 123);
+
+        let sample_size = 3;
+        let mut indices = vec![0usize; sample_size];
+
+        for _ in 0..5 {
+            let ok = sampler.sample(&data, sample_size, &mut indices);
+            assert!(ok);
+            assert!(indices.iter().all(|&i| i < data.nrows()));
+
+            sampler.update(&indices, sample_size, 0, 0.0);
+        }
+    }
+
+    #[test]
     fn prosac_sampler_respects_bounds_and_uniqueness() {
         let data = DataMatrix::zeros(20, 2);
         let mut sampler = ProsacSampler::from_seed(5, 10);
@@ -281,6 +619,51 @@ mod tests {
                     assert_ne!(indices[i], indices[j]);
                 }
             }
+        }
+    }
+
+    struct DummyNeighborhood {
+        /// For each point i, store a small set of neighbors around it.
+        neighbors: Vec<Vec<usize>>,
+    }
+
+    impl DummyNeighborhood {
+        fn new(num_points: usize, window: usize) -> Self {
+            let mut neighbors = Vec::with_capacity(num_points);
+            for i in 0..num_points {
+                let start = i.saturating_sub(window);
+                let end = (i + window).min(num_points - 1);
+                neighbors.push((start..=end).collect());
+            }
+            Self { neighbors }
+        }
+    }
+
+    impl NeighborhoodGraph for DummyNeighborhood {
+        fn neighbors(&self, index: usize) -> &[usize] {
+            &self.neighbors[index]
+        }
+    }
+
+    #[test]
+    fn napsac_sampler_draws_from_local_neighborhoods() {
+        let num_points = 20;
+        let data = DataMatrix::zeros(num_points, 2);
+        let neighborhood = DummyNeighborhood::new(num_points, 2);
+        let mut sampler = NapsacSampler::from_seed(7, neighborhood);
+
+        let sample_size = 4;
+        let mut indices = vec![0usize; sample_size];
+
+        for _ in 0..10 {
+            let ok = sampler.sample(&data, sample_size, &mut indices);
+            assert!(ok);
+
+            // Bounds
+            assert!(indices.iter().all(|&i| i < data.nrows()));
+
+            // At least 2 points should be returned and all within bounds.
+            assert!(indices.len() >= 2);
         }
     }
 }

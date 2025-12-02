@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 
 nalgebra = { version = "0.33", features = ["std"] }
+ordered-float = "5.1.0"
 rand = "0.8"
