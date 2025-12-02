@@ -1,5 +1,8 @@
 pub mod core;
+pub mod estimators;
+pub mod models;
 pub mod samplers;
+pub mod scoring;
 pub mod settings;
 pub mod types;
 pub mod utils;
