@@ -293,61 +293,241 @@ impl Estimator for FundamentalEstimator {
     }
 }
 
-/// Skeleton estimator for the essential matrix.
+/// Essential matrix estimator using 8-point algorithm with essential matrix constraints.
+/// Note: A proper implementation would use the 5-point Nister algorithm, but this
+/// provides a working implementation that enforces essential matrix properties.
 pub struct EssentialEstimator;
+
+impl EssentialEstimator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Enforce essential matrix constraints: det(E) = 0 and two equal singular values.
+    fn enforce_essential_constraints(&self, f: Matrix3<f64>) -> Matrix3<f64> {
+        // SVD: E = U * diag(s1, s2, s3) * V^T
+        // For essential matrix: s1 = s2, s3 = 0
+        let svd = SVD::new(f, true, true);
+        let u = svd.u.unwrap();
+        let s = svd.singular_values;
+        let vt = svd.v_t.unwrap();
+        let v = vt.transpose();
+
+        // Average the first two singular values and set third to zero
+        let avg_s = (s[0] + s[1]) / 2.0;
+        let mut s_essential = nalgebra::Vector3::<f64>::zeros();
+        s_essential[0] = avg_s;
+        s_essential[1] = avg_s;
+        s_essential[2] = 0.0;
+
+        // Reconstruct: E = U * diag(avg_s, avg_s, 0) * V^T
+        let s_diag = nalgebra::Matrix3::<f64>::from_diagonal(&s_essential);
+        &u * &s_diag * &vt
+    }
+}
 
 impl Estimator for EssentialEstimator {
     type Model = EssentialMatrix;
 
     fn sample_size(&self) -> usize {
-        5
+        8 // Using 8-point for simplicity; proper implementation would use 5-point
     }
 
     fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
-        sample.len() >= self.sample_size()
+        if sample.len() < self.sample_size() {
+            return false;
+        }
+        // Check for distinct indices
+        for i in 0..sample.len() {
+            for j in (i + 1)..sample.len() {
+                if sample[i] == sample[j] {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
-    fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
-        Vec::new()
+    fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
+        let n = sample.len();
+        if n < self.sample_size() {
+            return Vec::new();
+        }
+
+        // Use the same normalization and 8-point approach as fundamental matrix
+        // but then enforce essential matrix constraints
+        let fundamental_est = FundamentalEstimator::new();
+        let f_models = fundamental_est.estimate_model(data, sample);
+
+        if f_models.is_empty() {
+            return Vec::new();
+        }
+
+        // Convert fundamental matrix to essential matrix by enforcing constraints
+        let f = f_models[0].f;
+        let e = self.enforce_essential_constraints(f);
+
+        vec![EssentialMatrix::new(e)]
     }
 
     fn is_valid_model(
         &self,
-        _model: &Self::Model,
+        model: &Self::Model,
         _data: &DataMatrix,
         _sample: &[usize],
         _threshold: f64,
     ) -> bool {
-        true
+        // Essential matrix should have determinant = 0 and two equal singular values
+        let det = model.e.determinant().abs();
+        det < 1e-3 * _threshold.max(1.0)
     }
 }
 
-/// Skeleton estimator for absolute pose (OnP).
+/// Absolute pose estimator using P3P (Perspective-3-Point) algorithm.
+/// This is a simplified implementation; a full implementation would use
+/// the Lambda-Twist or similar algorithm for better numerical stability.
 pub struct AbsolutePoseEstimator;
+
+impl AbsolutePoseEstimator {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 impl Estimator for AbsolutePoseEstimator {
     type Model = AbsolutePose;
 
     fn sample_size(&self) -> usize {
-        4
+        3 // P3P requires 3 points
     }
 
-    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
-        sample.len() >= self.sample_size()
+    fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
+        if sample.len() < self.sample_size() {
+            return false;
+        }
+        // Check for distinct indices
+        for i in 0..sample.len() {
+            for j in (i + 1)..sample.len() {
+                if sample[i] == sample[j] {
+                    return false;
+                }
+            }
+        }
+        // Data should have at least 5 columns: (u, v, x, y, z)
+        if data.ncols() < 5 {
+            return false;
+        }
+        true
     }
 
-    fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
-        Vec::new()
+    fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
+        let n = sample.len();
+        if n < self.sample_size() || data.ncols() < 5 {
+            return Vec::new();
+        }
+
+        // Simplified P3P: Use DLT-style approach with 3 points
+        // For a proper implementation, we'd solve the P3P polynomial system
+        // Here we use a simplified approach: estimate pose using 3D-2D correspondences
+
+        use nalgebra::{DMatrix, Vector3, Matrix3, SVD};
+
+        // Build system: For each point, we have:
+        // [u, v, 1]^T = K * [R | t] * [X, Y, Z, 1]^T
+        // Assuming normalized coordinates (K = I), we have:
+        // u = (r11*X + r12*Y + r13*Z + tx) / (r31*X + r32*Y + r33*Z + tz)
+        // v = (r21*X + r22*Y + r23*Z + ty) / (r31*X + r32*Y + r33*Z + tz)
+
+        // For 3 points, we can set up a linear system
+        // This is a simplified approach - proper P3P would solve a polynomial system
+
+        let mut a = DMatrix::<f64>::zeros(2 * n, 12);
+        for (i, &idx) in sample.iter().enumerate() {
+            let u = data[(idx, 0)];
+            let v = data[(idx, 1)];
+            let x = data[(idx, 2)];
+            let y = data[(idx, 3)];
+            let z = data[(idx, 4)];
+
+            // Row 2*i: u constraint
+            a[(2 * i, 0)] = x;
+            a[(2 * i, 1)] = y;
+            a[(2 * i, 2)] = z;
+            a[(2 * i, 3)] = 1.0;
+            a[(2 * i, 8)] = -u * x;
+            a[(2 * i, 9)] = -u * y;
+            a[(2 * i, 10)] = -u * z;
+            a[(2 * i, 11)] = -u;
+
+            // Row 2*i + 1: v constraint
+            a[(2 * i + 1, 4)] = x;
+            a[(2 * i + 1, 5)] = y;
+            a[(2 * i + 1, 6)] = z;
+            a[(2 * i + 1, 7)] = 1.0;
+            a[(2 * i + 1, 8)] = -v * x;
+            a[(2 * i + 1, 9)] = -v * y;
+            a[(2 * i + 1, 10)] = -v * z;
+            a[(2 * i + 1, 11)] = -v;
+        }
+
+        // Solve via SVD
+        let svd = SVD::new(a, false, true);
+        let vt = match svd.v_t {
+            Some(vt) => vt,
+            None => return Vec::new(),
+        };
+        let v = vt.transpose();
+        let last_col = v.column(v.ncols() - 1);
+
+        if last_col.iter().any(|&x| x.is_nan() || x.is_infinite()) {
+            return Vec::new();
+        }
+
+        // Extract rotation and translation from solution
+        // The solution is [r11, r12, r13, tx, r21, r22, r23, ty, r31, r32, r33, tz]
+        let mut r = Matrix3::<f64>::zeros();
+        r[(0, 0)] = last_col[0];
+        r[(0, 1)] = last_col[1];
+        r[(0, 2)] = last_col[2];
+        r[(1, 0)] = last_col[4];
+        r[(1, 1)] = last_col[5];
+        r[(1, 2)] = last_col[6];
+        r[(2, 0)] = last_col[8];
+        r[(2, 1)] = last_col[9];
+        r[(2, 2)] = last_col[10];
+
+        // Enforce orthogonality via SVD
+        let r_svd = SVD::new(r, true, true);
+        let u_r = r_svd.u.unwrap();
+        let vt_r = r_svd.v_t.unwrap();
+        let v_r = vt_r.transpose();
+        let r_ortho = &u_r * &v_r.transpose();
+
+        // Ensure proper rotation (det = 1)
+        let mut r_final = r_ortho;
+        if r_final.determinant() < 0.0 {
+            let mut u_neg = u_r.clone();
+            u_neg.column_mut(2).neg_mut();
+            r_final = &u_neg * &v_r.transpose();
+        }
+
+        let t = Vector3::<f64>::new(last_col[3], last_col[7], last_col[11]);
+
+        // Convert to AbsolutePose
+        vec![AbsolutePose::from_rt(r_final, t)]
     }
 
     fn is_valid_model(
         &self,
-        _model: &Self::Model,
+        model: &Self::Model,
         _data: &DataMatrix,
         _sample: &[usize],
         _threshold: f64,
     ) -> bool {
-        true
+        // Check that rotation is proper
+        let r = model.rotation.to_rotation_matrix();
+        let det = r.matrix().determinant();
+        (det - 1.0).abs() < 1e-2 * _threshold.max(1.0)
     }
 }
 

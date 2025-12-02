@@ -156,6 +156,156 @@ where
     }
 }
 
+/// MAGSAC-style scoring: uses a soft inlier/outlier threshold with marginalization.
+///
+/// This is a simplified implementation. A full MAGSAC implementation would
+/// marginalize over the inlier threshold and use a more sophisticated cost function.
+pub struct MagsacScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    threshold: f64,
+    residual_fn: F,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M, F> MagsacScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    pub fn new(threshold: f64, residual_fn: F) -> Self {
+        Self {
+            threshold,
+            residual_fn,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<M, F> Scoring<M> for MagsacScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        self.threshold
+    }
+
+    fn score(
+        &self,
+        data: &DataMatrix,
+        model: &M,
+        inliers_out: &mut Vec<usize>,
+    ) -> Self::Score {
+        let n = data.nrows();
+        let thresh_sq = self.threshold * self.threshold;
+        inliers_out.clear();
+
+        let mut inlier_count = 0usize;
+        let mut cost = 0.0f64;
+
+        // MAGSAC uses a soft threshold: points contribute based on their residual
+        // with a smooth transition rather than a hard cutoff
+        for i in 0..n {
+            let r = (self.residual_fn)(data, model, i);
+            let r2 = r * r;
+
+            // Soft threshold: use exponential decay for outliers
+            if r2 <= thresh_sq {
+                inliers_out.push(i);
+                inlier_count += 1;
+                cost += r2;
+            } else {
+                // Soft penalty for outliers (simplified MAGSAC)
+                let excess = r2 - thresh_sq;
+                cost += thresh_sq + excess * f64::exp(-excess / (thresh_sq * 2.0));
+            }
+        }
+
+        // Larger scores should be better
+        Score::new(inlier_count, -cost)
+    }
+}
+
+/// ACRANSAC-style scoring: adaptive consensus RANSAC.
+///
+/// This is a simplified implementation that adapts the threshold based on
+/// the distribution of residuals.
+pub struct AcransacScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    initial_threshold: f64,
+    residual_fn: F,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M, F> AcransacScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    pub fn new(initial_threshold: f64, residual_fn: F) -> Self {
+        Self {
+            initial_threshold,
+            residual_fn,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<M, F> Scoring<M> for AcransacScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        self.initial_threshold
+    }
+
+    fn score(
+        &self,
+        data: &DataMatrix,
+        model: &M,
+        inliers_out: &mut Vec<usize>,
+    ) -> Self::Score {
+        let n = data.nrows();
+        inliers_out.clear();
+
+        // First pass: collect all residuals
+        let mut residuals: Vec<f64> = Vec::with_capacity(n);
+        for i in 0..n {
+            let r = (self.residual_fn)(data, model, i);
+            residuals.push(r);
+        }
+
+        // Adaptive threshold: use median absolute deviation (MAD)
+        // A simplified ACRANSAC approach
+        residuals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = if n > 0 {
+            residuals[n / 2]
+        } else {
+            self.initial_threshold
+        };
+
+        // Adaptive threshold based on median
+        let adaptive_threshold = f64::max(self.initial_threshold, median * 1.5);
+        let thresh_sq = adaptive_threshold * adaptive_threshold;
+
+        let mut inlier_count = 0usize;
+        for i in 0..n {
+            let r = residuals[i];
+            if r * r <= thresh_sq {
+                inliers_out.push(i);
+                inlier_count += 1;
+            }
+        }
+
+        Score::new(inlier_count, inlier_count as f64)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{MsacScoring, RansacInlierCountScoring, Score};

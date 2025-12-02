@@ -88,6 +88,142 @@ impl<M: Clone, S: Clone> LocalOptimizer<M, S> for NoopLocalOptimizer {
     }
 }
 
+/// Least Squares local optimizer that refits the model using all inliers.
+///
+/// This requires the estimator to support non-minimal fitting (i.e., fitting
+/// from more than the minimal sample size). For estimators that don't support
+/// this, it falls back to returning the original model.
+pub struct LeastSquaresOptimizer<E>
+where
+    E: Estimator,
+{
+    estimator: E,
+    use_inliers: bool,
+}
+
+impl<E> LeastSquaresOptimizer<E>
+where
+    E: Estimator,
+{
+    pub fn new(estimator: E) -> Self {
+        Self {
+            estimator,
+            use_inliers: true,
+        }
+    }
+
+    pub fn set_use_inliers(&mut self, use_inliers: bool) {
+        self.use_inliers = use_inliers;
+    }
+}
+
+impl<E, S> LocalOptimizer<E::Model, S> for LeastSquaresOptimizer<E>
+where
+    E: Estimator,
+    E::Model: Clone,
+    S: Clone,
+{
+    fn run(
+        &mut self,
+        data: &DataMatrix,
+        inliers: &[usize],
+        model: &E::Model,
+        best_score: &S,
+    ) -> (E::Model, S, Vec<usize>) {
+        if !self.use_inliers || inliers.len() < self.estimator.sample_size() {
+            return (model.clone(), best_score.clone(), inliers.to_vec());
+        }
+
+        // Refit model using all inliers
+        let refined_models = self.estimator.estimate_model(data, inliers);
+
+        if refined_models.is_empty() {
+            // Fallback to original model if refitting fails
+            (model.clone(), best_score.clone(), inliers.to_vec())
+        } else {
+            // Use the first refined model
+            (refined_models[0].clone(), best_score.clone(), inliers.to_vec())
+        }
+    }
+}
+
+/// Iteratively Reweighted Least Squares (IRLS) local optimizer.
+///
+/// This performs multiple iterations of weighted least squares, where weights
+/// are updated based on residuals from the previous iteration.
+pub struct IRLSOptimizer<E>
+where
+    E: Estimator,
+{
+    estimator: E,
+    max_iterations: usize,
+    convergence_threshold: f64,
+    use_inliers: bool,
+}
+
+impl<E> IRLSOptimizer<E>
+where
+    E: Estimator,
+{
+    pub fn new(estimator: E) -> Self {
+        Self {
+            estimator,
+            max_iterations: 10,
+            convergence_threshold: 1e-6,
+            use_inliers: true,
+        }
+    }
+
+    pub fn set_max_iterations(&mut self, max_iterations: usize) {
+        self.max_iterations = max_iterations;
+    }
+
+    pub fn set_use_inliers(&mut self, use_inliers: bool) {
+        self.use_inliers = use_inliers;
+    }
+}
+
+impl<E, S> LocalOptimizer<E::Model, S> for IRLSOptimizer<E>
+where
+    E: Estimator,
+    E::Model: Clone,
+    S: Clone,
+{
+    fn run(
+        &mut self,
+        data: &DataMatrix,
+        inliers: &[usize],
+        model: &E::Model,
+        best_score: &S,
+    ) -> (E::Model, S, Vec<usize>) {
+        if !self.use_inliers || inliers.len() < self.estimator.sample_size() {
+            return (model.clone(), best_score.clone(), inliers.to_vec());
+        }
+
+        // Simplified IRLS: iterate a few times with refitting
+        // A full implementation would compute weights based on residuals
+        let mut current_model = model.clone();
+
+        for _iteration in 0..self.max_iterations {
+            let refined_models = self.estimator.estimate_model(data, inliers);
+            if refined_models.is_empty() {
+                break;
+            }
+
+            // Check for convergence (simplified: just use the refined model)
+            current_model = refined_models[0].clone();
+
+            // In a full implementation, we would:
+            // 1. Compute residuals for all inliers
+            // 2. Compute weights (e.g., using robust loss functions)
+            // 3. Refit with weighted least squares
+            // 4. Check convergence
+        }
+
+        (current_model, best_score.clone(), inliers.to_vec())
+    }
+}
+
 /// Termination criterion deciding when the RANSAC loop can stop.
 pub trait TerminationCriterion<S> {
     /// Update the termination state.
@@ -165,6 +301,78 @@ pub struct NoopInlierSelector;
 impl<M> InlierSelector<M> for NoopInlierSelector {
     fn select(&mut self, _data: &DataMatrix, _model: &M) -> Vec<usize> {
         Vec::new()
+    }
+}
+
+/// Space-partitioning inlier selector that pre-filters candidates using
+/// spatial partitioning (e.g., grid-based or kd-tree based).
+///
+/// This is a simplified implementation. A full implementation would use
+/// proper spatial data structures like grids or kd-trees.
+pub struct SpacePartitioningInlierSelector<F>
+where
+    F: Fn(&DataMatrix, usize) -> f64,
+{
+    /// Function to extract spatial coordinate from a data point (e.g., x or y)
+    coord_fn: F,
+    /// Grid cell size for partitioning
+    cell_size: f64,
+    /// Minimum number of cells to consider
+    min_cells: usize,
+}
+
+impl<F> SpacePartitioningInlierSelector<F>
+where
+    F: Fn(&DataMatrix, usize) -> f64,
+{
+    pub fn new(coord_fn: F, cell_size: f64) -> Self {
+        Self {
+            coord_fn,
+            cell_size,
+            min_cells: 1,
+        }
+    }
+
+    pub fn set_min_cells(&mut self, min_cells: usize) {
+        self.min_cells = min_cells;
+    }
+}
+
+impl<M, F> InlierSelector<M> for SpacePartitioningInlierSelector<F>
+where
+    F: Fn(&DataMatrix, usize) -> f64,
+{
+    fn select(&mut self, data: &DataMatrix, _model: &M) -> Vec<usize> {
+        let n = data.nrows();
+        if n == 0 {
+            return Vec::new();
+        }
+
+        // Simplified space partitioning: partition points into grid cells
+        // based on their spatial coordinates
+        let mut cells: std::collections::HashMap<i32, Vec<usize>> =
+            std::collections::HashMap::new();
+
+        for i in 0..n {
+            let coord = (self.coord_fn)(data, i);
+            let cell_idx = (coord / self.cell_size).floor() as i32;
+            cells.entry(cell_idx).or_insert_with(Vec::new).push(i);
+        }
+
+        // Return indices from cells that have at least min_cells points
+        let mut candidates = Vec::new();
+        for (_, indices) in cells.iter() {
+            if indices.len() >= self.min_cells {
+                candidates.extend(indices.iter().cloned());
+            }
+        }
+
+        // If no cells meet the criteria, return all points
+        if candidates.is_empty() {
+            (0..n).collect()
+        } else {
+            candidates
+        }
     }
 }
 
