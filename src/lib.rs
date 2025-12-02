@@ -1,3 +1,4 @@
+pub mod bundle_adjustment;
 pub mod core;
 pub mod estimators;
 pub mod models;

@@ -5,13 +5,14 @@
 //! skeleton that can be exercised by tests; numerical refinements can be
 //! added later.
 
+use crate::bundle_adjustment::{refine_fundamental, refine_absolute_pose};
 use crate::core::Estimator;
 use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, RigidTransform,
 };
 use crate::types::DataMatrix;
 use crate::utils::{gauss_elimination, solve_cubic_real};
-use nalgebra::{DMatrix, DVector, Matrix3, SVD};
+use nalgebra::{DMatrix, DVector, Matrix3, SVD, Vector2, Vector3};
 
 /// Minimal homography estimator using a 4-point DLT-style algorithm.
 pub struct HomographyEstimator;
@@ -887,11 +888,38 @@ impl Estimator for AbsolutePoseEstimator {
         &self,
         data: &DataMatrix,
         sample: &[usize],
-        _weights: Option<&[f64]>,
+        weights: Option<&[f64]>,
     ) -> Vec<Self::Model> {
-        // For non-minimal case, use the same DLT approach but with more points
-        // This provides better numerical stability
-        self.estimate_model(data, sample)
+        // First get initial estimate using DLT
+        let initial_models = self.estimate_model(data, sample);
+        if initial_models.is_empty() {
+            return Vec::new();
+        }
+
+        let rot = initial_models[0].rotation.to_rotation_matrix();
+        let mut r = rot.matrix().clone();
+        let mut t_vec = initial_models[0].translation.vector;
+
+        // Apply bundle adjustment if we have enough points
+        if sample.len() >= 4 {
+            // Convert to Vector2/Vector3 format for bundle adjustment
+            let mut points_2d = Vec::new();
+            let mut points_3d = Vec::new();
+            let mut weights_vec = Vec::new();
+
+            for &idx in sample {
+                points_2d.push(Vector2::new(data[(idx, 0)], data[(idx, 1)]));
+                points_3d.push(Vector3::new(data[(idx, 2)], data[(idx, 3)], data[(idx, 4)]));
+                if let Some(w) = weights {
+                    weights_vec.push(w[idx]);
+                }
+            }
+
+            let weights_slice = if weights_vec.is_empty() { None } else { Some(weights_vec.as_slice()) };
+            refine_absolute_pose(&points_2d, &points_3d, &mut r, &mut t_vec, weights_slice, 100);
+        }
+
+        vec![AbsolutePose::from_rt(r, t_vec)]
     }
 
     fn is_valid_model(
