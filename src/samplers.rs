@@ -577,6 +577,23 @@ mod tests {
     }
 
     #[test]
+    fn uniform_sampler_is_deterministic_with_fixed_seed() {
+        let data = DataMatrix::zeros(15, 2);
+        let mut s1 = UniformRandomSampler::from_seed(123);
+        let mut s2 = UniformRandomSampler::from_seed(123);
+
+        let sample_size = 5;
+        let mut a = vec![0usize; sample_size];
+        let mut b = vec![0usize; sample_size];
+
+        for _ in 0..10 {
+            assert!(s1.sample(&data, sample_size, &mut a));
+            assert!(s2.sample(&data, sample_size, &mut b));
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
     fn adaptive_reordering_sampler_behaves_reasonably() {
         let num_points = 10;
         let data = DataMatrix::zeros(num_points, 2);
@@ -664,6 +681,29 @@ mod tests {
 
             // At least 2 points should be returned and all within bounds.
             assert!(indices.len() >= 2);
+        }
+    }
+
+    #[test]
+    fn napsac_sampler_is_deterministic_with_fixed_seed() {
+        let num_points = 30;
+        let data = DataMatrix::zeros(num_points, 2);
+        let neighborhood = DummyNeighborhood::new(num_points, 3);
+
+        let mut s1 = NapsacSampler::from_seed(999, neighborhood);
+
+        // Rebuild the same neighborhood for the second sampler.
+        let neighborhood2 = DummyNeighborhood::new(num_points, 3);
+        let mut s2 = NapsacSampler::from_seed(999, neighborhood2);
+
+        let sample_size = 5;
+        let mut a = vec![0usize; sample_size];
+        let mut b = vec![0usize; sample_size];
+
+        for _ in 0..10 {
+            assert!(s1.sample(&data, sample_size, &mut a));
+            assert!(s2.sample(&data, sample_size, &mut b));
+            assert_eq!(a, b);
         }
     }
 }
