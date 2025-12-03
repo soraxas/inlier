@@ -13,3 +13,4 @@ argmin = "0.11.0"
 nalgebra = { version = "0.33", features = ["std"] }
 ordered-float = "5.1.0"
 rand = "0.8"
+usearch = "2.21.4"

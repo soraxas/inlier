@@ -11,6 +11,7 @@ use crate::types::DataMatrix;
 use crate::utils::UniformRandomGenerator;
 use rand::distributions::{Distribution, WeightedIndex};
 use rand::SeedableRng;
+use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
 
 /// Uniform random sampler drawing minimal samples without replacement.
 pub struct UniformRandomSampler {
@@ -249,6 +250,10 @@ impl ProsacSampler {
 pub trait NeighborhoodGraph {
     /// Return the neighbor indices of a given point.
     fn neighbors(&self, index: usize) -> &[usize];
+
+    /// Initialize the neighborhood graph with data.
+    /// This method allows the graph to build its internal data structures.
+    fn initialize(&mut self, data: &DataMatrix);
 }
 
 /// Grid-based neighborhood graph that partitions points into spatial cells.
@@ -332,6 +337,148 @@ impl NeighborhoodGraph for GridNeighborhoodGraph {
 
         let cell_idx = self.point_to_cell[index];
         self.grid.get(&cell_idx).map(|v| v.as_slice()).unwrap_or(&self.empty)
+    }
+
+    fn initialize(&mut self, data: &DataMatrix) {
+        // GridNeighborhoodGraph::initialize is already implemented
+        let _ = GridNeighborhoodGraph::initialize(self, data);
+    }
+}
+
+/// USearch-based neighborhood graph using approximate nearest neighbor search.
+///
+/// This implementation uses the `usearch` crate for fast approximate nearest neighbor
+/// search, which is more flexible than grid-based approaches and works well for
+/// high-dimensional data or irregular point distributions.
+///
+/// # Example
+/// ```
+/// use inlier::samplers::{UsearchNeighborhoodGraph, NeighborhoodGraph};
+/// use inlier::types::DataMatrix;
+///
+/// let mut graph = UsearchNeighborhoodGraph::new(10, 2); // 10 neighbors, 2D data
+/// let data = DataMatrix::zeros(100, 2);
+/// graph.initialize(&data);
+/// let neighbors = graph.neighbors(0);
+/// ```
+pub struct UsearchNeighborhoodGraph {
+    /// USearch index for nearest neighbor queries
+    index: Option<Index>,
+    /// Neighbors for each point: `neighbors[i]` contains the neighbor indices for point `i`
+    neighbors: Vec<Vec<usize>>,
+    /// Number of neighbors to find for each point
+    k_neighbors: usize,
+    /// Number of dimensions (extracted from data)
+    dimensions: usize,
+    /// Empty vector for points with no neighbors
+    empty: Vec<usize>,
+}
+
+impl UsearchNeighborhoodGraph {
+    /// Create a new USearch neighborhood graph.
+    ///
+    /// # Arguments
+    /// * `k_neighbors` - Number of nearest neighbors to find for each point
+    /// * `dimensions` - Number of dimensions in the data (will be set from data if 0)
+    pub fn new(k_neighbors: usize, dimensions: usize) -> Self {
+        Self {
+            index: None,
+            neighbors: Vec::new(),
+            k_neighbors,
+            dimensions,
+            empty: Vec::new(),
+        }
+    }
+
+    /// Build the neighborhood graph from data points.
+    fn build_neighbors(&mut self, data: &DataMatrix) -> bool {
+        let n = data.nrows();
+        let dims = if self.dimensions > 0 {
+            self.dimensions
+        } else {
+            data.ncols()
+        };
+
+        if n == 0 || dims == 0 {
+            return false;
+        }
+
+        // Create USearch index
+        let mut options = IndexOptions::default();
+        options.dimensions = dims;
+        options.metric = MetricKind::L2sq; // Squared L2 distance (faster)
+        options.quantization = ScalarKind::F32;
+
+        let index = match Index::new(&options) {
+            Ok(idx) => idx,
+            Err(_) => return false,
+        };
+
+        // Reserve capacity
+        if let Err(_) = index.reserve(n) {
+            return false;
+        }
+
+        // Add all points to the index
+        for i in 0..n {
+            let mut vector = Vec::<f32>::with_capacity(dims);
+            for j in 0..dims {
+                vector.push(data[(i, j)] as f32);
+            }
+            if let Err(_) = index.add(i as u64, &vector) {
+                return false;
+            }
+        }
+
+        // Find neighbors for each point
+        self.neighbors.clear();
+        self.neighbors.resize(n, Vec::new());
+
+        for i in 0..n {
+            let mut query = Vec::<f32>::with_capacity(dims);
+            for j in 0..dims {
+                query.push(data[(i, j)] as f32);
+            }
+
+            // Search for k+1 neighbors (including the point itself)
+            let k = (self.k_neighbors + 1).min(n);
+            match index.search(&query, k) {
+                Ok(results) => {
+                    // Filter out the point itself and store neighbors
+                    for (key, _distance) in results.keys.iter().zip(results.distances.iter()) {
+                        let key_usize = *key as usize;
+                        if key_usize != i {
+                            self.neighbors[i].push(key_usize);
+                            if self.neighbors[i].len() >= self.k_neighbors {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    // If search fails, leave neighbors empty for this point
+                }
+            }
+        }
+
+        self.index = Some(index);
+        true
+    }
+}
+
+impl NeighborhoodGraph for UsearchNeighborhoodGraph {
+    fn neighbors(&self, index: usize) -> &[usize] {
+        if index >= self.neighbors.len() {
+            return &self.empty;
+        }
+        &self.neighbors[index]
+    }
+
+    fn initialize(&mut self, data: &DataMatrix) {
+        if self.dimensions == 0 {
+            self.dimensions = data.ncols();
+        }
+        let _ = self.build_neighbors(data);
     }
 }
 
@@ -755,6 +902,39 @@ mod tests {
     impl NeighborhoodGraph for DummyNeighborhood {
         fn neighbors(&self, index: usize) -> &[usize] {
             &self.neighbors[index]
+        }
+
+        fn initialize(&mut self, _data: &DataMatrix) {
+            // Dummy neighborhood is pre-initialized
+        }
+    }
+
+    #[test]
+    fn usearch_neighborhood_graph_finds_neighbors() {
+        use super::{UsearchNeighborhoodGraph, NeighborhoodGraph};
+
+        // Create 2D data with points in a grid pattern
+        let n = 25; // 5x5 grid
+        let mut data = DataMatrix::zeros(n, 2);
+        for i in 0..5 {
+            for j in 0..5 {
+                let idx = i * 5 + j;
+                data[(idx, 0)] = i as f64 * 10.0;
+                data[(idx, 1)] = j as f64 * 10.0;
+            }
+        }
+
+        let mut graph = UsearchNeighborhoodGraph::new(4, 2); // 4 neighbors, 2D
+        graph.initialize(&data);
+
+        // Check that each point has neighbors
+        for i in 0..n {
+            let neighbors = graph.neighbors(i);
+            assert!(neighbors.len() <= 4, "Should have at most 4 neighbors");
+            // Points in the grid should have neighbors
+            if i > 0 && i < n - 1 {
+                assert!(!neighbors.is_empty(), "Interior points should have neighbors");
+            }
         }
     }
 
