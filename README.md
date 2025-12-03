@@ -55,4 +55,4 @@ Each trait includes documentation and doctests describing the expected behavior.
 
 ## Reference
 
-This uses the c++ library `superansac` as reference implementation, who had done an excellent work on improving the SOTA sample consensus algorithm.
+This uses the c++ library [`superansac`](https://github.com/danini/superansac) as reference implementation, of which the author had done an excellent work on improving the SOTA sample consensus algorithm!
