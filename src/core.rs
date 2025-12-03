@@ -10,29 +10,203 @@
 use crate::{settings::RansacSettings, types::DataMatrix};
 
 /// Estimator responsible for generating model hypotheses from minimal samples.
+///
+/// This is the core trait for extending `inlier` with new geometric models.
+/// Implement this trait to add support for estimating new types of models
+/// (e.g., lines, circles, planes, custom transformations).
+///
+/// # Example: Line Estimator
+///
+/// ```rust
+/// use inlier::core::Estimator;
+/// use inlier::types::DataMatrix;
+/// use nalgebra::DMatrix;
+///
+/// /// A 2D line model: ax + by + c = 0
+/// #[derive(Clone, Debug)]
+/// struct Line {
+///     a: f64,
+///     b: f64,
+///     c: f64,
+/// }
+///
+/// impl Line {
+///     fn new(a: f64, b: f64, c: f64) -> Self {
+///         Self { a, b, c }
+///     }
+///
+///     /// Compute distance from a point to the line
+///     fn distance_to_point(&self, x: f64, y: f64) -> f64 {
+///         (self.a * x + self.b * y + self.c).abs() / (self.a * self.a + self.b * self.b).sqrt()
+///     }
+/// }
+///
+/// struct LineEstimator;
+///
+/// impl Estimator for LineEstimator {
+///     type Model = Line;
+///
+///     fn sample_size(&self) -> usize {
+///         2  // Two points define a line
+///     }
+///
+///     fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
+///         if sample.len() < 2 {
+///             return false;
+///         }
+///         // Check that points are distinct
+///         let idx1 = sample[0];
+///         let idx2 = sample[1];
+///         if idx1 >= data.nrows() || idx2 >= data.nrows() {
+///             return false;
+///         }
+///         // Check that points are not too close
+///         let dx = data[(idx1, 0)] - data[(idx2, 0)];
+///         let dy = data[(idx1, 1)] - data[(idx2, 1)];
+///         (dx * dx + dy * dy).sqrt() > 1e-6
+///     }
+///
+///     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
+///         if sample.len() < 2 {
+///             return Vec::new();
+///         }
+///         let idx1 = sample[0];
+///         let idx2 = sample[1];
+///         let x1 = data[(idx1, 0)];
+///         let y1 = data[(idx1, 1)];
+///         let x2 = data[(idx2, 0)];
+///         let y2 = data[(idx2, 1)];
+///
+///         // Compute line parameters: (y2 - y1)x - (x2 - x1)y + (x2 - x1)y1 - (y2 - y1)x1 = 0
+///         let a = y2 - y1;
+///         let b = -(x2 - x1);
+///         let c = (x2 - x1) * y1 - (y2 - y1) * x1;
+///
+///         // Normalize
+///         let norm = (a * a + b * b).sqrt();
+///         if norm < 1e-10 {
+///             return Vec::new();
+///         }
+///
+///         vec![Line::new(a / norm, b / norm, c / norm)]
+///     }
+///
+///     fn is_valid_model(
+///         &self,
+///         _model: &Self::Model,
+///         _data: &DataMatrix,
+///         _sample: &[usize],
+///         _threshold: f64,
+///     ) -> bool {
+///         true
+///     }
+/// }
+///
+/// // Usage example
+/// # fn main() {
+/// #     let data = DMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 10.0, 5.0]);
+/// #     let estimator = LineEstimator;
+/// #     let sample = vec![0, 1];
+/// #     let models = estimator.estimate_model(&data, &sample);
+/// #     assert!(!models.is_empty());
+/// # }
+/// ```
+///
+/// # Example: Weighted Non-Minimal Estimation
+///
+/// For better accuracy, you can implement `estimate_model_nonminimal` to use
+/// all inliers with optional weights:
+///
+/// ```rust
+/// # use inlier::core::Estimator;
+/// # use inlier::types::DataMatrix;
+/// # use nalgebra::DMatrix;
+/// # #[derive(Clone)]
+/// # struct Line { a: f64, b: f64, c: f64 }
+/// # struct LineEstimator;
+/// # impl Estimator for LineEstimator {
+/// #     type Model = Line;
+/// #     fn sample_size(&self) -> usize { 2 }
+/// #     fn is_valid_sample(&self, _: &DataMatrix, _: &[usize]) -> bool { true }
+/// #     fn estimate_model(&self, _: &DataMatrix, _: &[usize]) -> Vec<Line> { vec![] }
+/// #     fn is_valid_model(&self, _: &Line, _: &DataMatrix, _: &[usize], _: f64) -> bool { true }
+///     fn estimate_model_nonminimal(
+///         &self,
+///         data: &DataMatrix,
+///         sample: &[usize],
+///         weights: Option<&[f64]>,
+///     ) -> Vec<Self::Model> {
+///         // Use weighted least squares to fit line to all inliers
+///         // This is more robust than minimal estimation
+///         // Implementation would solve weighted normal equations...
+///         self.estimate_model(data, sample)  // Fallback for now
+///     }
+/// # }
+/// ```
 pub trait Estimator {
     /// Model type produced by this estimator.
+    ///
+    /// This must be a type that can be cloned, as models are copied during
+    /// the RANSAC process.
     type Model: Clone;
 
     /// Size of a minimal sample for this estimator.
+    ///
+    /// This is the minimum number of data points required to uniquely
+    /// determine a model instance. For example:
+    /// - Line in 2D: 2 points
+    /// - Homography: 4 point correspondences
+    /// - Fundamental matrix: 7 or 8 point correspondences
     fn sample_size(&self) -> usize;
 
     /// Size of a non-minimal sample required for the estimation.
+    ///
+    /// This is used by local optimizers that refit models using all inliers.
     /// Defaults to `sample_size()` if not overridden.
     fn non_minimal_sample_size(&self) -> usize {
         self.sample_size()
     }
 
     /// Check whether a given sample is geometrically valid.
+    ///
+    /// This should check for degenerate cases (e.g., collinear points for
+    /// homography estimation, or points that are too close together).
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `sample` - Indices of the sampled points
+    ///
+    /// # Returns
+    /// `true` if the sample is valid for estimation, `false` otherwise.
     fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool;
 
     /// Estimate candidate models from a minimal sample.
+    ///
+    /// This is the core estimation method. It should return one or more
+    /// model hypotheses from the given minimal sample. Some estimators
+    /// (like the 7-point fundamental matrix solver) can return multiple
+    /// solutions.
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `sample` - Indices of the sampled points (length == `sample_size()`)
+    ///
+    /// # Returns
+    /// A vector of estimated models. Empty if estimation failed.
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model>;
 
     /// Estimate candidate models from a non-minimal sample (typically all inliers).
+    ///
     /// This allows for more robust fitting using least-squares or similar methods.
     /// The `weights` parameter is optional and can be used for weighted least-squares.
-    /// Default implementation falls back to `estimate_model`.
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `sample` - Indices of the points to use (typically all inliers)
+    /// * `weights` - Optional weights for weighted least-squares fitting
+    ///
+    /// # Returns
+    /// A vector of estimated models. Default implementation falls back to `estimate_model`.
     fn estimate_model_nonminimal(
         &self,
         data: &DataMatrix,
@@ -44,6 +218,18 @@ pub trait Estimator {
     }
 
     /// Validate a candidate model before scoring.
+    ///
+    /// This can check for degenerate or invalid models (e.g., homographies
+    /// with negative determinants, or models that don't satisfy constraints).
+    ///
+    /// # Arguments
+    /// * `model` - The model to validate
+    /// * `data` - The full data matrix
+    /// * `sample` - The sample used to generate this model
+    /// * `threshold` - The inlier threshold (for context)
+    ///
+    /// # Returns
+    /// `true` if the model is valid and should be scored, `false` otherwise.
     fn is_valid_model(
         &self,
         model: &Self::Model,
@@ -54,33 +240,267 @@ pub trait Estimator {
 }
 
 /// Sampler responsible for drawing minimal samples from the data.
+///
+/// This trait allows you to implement custom sampling strategies for RANSAC.
+/// Different samplers can prioritize certain points, use spatial information,
+/// or adapt based on previous iterations.
+///
+/// # Example: Custom Adaptive Sampler
+///
+/// ```rust
+/// use inlier::core::Sampler;
+/// use inlier::types::DataMatrix;
+/// use rand::Rng;
+///
+/// struct AdaptiveSampler {
+///     point_weights: Vec<f64>,
+///     rng: rand::rngs::StdRng,
+/// }
+///
+/// impl AdaptiveSampler {
+///     fn new(n_points: usize) -> Self {
+///         Self {
+///             point_weights: vec![1.0; n_points],
+///             rng: rand::rngs::StdRng::from_entropy(),
+///         }
+///     }
+/// }
+///
+/// impl Sampler for AdaptiveSampler {
+///     fn sample(
+///         &mut self,
+///         data: &DataMatrix,
+///         sample_size: usize,
+///         out_indices: &mut [usize],
+///     ) -> bool {
+///         let n = data.nrows();
+///         if sample_size > n || out_indices.len() < sample_size {
+///             return false;
+///         }
+///
+///         // Weighted sampling based on point weights
+///         use rand::distributions::{Distribution, WeightedIndex};
+///         let dist = match WeightedIndex::new(&self.point_weights[..n]) {
+///             Ok(d) => d,
+///             Err(_) => return false,
+///         };
+///
+///         for i in 0..sample_size {
+///             out_indices[i] = dist.sample(&mut self.rng);
+///         }
+///         true
+///     }
+///
+///     fn update(
+///         &mut self,
+///         sample: &[usize],
+///         sample_size: usize,
+///         iteration: usize,
+///         score_hint: f64,
+///     ) {
+///         // Increase weights for points that were in good samples
+///         if score_hint > 0.5 {
+///             for &idx in sample.iter().take(sample_size) {
+///                 if idx < self.point_weights.len() {
+///                     self.point_weights[idx] *= 1.1;
+///                 }
+///             }
+///         }
+///     }
+/// }
+/// ```
 pub trait Sampler {
     /// Draw a sample of `sample_size` elements into `out_indices`.
     ///
-    /// Returns `false` if a valid sample could not be drawn (caller may retry).
+    /// The indices should be valid row indices into `data` (i.e., in the range
+    /// `[0, data.nrows())`). The sampler may draw with or without replacement,
+    /// depending on the strategy.
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `sample_size` - Number of points to sample
+    /// * `out_indices` - Output buffer for sampled indices (must have length >= `sample_size`)
+    ///
+    /// # Returns
+    /// `true` if a valid sample was drawn, `false` otherwise (caller may retry).
     fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool;
 
     /// Update the sampler state given the last sample and iteration.
+    ///
+    /// This is called after each RANSAC iteration to allow the sampler to adapt.
+    /// For example, PROSAC uses this to update point ordering, and importance
+    /// samplers can update point weights based on results.
+    ///
+    /// # Arguments
+    /// * `sample` - The sample that was used in the last iteration
+    /// * `sample_size` - Size of the sample
+    /// * `iteration` - Current iteration number
+    /// * `score_hint` - Score of the model from this sample (0.0 to 1.0, higher is better)
     fn update(&mut self, sample: &[usize], sample_size: usize, iteration: usize, score_hint: f64);
 }
 
 /// Scoring strategy used to evaluate model quality and determine inliers.
+///
+/// This trait defines how models are evaluated and how inliers are identified.
+/// Different scoring strategies can use different loss functions (RANSAC, MSAC, MAGSAC, etc.)
+///
+/// # Example: Custom Robust Scoring
+///
+/// ```rust
+/// use inlier::core::Scoring;
+/// use inlier::types::DataMatrix;
+///
+/// #[derive(Clone)]
+/// struct MyModel {
+///     // Your model parameters
+/// }
+///
+/// #[derive(Clone, PartialOrd, PartialEq)]
+/// struct MyScore {
+///     inlier_count: usize,
+///     robust_cost: f64,
+/// }
+///
+/// struct RobustScoring {
+///     threshold: f64,
+/// }
+///
+/// impl Scoring<MyModel> for RobustScoring {
+///     type Score = MyScore;
+///
+///     fn threshold(&self) -> f64 {
+///         self.threshold
+///     }
+///
+///     fn score(
+///         &self,
+///         data: &DataMatrix,
+///         model: &MyModel,
+///         inliers_out: &mut Vec<usize>,
+///     ) -> Self::Score {
+///         let mut inlier_count = 0;
+///         let mut cost = 0.0;
+///         inliers_out.clear();
+///
+///         for i in 0..data.nrows() {
+///             // Compute residual for point i
+///             let residual = 0.0; // Your residual computation here
+///
+///             // Robust loss: truncated quadratic
+///             if residual <= self.threshold {
+///                 inliers_out.push(i);
+///                 inlier_count += 1;
+///                 cost += residual * residual;
+///             } else {
+///                 cost += self.threshold * self.threshold;
+///             }
+///         }
+///
+///         // Return score (higher is better, so negate cost)
+///         MyScore {
+///             inlier_count,
+///             robust_cost: -cost,
+///         }
+///     }
+/// }
+/// ```
 pub trait Scoring<M> {
     /// Score type – must support ordering for "better than" comparisons.
+    ///
+    /// The score type must implement `PartialOrd` so that the RANSAC pipeline
+    /// can determine which model is best. Typically, higher scores are better.
     type Score: Clone + PartialOrd;
 
     /// Inlier/outlier threshold for residuals in the chosen domain.
+    ///
+    /// This threshold determines the maximum residual for a point to be
+    /// considered an inlier. The units depend on your residual function
+    /// (e.g., pixels for image coordinates, meters for 3D distances).
     fn threshold(&self) -> f64;
 
     /// Score a model and optionally return the inlier set.
+    ///
+    /// This method evaluates how well the model fits the data and identifies
+    /// which points are inliers.
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `model` - The model to score
+    /// * `inliers_out` - Output vector to populate with inlier indices
+    ///
+    /// # Returns
+    /// A score value. Higher scores indicate better models.
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score;
 }
 
 /// Local optimization strategy, potentially refining a model using its inliers.
+///
+/// After RANSAC finds a good model, local optimization can refine it using all
+/// inliers. This typically improves accuracy and robustness.
+///
+/// # Example: Custom Iterative Refinement
+///
+/// ```rust
+/// use inlier::core::{LocalOptimizer, Estimator};
+/// use inlier::types::DataMatrix;
+///
+/// struct MyModel {
+///     // Your model
+/// }
+///
+/// #[derive(Clone)]
+/// struct MyScore(f64);
+///
+/// struct IterativeRefiner<E>
+/// where
+///     E: Estimator<Model = MyModel>,
+/// {
+///     estimator: E,
+///     max_iterations: usize,
+/// }
+///
+/// impl<E> LocalOptimizer<MyModel, MyScore> for IterativeRefiner<E>
+/// where
+///     E: Estimator<Model = MyModel>,
+///     MyModel: Clone,
+/// {
+///     fn run(
+///         &mut self,
+///         data: &DataMatrix,
+///         inliers: &[usize],
+///         model: &MyModel,
+///         best_score: &MyScore,
+///     ) -> (MyModel, MyScore, Vec<usize>) {
+///         let mut refined = model.clone();
+///
+///         // Iteratively refine using all inliers
+///         for _ in 0..self.max_iterations {
+///             // Refit model using all inliers
+///             let models = self.estimator.estimate_model_nonminimal(data, inliers, None);
+///             if let Some(new_model) = models.first() {
+///                 refined = new_model.clone();
+///             }
+///         }
+///
+///         (refined, best_score.clone(), inliers.to_vec())
+///     }
+/// }
+/// ```
 pub trait LocalOptimizer<M, S: Clone> {
     /// Run local optimization on the given model and inliers.
     ///
-    /// Returns `(refined_model, refined_score, refined_inliers)`.
+    /// This method should refine the model using the provided inliers, potentially
+    /// improving the fit and identifying additional inliers.
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `inliers` - Current inlier indices
+    /// * `model` - Current best model
+    /// * `best_score` - Current best score
+    ///
+    /// # Returns
+    /// A tuple of `(refined_model, refined_score, refined_inliers)`. The refined
+    /// model should be an improved version of the input model.
     fn run(
         &mut self,
         data: &DataMatrix,
@@ -601,10 +1021,71 @@ where
 }
 
 /// Termination criterion deciding when the RANSAC loop can stop.
+///
+/// This trait allows you to implement custom stopping criteria for RANSAC.
+/// The standard RANSAC termination updates the maximum iteration count based
+/// on the inlier ratio, but you can implement more sophisticated criteria.
+///
+/// # Example: Custom Convergence-Based Termination
+///
+/// ```rust
+/// use inlier::core::TerminationCriterion;
+/// use inlier::types::DataMatrix;
+///
+/// #[derive(Clone, PartialOrd, PartialEq)]
+/// struct MyScore {
+///     inlier_count: usize,
+///     value: f64,
+/// }
+///
+/// struct ConvergenceTermination {
+///     min_improvement: f64,
+///     no_improvement_count: usize,
+///     max_no_improvement: usize,
+///     last_score: Option<f64>,
+/// }
+///
+/// impl TerminationCriterion<MyScore> for ConvergenceTermination {
+///     fn check(
+///         &mut self,
+///         _data: &DataMatrix,
+///         best_score: &MyScore,
+///         _sample_size: usize,
+///         max_iterations: &mut usize,
+///     ) -> bool {
+///         let current_score = best_score.value;
+///
+///         if let Some(last) = self.last_score {
+///             if current_score - last < self.min_improvement {
+///                 self.no_improvement_count += 1;
+///                 if self.no_improvement_count >= self.max_no_improvement {
+///                     return true; // Terminate: no improvement
+///                 }
+///             } else {
+///                 self.no_improvement_count = 0;
+///             }
+///         }
+///
+///         self.last_score = Some(current_score);
+///         false // Continue iterating
+///     }
+/// }
+/// ```
 pub trait TerminationCriterion<S> {
     /// Update the termination state.
     ///
-    /// Returns `true` if the algorithm should terminate immediately.
+    /// This method is called after each RANSAC iteration to determine if
+    /// the algorithm should stop. It can also update `max_iterations` to
+    /// adaptively adjust the iteration budget.
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `best_score` - Current best score
+    /// * `sample_size` - Size of minimal samples
+    /// * `max_iterations` - Maximum iterations (can be updated)
+    ///
+    /// # Returns
+    /// `true` if the algorithm should terminate immediately, `false` to continue.
     fn check(
         &mut self,
         data: &DataMatrix,
@@ -665,8 +1146,55 @@ impl crate::core::TerminationCriterion<crate::scoring::Score> for RansacTerminat
 }
 
 /// Optional inlier selector (e.g. space-partitioning RANSAC).
+///
+/// This trait allows you to pre-filter candidate points before scoring,
+/// which can significantly speed up RANSAC for large datasets. For example,
+/// space-partitioning RANSAC uses spatial data structures to only consider
+/// points in relevant regions.
+///
+/// # Example: Custom Spatial Selector
+///
+/// ```rust
+/// use inlier::core::InlierSelector;
+/// use inlier::types::DataMatrix;
+///
+/// struct MyModel {
+///     // Your model
+/// }
+///
+/// struct SpatialSelector {
+///     cell_size: f64,
+/// }
+///
+/// impl InlierSelector<MyModel> for SpatialSelector {
+///     fn select(&mut self, data: &DataMatrix, _model: &MyModel) -> Vec<usize> {
+///         // Select points in a spatial region (simplified example)
+///         let mut candidates = Vec::new();
+///         for i in 0..data.nrows() {
+///             let x = data[(i, 0)];
+///             let y = data[(i, 1)];
+///             // Only consider points in a specific region
+///             if x.abs() < 10.0 && y.abs() < 10.0 {
+///                 candidates.push(i);
+///             }
+///         }
+///         candidates
+///     }
+/// }
+/// ```
 pub trait InlierSelector<M> {
     /// Select a (possibly reduced) set of inliers to consider during scoring.
+    ///
+    /// This method should return a subset of point indices that are likely
+    /// to be inliers based on the model. If an empty vector is returned,
+    /// all points will be considered (equivalent to no pre-filtering).
+    ///
+    /// # Arguments
+    /// * `data` - The full data matrix
+    /// * `model` - The current model hypothesis
+    ///
+    /// # Returns
+    /// A vector of point indices to consider during scoring. Empty means "all points".
     fn select(&mut self, data: &DataMatrix, model: &M) -> Vec<usize>;
 }
 
