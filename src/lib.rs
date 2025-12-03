@@ -1,3 +1,4 @@
+pub mod api;
 pub mod bundle_adjustment;
 pub mod core;
 pub mod estimators;
@@ -7,3 +8,9 @@ pub mod scoring;
 pub mod settings;
 pub mod types;
 pub mod utils;
+
+// Re-export high-level API
+pub use api::{
+    estimate_absolute_pose, estimate_essential_matrix, estimate_fundamental_matrix,
+    estimate_homography, estimate_rigid_transform, EstimationResult,
+};

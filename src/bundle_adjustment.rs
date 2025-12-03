@@ -16,21 +16,30 @@ pub fn sampson_error(f: &Matrix3<f64>, x1: &Vector2<f64>, x2: &Vector2<f64>) -> 
     let c = (x2_home.transpose() * f * x1_home)[0];
 
     // Jacobian of constraint w.r.t. image points
-    // J_C = [F^T * x2; F * x1] (4D vector, but we only need norm)
-    let f_t_x2 = f.transpose() * x2_home;
-    let f_x1 = f * x1_home;
-    let j_c_x = f_t_x2[0];
-    let j_c_y = f_t_x2[1];
-    let j_c_x1 = f_x1[0];
-    let j_c_y1 = f_x1[1];
-    let norm_j_c_sq = j_c_x * j_c_x + j_c_y * j_c_y + j_c_x1 * j_c_x1 + j_c_y1 * j_c_y1;
+    // J_C = [F.block<3,2>(0,0)^T * x2; F.block<2,3>(0,0) * x1] (4D vector)
+    // This matches C++: J_C << F.block<3, 2>(0, 0).transpose() * x2[k].homogeneous(),
+    //                      F.block<2, 3>(0, 0) * x1[k].homogeneous();
+    // F.block<3,2>(0,0) is first 2 columns, F.block<2,3>(0,0) is first 2 rows
+    let f_cols_01 = f.columns(0, 2); // First 2 columns (3x2)
+    let f_rows_01 = f.rows(0, 2);     // First 2 rows (2x3)
 
-    if norm_j_c_sq < 1e-20 {
+    let f_t_x2_part = f_cols_01.transpose() * x2_home; // 2x1
+    let f_x1_part = f_rows_01 * x1_home;                // 2x1
+
+    // Build 4D J_C vector: [f_t_x2_part[0], f_t_x2_part[1], f_x1_part[0], f_x1_part[1]]
+    let j_c_0 = f_t_x2_part[0];
+    let j_c_1 = f_t_x2_part[1];
+    let j_c_2 = f_x1_part[0];
+    let j_c_3 = f_x1_part[1];
+    let n_j_c = (j_c_0 * j_c_0 + j_c_1 * j_c_1 + j_c_2 * j_c_2 + j_c_3 * j_c_3).sqrt();
+
+    if n_j_c < 1e-10 {
         return 0.0;
     }
 
-    // Sampson error
-    c / norm_j_c_sq.sqrt()
+    // Sampson error: r = C / ||J_C||
+    let inv_n_j_c = 1.0 / n_j_c;
+    c * inv_n_j_c
 }
 
 /// Reprojection error for absolute pose (OnP).
