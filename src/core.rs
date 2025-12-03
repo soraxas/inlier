@@ -218,7 +218,7 @@ where
 
         // Iteratively refit the model
         let mut current_model = model.clone();
-        let mut current_inliers = inliers.to_vec();
+        let current_inliers = inliers.to_vec();
 
         for _iteration in 0..self.max_iterations {
             // Refit using current inliers
@@ -716,7 +716,7 @@ where
         for i in 0..n {
             let coord = (self.coord_fn)(data, i);
             let cell_idx = (coord / self.cell_size).floor() as i32;
-            cells.entry(cell_idx).or_insert_with(Vec::new).push(i);
+            cells.entry(cell_idx).or_default().push(i);
         }
 
         // Return indices from cells that have at least min_cells points

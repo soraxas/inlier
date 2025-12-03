@@ -17,6 +17,12 @@ pub struct UniformRandomSampler {
     rng: UniformRandomGenerator<usize>,
 }
 
+impl Default for UniformRandomSampler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UniformRandomSampler {
     /// Construct a new sampler with a random seed.
     pub fn new() -> Self {
@@ -137,6 +143,12 @@ pub struct ProsacSampler {
     subset_size: usize,
 }
 
+impl Default for ProsacSampler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProsacSampler {
     /// Construct with a default number of PROSAC iterations before falling back to RANSAC.
     pub fn new() -> Self {
@@ -200,7 +212,7 @@ impl ProsacSampler {
 
         let mut t_n_prime: usize = 1;
         for i in 0..point_number {
-            if i + 1 <= sample_size {
+            if i < sample_size {
                 self.growth_function[i] = t_n_prime;
                 continue;
             }
@@ -304,7 +316,7 @@ impl GridNeighborhoodGraph {
             let cell_idx = cell_y * self.cells_per_axis + cell_x;
 
             // Add point to cell
-            self.grid.entry(cell_idx).or_insert_with(Vec::new).push(row);
+            self.grid.entry(cell_idx).or_default().push(row);
             self.point_to_cell[row] = cell_idx;
         }
 

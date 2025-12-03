@@ -77,7 +77,7 @@ pub struct FactorizedFundamentalMatrix {
 
 impl FactorizedFundamentalMatrix {
     pub fn from_fundamental(f: &Matrix3<f64>) -> Self {
-        let svd = nalgebra::SVD::new(f.clone(), true, true);
+        let svd = nalgebra::SVD::new(*f, true, true);
         let mut u = svd.u.unwrap();
         let s = svd.singular_values;
         let mut v = svd.v_t.unwrap().transpose();

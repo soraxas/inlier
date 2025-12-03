@@ -3,7 +3,7 @@
 //! This module provides user-friendly functions for estimating geometric models
 //! similar to the Python API.
 
-use crate::core::{SuperRansac, TerminationCriterion};
+use crate::core::SuperRansac;
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     RigidTransformEstimator,
@@ -14,7 +14,7 @@ use crate::scoring::{RansacInlierCountScoring, Score};
 use crate::core::{NoopInlierSelector, LeastSquaresOptimizer};
 use crate::settings::RansacSettings;
 use crate::types::DataMatrix;
-use nalgebra::{DMatrix, Matrix3, Vector2, Vector3};
+use nalgebra::{DMatrix, Vector2, Vector3};
 
 /// Result of a RANSAC estimation.
 #[derive(Debug, Clone)]
@@ -104,7 +104,7 @@ pub fn estimate_homography(
         (Some(model), Some(score)) => Ok(EstimationResult {
             model: model.clone(),
             inliers: ransac.best_inliers.clone(),
-            score: score.clone(),
+            score: *score,
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate homography".to_string()),
@@ -177,7 +177,7 @@ pub fn estimate_fundamental_matrix(
         (Some(model), Some(score)) => Ok(EstimationResult {
             model: model.clone(),
             inliers: ransac.best_inliers.clone(),
-            score: score.clone(),
+            score: *score,
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate fundamental matrix".to_string()),
@@ -250,7 +250,7 @@ pub fn estimate_essential_matrix(
         (Some(model), Some(score)) => Ok(EstimationResult {
             model: model.clone(),
             inliers: ransac.best_inliers.clone(),
-            score: score.clone(),
+            score: *score,
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate essential matrix".to_string()),
@@ -298,7 +298,7 @@ pub fn estimate_absolute_pose(
         let p_2d = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
         let p_3d = Vector3::new(data[(idx, 2)], data[(idx, 3)], data[(idx, 4)]);
         crate::bundle_adjustment::reprojection_error(
-            &model.rotation.to_rotation_matrix().matrix(),
+            model.rotation.to_rotation_matrix().matrix(),
             &model.translation.vector,
             &p_2d,
             &p_3d,
@@ -329,7 +329,7 @@ pub fn estimate_absolute_pose(
         (Some(model), Some(score)) => Ok(EstimationResult {
             model: model.clone(),
             inliers: ransac.best_inliers.clone(),
-            score: score.clone(),
+            score: *score,
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate absolute pose".to_string()),
@@ -406,7 +406,7 @@ pub fn estimate_rigid_transform(
         (Some(model), Some(score)) => Ok(EstimationResult {
             model: model.clone(),
             inliers: ransac.best_inliers.clone(),
-            score: score.clone(),
+            score: *score,
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate rigid transform".to_string()),

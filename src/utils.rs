@@ -19,6 +19,15 @@ where
     dist: Option<Uniform<T>>,
 }
 
+impl<T> Default for UniformRandomGenerator<T>
+where
+    T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
+ {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> UniformRandomGenerator<T>
 where
     T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
@@ -204,8 +213,8 @@ pub fn solve_cubic_real(c2: f64, c1: f64, c0: f64, roots: &mut [f64; 3]) -> usiz
         let d = 2.0 * (-a / 3.0).sqrt();
         let acos_c = c.acos();
         roots[0] = d * (acos_c / 3.0).cos() - c2 / 3.0;
-        roots[1] = d * (acos_c / 3.0 - 2.09439510239319526263557236234192).cos() - c2 / 3.0; // 2*pi/3
-        roots[2] = d * (acos_c / 3.0 - 4.18879020478639052527114472468384).cos() - c2 / 3.0; // 4*pi/3
+        roots[1] = d * (acos_c / 3.0 - 2.094_395_102_393_195_3).cos() - c2 / 3.0; // 2*pi/3
+        roots[2] = d * (acos_c / 3.0 - 4.188_790_204_786_390_5).cos() - c2 / 3.0; // 4*pi/3
         3
     };
 
@@ -224,7 +233,7 @@ pub fn solve_cubic_real(c2: f64, c1: f64, c0: f64, roots: &mut [f64; 3]) -> usiz
 /// Sturm sequence-based polynomial root finder for high-degree polynomials.
 /// This is a simplified implementation for degree 10 polynomials (used in 5-point Nister solver).
 pub mod sturm {
-    use super::*;
+
 
     /// Evaluate polynomial using Horner's method.
     /// Assumes that coeffs[degree] = 1.0 (monic polynomial)

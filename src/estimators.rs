@@ -5,7 +5,7 @@
 //! skeleton that can be exercised by tests; numerical refinements can be
 //! added later.
 
-use crate::bundle_adjustment::{refine_fundamental, refine_absolute_pose};
+use crate::bundle_adjustment::refine_absolute_pose;
 use crate::core::Estimator;
 use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, RigidTransform,
@@ -16,6 +16,12 @@ use nalgebra::{DMatrix, DVector, Matrix3, SVD, Vector2, Vector3};
 
 /// Minimal homography estimator using a 4-point DLT-style algorithm.
 pub struct HomographyEstimator;
+
+impl Default for HomographyEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl HomographyEstimator {
     pub fn new() -> Self {
@@ -217,6 +223,12 @@ impl HomographyEstimator {
 
 /// Fundamental matrix estimator using the 8-point algorithm.
 pub struct FundamentalEstimator;
+
+impl Default for FundamentalEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FundamentalEstimator {
     pub fn new() -> Self {
@@ -617,6 +629,12 @@ impl Estimator for FundamentalEstimator {
 /// provides a working implementation that enforces essential matrix properties.
 pub struct EssentialEstimator;
 
+impl Default for EssentialEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EssentialEstimator {
     pub fn new() -> Self {
         Self
@@ -664,7 +682,7 @@ impl EssentialEstimator {
 
         // Reconstruct: E = U * diag(avg_s, avg_s, 0) * V^T
         let s_diag = nalgebra::Matrix3::<f64>::from_diagonal(&s_essential);
-        &u * &s_diag * &vt
+        u * s_diag * vt
     }
 }
 
@@ -754,6 +772,12 @@ impl Estimator for EssentialEstimator {
 /// This is a simplified implementation; a full implementation would use
 /// the Lambda-Twist or similar algorithm for better numerical stability.
 pub struct AbsolutePoseEstimator;
+
+impl Default for AbsolutePoseEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl AbsolutePoseEstimator {
     pub fn new() -> Self {
@@ -868,14 +892,14 @@ impl Estimator for AbsolutePoseEstimator {
         let u_r = r_svd.u.unwrap();
         let vt_r = r_svd.v_t.unwrap();
         let v_r = vt_r.transpose();
-        let r_ortho = &u_r * &v_r.transpose();
+        let r_ortho = u_r * v_r.transpose();
 
         // Ensure proper rotation (det = 1)
         let mut r_final = r_ortho;
         if r_final.determinant() < 0.0 {
-            let mut u_neg = u_r.clone();
+            let mut u_neg = u_r;
             u_neg.column_mut(2).neg_mut();
-            r_final = &u_neg * &v_r.transpose();
+            r_final = u_neg * v_r.transpose();
         }
 
         let t = Vector3::<f64>::new(last_col[3], last_col[7], last_col[11]);
@@ -897,7 +921,7 @@ impl Estimator for AbsolutePoseEstimator {
         }
 
         let rot = initial_models[0].rotation.to_rotation_matrix();
-        let mut r = rot.matrix().clone();
+        let mut r = *rot.matrix();
         let mut t_vec = initial_models[0].translation.vector;
 
         // Apply bundle adjustment if we have enough points
@@ -938,6 +962,12 @@ impl Estimator for AbsolutePoseEstimator {
 
 /// Rigid transform estimator using Procrustes analysis.
 pub struct RigidTransformEstimator;
+
+impl Default for RigidTransformEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RigidTransformEstimator {
     pub fn new() -> Self {
@@ -1058,7 +1088,7 @@ impl Estimator for RigidTransformEstimator {
         let r_fixed = Matrix3::<f64>::from_iterator(r.iter().cloned());
 
         // Compute translation: t = c1 - R * c0
-        let t = c1 - &r_fixed * c0;
+        let t = c1 - r_fixed * c0;
 
         // Convert to UnitQuaternion and Translation3
         use nalgebra::{Rotation3, UnitQuaternion};
