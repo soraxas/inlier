@@ -76,9 +76,9 @@ impl Sampler for AdaptiveReorderingSampler {
         if sample_size == 0 || n == 0 || out_indices.len() < sample_size {
             return false;
         }
-        for i in 0..sample_size {
+        for out_idx in out_indices.iter_mut().take(sample_size) {
             if let Some((_, idx)) = self.queue.pop() {
-                out_indices[i] = idx;
+                *out_idx = idx;
             } else {
                 return false;
             }
@@ -94,8 +94,7 @@ impl Sampler for AdaptiveReorderingSampler {
         _score_hint: f64,
     ) {
         let count = sample_size.min(sample.len());
-        for i in 0..count {
-            let idx = sample[i];
+        for &idx in sample.iter().take(count) {
             if let Some(entry) = self.probabilities.get_mut(idx) {
                 let (ref mut p, _point_idx, ref mut appearance, a, b) = *entry;
                 *appearance += 1;
@@ -105,7 +104,7 @@ impl Sampler for AdaptiveReorderingSampler {
                     .rng
                     .gen_range(-self.randomness_half..self.randomness_half);
                 let mut updated = base + jitter;
-                updated = updated.max(0.0).min(0.999);
+                updated = updated.clamp(0.0, 0.999);
 
                 *p = updated;
                 self.queue.push((ordered_float::OrderedFloat(updated), idx));

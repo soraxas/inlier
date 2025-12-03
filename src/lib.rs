@@ -182,9 +182,7 @@ pub use api::{
 };
 
 // Re-export core traits for easy access
-pub use core::{
-    Estimator, InlierSelector, LocalOptimizer, Sampler, Scoring, TerminationCriterion,
-};
+pub use core::{Estimator, InlierSelector, LocalOptimizer, Sampler, Scoring, TerminationCriterion};
 
 // Re-export settings for convenience
 pub use settings::RansacSettings;

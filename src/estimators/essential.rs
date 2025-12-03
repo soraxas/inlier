@@ -2,7 +2,7 @@
 
 use crate::core::Estimator;
 use crate::estimators::fundamental::FundamentalEstimator;
-use crate::models::{EssentialMatrix, FundamentalMatrix};
+use crate::models::EssentialMatrix;
 use crate::nister_stewenius::five_points_relative_pose;
 use crate::types::DataMatrix;
 use nalgebra::{Matrix3, SVD, UnitVector3, Vector3};

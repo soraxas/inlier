@@ -50,26 +50,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Generated {} inliers and {} outliers", n_points, n_outliers);
-    println!("True transformation: rotation ({:.2} rad) + translation ({:.1}, {:.1})\n",
-             angle, tx, ty);
+    println!(
+        "True transformation: rotation ({:.2} rad) + translation ({:.1}, {:.1})\n",
+        angle, tx, ty
+    );
 
     // Estimate homography
     let threshold = 2.0; // pixels
     let result = estimate_homography(&points1, &points2, threshold, None)?;
 
     println!("Estimation results:");
-    println!("  Found {} inliers out of {} points", result.inliers.len(), n_total);
-    println!("  Inlier ratio: {:.2}%",
-             100.0 * result.inliers.len() as f64 / n_total as f64);
+    println!(
+        "  Found {} inliers out of {} points",
+        result.inliers.len(),
+        n_total
+    );
+    println!(
+        "  Inlier ratio: {:.2}%",
+        100.0 * result.inliers.len() as f64 / n_total as f64
+    );
     println!("  Score: {:?}", result.score);
     println!("  Iterations: {}", result.iterations);
 
     println!("\nEstimated homography matrix:");
     for i in 0..3 {
-        println!("  [{:8.4}, {:8.4}, {:8.4}]",
-                 result.model.h[(i, 0)],
-                 result.model.h[(i, 1)],
-                 result.model.h[(i, 2)]);
+        println!(
+            "  [{:8.4}, {:8.4}, {:8.4}]",
+            result.model.h[(i, 0)],
+            result.model.h[(i, 1)],
+            result.model.h[(i, 2)]
+        );
     }
 
     // Verify inliers
@@ -79,8 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             correct_inliers += 1;
         }
     }
-    println!("\nCorrectly identified {} out of {} true inliers",
-             correct_inliers, n_points);
+    println!(
+        "\nCorrectly identified {} out of {} true inliers",
+        correct_inliers, n_points
+    );
 
     Ok(())
 }

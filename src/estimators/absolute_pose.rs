@@ -4,9 +4,9 @@ use crate::bundle_adjustment::refine_absolute_pose;
 use crate::core::Estimator;
 use crate::models::AbsolutePose;
 use crate::types::DataMatrix;
-use nalgebra::{DMatrix, Matrix3, SVD, Vector2, Vector3};
 #[cfg(feature = "kornia-pnp")]
 use kornia_pnp::epnp::solve_epnp;
+use nalgebra::{Vector2, Vector3};
 
 /// Absolute pose estimator using P3P (Perspective-3-Point) algorithm.
 ///
@@ -186,8 +186,8 @@ impl Estimator for AbsolutePoseEstimator {
         // EOnP works with >= 4 points and is more robust than DLT
         #[cfg(feature = "kornia-pnp")]
         {
-            use kornia_tensor::Tensor;
             use kornia_image::Image;
+            use kornia_tensor::Tensor;
 
             // Create identity camera matrix (assuming normalized coordinates)
             // For calibrated cameras, this should be the actual K matrix

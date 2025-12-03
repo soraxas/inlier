@@ -28,6 +28,20 @@ where
     }
 }
 
+// implement iterator trait
+impl<T> Iterator for UniformRandomGenerator<T>
+where
+    T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
+{
+    type Item = T;
+
+    /// Draws a single random value from the configured distribution.
+    /// Panics if the distribution has not been set via `reset`.
+    fn next(&mut self) -> Option<Self::Item> {
+        self.dist.as_ref().map(|dist| self.rng.sample(dist))
+    }
+}
+
 impl<T> UniformRandomGenerator<T>
 where
     T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
@@ -49,15 +63,6 @@ where
         self.dist = Some(Uniform::new_inclusive(min, max));
     }
 
-    /// Draw a single random value using the current distribution.
-    pub fn next(&mut self) -> T {
-        let dist = self
-            .dist
-            .as_ref()
-            .expect("UniformRandomGenerator: distribution not initialized");
-        self.rng.sample(dist)
-    }
-
     /// Generate a set of unique random integers in `[min, max]` into `out`.
     ///
     /// This is a straightforward port of the C++ `generateUniqueRandomSet`, and
@@ -70,7 +75,9 @@ where
         let n = out.len();
         for i in 0..n {
             loop {
-                let candidate = self.next();
+                let candidate = self
+                    .next()
+                    .expect("UniformRandomGenerator: distribution not initialized");
                 // Check uniqueness among already-filled entries.
                 if out[..i].iter().all(|&v| v != candidate) {
                     out[i] = candidate;
@@ -91,7 +98,9 @@ where
         let n = out.len();
         for i in 0..n {
             loop {
-                let candidate = self.next();
+                let candidate = self
+                    .next()
+                    .expect("UniformRandomGenerator: distribution not initialized");
                 if out[..i].iter().all(|&v| v != candidate) {
                     out[i] = candidate;
                     break;
@@ -130,8 +139,8 @@ mod tests {
         rng1.reset(0, 100);
         rng2.reset(0, 100);
 
-        let a1: Vec<u32> = (0..10).map(|_| rng1.next()).collect();
-        let a2: Vec<u32> = (0..10).map(|_| rng2.next()).collect();
+        let a1: Vec<u32> = (0..10).map(|_| rng1.next().unwrap()).collect();
+        let a2: Vec<u32> = (0..10).map(|_| rng2.next().unwrap()).collect();
 
         assert_eq!(a1, a2);
     }
@@ -222,12 +231,12 @@ pub fn solve_cubic_real(c2: f64, c1: f64, c0: f64, roots: &mut [f64; 3]) -> usiz
     };
 
     // Single Newton iteration for refinement
-    for i in 0..n_roots {
-        let x = roots[i];
-        let x2 = x * x;
-        let x3 = x * x2;
-        let dx = -(x3 + c2 * x2 + c1 * x + c0) / (3.0 * x2 + 2.0 * c2 * x + c1);
-        roots[i] += dx;
+    for x in roots.iter_mut().take(n_roots) {
+        let _x = *x;
+        let x2 = _x * _x;
+        let x3 = _x * x2;
+        let dx = -(x3 + c2 * x2 + c1 * _x + c0) / (3.0 * x2 + 2.0 * c2 * _x + c1);
+        *x += dx;
     }
 
     n_roots
@@ -271,8 +280,8 @@ pub mod sturm {
     /// Get Cauchy bound on real roots
     pub fn get_bounds<const N: usize>(fvec: &[f64]) -> f64 {
         let mut max = 0.0f64;
-        for i in 0..N {
-            max = max.max(fvec[i].abs());
+        for &x in fvec.iter().take(N) {
+            max = max.max(x.abs());
         }
         1.0 + max
     }

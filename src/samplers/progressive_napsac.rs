@@ -1,8 +1,8 @@
 //! Progressive NAPSAC sampler: combines PROSAC with NAPSAC.
 
 use crate::core::Sampler;
-use crate::samplers::neighborhood::NeighborhoodGraph;
 use crate::samplers::napsac::NapsacSampler;
+use crate::samplers::neighborhood::NeighborhoodGraph;
 use crate::samplers::prosac::ProsacSampler;
 use crate::types::DataMatrix;
 

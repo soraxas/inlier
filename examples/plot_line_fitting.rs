@@ -55,16 +55,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = estimate_line(&points_matrix, threshold, None)?;
 
     println!("RANSAC Results:");
-    println!("  Found {} inliers out of {} points", result.inliers.len(), n_total);
+    println!(
+        "  Found {} inliers out of {} points",
+        result.inliers.len(),
+        n_total
+    );
     println!("  Iterations: {}", result.iterations);
 
     // Create plot
-    let root = BitMapBackend::new("examples/line_fitting_plot.png", (800, 600))
-        .into_drawing_area();
+    let root = BitMapBackend::new("examples/line_fitting_plot.png", (800, 600)).into_drawing_area();
     root.fill(&WHITE)?;
 
     let mut chart = ChartBuilder::on(&root)
-        .caption("Robust Line Fitting with RANSAC", ("sans-serif", 30).into_font())
+        .caption(
+            "Robust Line Fitting with RANSAC",
+            ("sans-serif", 30).into_font(),
+        )
         .margin(10)
         .x_label_area_size(40)
         .y_label_area_size(40)
@@ -73,32 +79,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     chart.configure_mesh().draw()?;
 
     // Plot inlier points (green)
-    chart.draw_series(
-        result.inliers.iter().filter_map(|&idx| {
+    chart
+        .draw_series(result.inliers.iter().filter_map(|&idx| {
             if idx < points.len() {
                 let (x, y) = points[idx];
                 Some(Circle::new((x, y), 3, GREEN.filled()))
             } else {
                 None
             }
-        })
-    )?.label("Inliers (RANSAC)")
-     .legend(|(x, y)| Circle::new((x, y), 3, GREEN.filled()));
+        }))?
+        .label("Inliers (RANSAC)")
+        .legend(|(x, y)| Circle::new((x, y), 3, GREEN.filled()));
 
     // Plot outlier points (red)
     let outlier_indices: std::collections::HashSet<usize> =
         result.inliers.iter().cloned().collect();
-    chart.draw_series(
-        (0..n_total).filter_map(|i| {
+    chart
+        .draw_series((0..n_total).filter_map(|i| {
             if !outlier_indices.contains(&i) && i < points.len() {
                 let (x, y) = points[i];
                 Some(Circle::new((x, y), 3, RED.filled()))
             } else {
                 None
             }
-        })
-    )?.label("Outliers")
-     .legend(|(x, y)| Circle::new((x, y), 3, RED.filled()));
+        }))?
+        .label("Outliers")
+        .legend(|(x, y)| Circle::new((x, y), 3, RED.filled()));
 
     // Plot true line (blue) - generate points along the line
     let true_line_points: Vec<(f64, f64)> = (0..=160)
@@ -107,7 +113,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (x, true_slope * x + true_intercept)
         })
         .collect();
-    chart.draw_series(LineSeries::new(true_line_points, BLUE.stroke_width(2)))?
+    chart
+        .draw_series(LineSeries::new(true_line_points, BLUE.stroke_width(2)))?
         .label("True Line")
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], BLUE.stroke_width(2)));
 
@@ -119,12 +126,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (x, slope * x + intercept)
             })
             .collect();
-        chart.draw_series(LineSeries::new(est_line_points, MAGENTA.stroke_width(2)))?
+        chart
+            .draw_series(LineSeries::new(est_line_points, MAGENTA.stroke_width(2)))?
             .label("Estimated Line")
             .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], MAGENTA.stroke_width(2)));
     }
 
-    chart.configure_series_labels()
+    chart
+        .configure_series_labels()
         .background_style(&WHITE.mix(0.8))
         .border_style(&BLACK)
         .draw()?;

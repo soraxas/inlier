@@ -199,8 +199,8 @@ impl FundamentalEstimator {
 
         // Build fundamental matrices for each root
         let mut models = Vec::new();
-        for i in 0..n_roots {
-            let lambda = roots[i];
+        for root in roots.iter().take(n_roots) {
+            let lambda = *root;
             // F = lambda * f1 + f2
             let mut f_vec = DVector::<f64>::zeros(9);
             for j in 0..9 {

@@ -3,7 +3,6 @@
 use crate::core::Estimator;
 use crate::models::Line;
 use crate::types::DataMatrix;
-use nalgebra::Vector3;
 
 /// Line estimator for 2D line fitting.
 ///
@@ -193,12 +192,10 @@ impl Estimator for LineEstimator {
                 let b_val = 1.0;
                 let a_val = -cov_xy / (cov_xx - lambda1).max(1e-10);
                 (a_val, b_val)
+            } else if cov_xx < cov_yy {
+                (1.0, 0.0)
             } else {
-                if cov_xx < cov_yy {
-                    (1.0, 0.0)
-                } else {
-                    (0.0, 1.0)
-                }
+                (0.0, 1.0)
             }
         };
 

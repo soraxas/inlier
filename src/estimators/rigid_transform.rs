@@ -3,7 +3,7 @@
 use crate::core::Estimator;
 use crate::models::RigidTransform;
 use crate::types::DataMatrix;
-use nalgebra::{DMatrix, Matrix3, Rotation3, SVD, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, Matrix3, SVD};
 
 /// Rigid transform estimator using Procrustes analysis.
 pub struct RigidTransformEstimator;

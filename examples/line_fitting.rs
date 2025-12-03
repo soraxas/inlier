@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let true_intercept = 1.0;
 
     println!("True line: y = {:.2}x + {:.2}", true_slope, true_intercept);
-    println!("Generating {} inliers and {} outliers\n", n_inliers, n_outliers);
+    println!(
+        "Generating {} inliers and {} outliers\n",
+        n_inliers, n_outliers
+    );
 
     // Generate inliers along the line with noise
     let mut points = Vec::new();
@@ -55,24 +58,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = estimate_line(&points_matrix, threshold, None)?;
 
     println!("RANSAC Results:");
-    println!("  Found {} inliers out of {} points", result.inliers.len(), n_total);
-    println!("  Inlier ratio: {:.2}%",
-             100.0 * result.inliers.len() as f64 / n_total as f64);
+    println!(
+        "  Found {} inliers out of {} points",
+        result.inliers.len(),
+        n_total
+    );
+    println!(
+        "  Inlier ratio: {:.2}%",
+        100.0 * result.inliers.len() as f64 / n_total as f64
+    );
     println!("  Score: {:?}", result.score);
     println!("  Iterations: {}", result.iterations);
 
     // Display estimated line
     let line = &result.model;
     let params = line.params();
-    println!("\nEstimated line: {:.4}x + {:.4}y + {:.4} = 0",
-             params[0], params[1], params[2]);
+    println!(
+        "\nEstimated line: {:.4}x + {:.4}y + {:.4} = 0",
+        params[0], params[1], params[2]
+    );
 
     // Convert to slope-intercept form for comparison
     if let Some((slope, intercept)) = line.to_slope_intercept() {
-        println!("  In slope-intercept form: y = {:.4}x + {:.4}", slope, intercept);
-        println!("  True line: y = {:.4}x + {:.4}", true_slope, true_intercept);
+        println!(
+            "  In slope-intercept form: y = {:.4}x + {:.4}",
+            slope, intercept
+        );
+        println!(
+            "  True line: y = {:.4}x + {:.4}",
+            true_slope, true_intercept
+        );
         println!("  Error in slope: {:.4}", (slope - true_slope).abs());
-        println!("  Error in intercept: {:.4}", (intercept - true_intercept).abs());
+        println!(
+            "  Error in intercept: {:.4}",
+            (intercept - true_intercept).abs()
+        );
     }
 
     // Count how many true inliers were found
@@ -88,8 +108,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             found_inliers += 1;
         }
     }
-    println!("\nCorrectly identified {} out of {} true inliers",
-             found_inliers, n_inliers);
+    println!(
+        "\nCorrectly identified {} out of {} true inliers",
+        found_inliers, n_inliers
+    );
 
     Ok(())
 }

@@ -1321,6 +1321,7 @@ where
     T: TerminationCriterion<Sc::Score>,
     IS: InlierSelector<E::Model>,
 {
+    #[allow(clippy::too_many_arguments)]
     /// Create a new pipeline from its components.
     pub fn new(
         settings: RansacSettings,
@@ -1446,9 +1447,6 @@ where
                     &self.best_model,
                     &self.best_score,
                 ) {
-                    let lo = lo;
-                    let best_model = best_model;
-                    let best_score = best_score;
                     let (refined_model, refined_score, refined_inliers) =
                         lo.run(data, &self.best_inliers, best_model, best_score);
 
@@ -1462,7 +1460,6 @@ where
                 // Update termination criterion using the current best score.
                 if let (Some(best_score), Some(_best_model)) = (&self.best_score, &self.best_model)
                 {
-                    let best_score = best_score;
                     let should_terminate =
                         self.termination
                             .check(data, best_score, sample_size, &mut max_iterations);
@@ -1484,19 +1481,15 @@ where
             &mut self.final_optimizer,
             &self.best_model,
             &self.best_score,
-        ) {
-            let final_opt = final_opt;
-            let best_model = best_model;
-            let best_score = best_score;
-            if self.best_inliers.len() > sample_size {
-                let (refined_model, refined_score, refined_inliers) =
-                    final_opt.run(data, &self.best_inliers, best_model, best_score);
+        ) && self.best_inliers.len() > sample_size
+        {
+            let (refined_model, refined_score, refined_inliers) =
+                final_opt.run(data, &self.best_inliers, best_model, best_score);
 
-                if refined_score > *best_score {
-                    self.best_model = Some(refined_model);
-                    self.best_score = Some(refined_score);
-                    self.best_inliers = refined_inliers;
-                }
+            if refined_score > *best_score {
+                self.best_model = Some(refined_model);
+                self.best_score = Some(refined_score);
+                self.best_inliers = refined_inliers;
             }
         }
     }
