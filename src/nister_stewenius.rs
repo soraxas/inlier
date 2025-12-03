@@ -233,7 +233,7 @@ fn essentials_from_action_ebasis(
 
 /// Takes in two sets of normalized key points.
 /// Returns all essential matrix solutions.
-fn five_points_relative_pose(
+pub fn five_points_relative_pose(
     a: &[UnitVector3<f64>; 5],
     b: &[UnitVector3<f64>; 5],
 ) -> impl Iterator<Item = EssentialMatrix> {

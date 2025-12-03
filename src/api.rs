@@ -7,9 +7,9 @@ use crate::core::SuperRansac;
 use crate::core::{LeastSquaresOptimizer, NoopInlierSelector};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
-    RigidTransformEstimator,
+    LineEstimator, RigidTransformEstimator,
 };
-use crate::models::{AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, RigidTransform};
+use crate::models::{AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform};
 use crate::samplers::UniformRandomSampler;
 use crate::scoring::{RansacInlierCountScoring, Score};
 use crate::settings::RansacSettings;
@@ -401,5 +401,91 @@ pub fn estimate_rigid_transform(
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate rigid transform".to_string()),
+    }
+}
+
+/// Estimate a line from 2D points using RANSAC.
+///
+/// # Arguments
+/// * `points` - 2D points (Nx2 matrix, each row is [x, y])
+/// * `threshold` - Inlier threshold (distance from point to line)
+/// * `settings` - Optional RANSAC settings (uses defaults if None)
+///
+/// # Returns
+/// `EstimationResult` containing the line (ax + by + c = 0), inliers, score, and iterations.
+///
+/// # Example
+/// ```
+/// use inlier::api::estimate_line;
+/// use inlier::settings::RansacSettings;
+/// use nalgebra::DMatrix;
+///
+/// // Generate some 2D points
+/// let mut points = DMatrix::<f64>::zeros(10, 2);
+/// points[(0, 0)] = 0.0; points[(0, 1)] = 0.0;
+/// points[(1, 0)] = 1.0; points[(1, 1)] = 1.0;
+/// // ... add more points
+///
+/// let threshold = 0.5; // Distance threshold
+/// let settings = RansacSettings::default();
+///
+/// match estimate_line(&points, threshold, Some(settings)) {
+///     Ok(result) => {
+///         println!("Estimated line: {:?}", result.model.params());
+///         println!("Inliers: {}", result.inliers.len());
+///     }
+///     Err(e) => eprintln!("Error: {}", e),
+/// }
+/// ```
+pub fn estimate_line(
+    points: &DMatrix<f64>,
+    threshold: f64,
+    settings: Option<RansacSettings>,
+) -> Result<EstimationResult<Line>, String> {
+    if points.ncols() != 2 {
+        return Err("points must be Nx2 matrix (each row is [x, y])".to_string());
+    }
+
+    // Use points directly as data matrix
+    let n = points.nrows();
+    let mut data = DataMatrix::zeros(n, 2);
+    for i in 0..n {
+        data[(i, 0)] = points[(i, 0)];
+        data[(i, 1)] = points[(i, 1)];
+    }
+
+    let estimator = LineEstimator::new();
+    let sampler = UniformRandomSampler::new();
+    let scoring = RansacInlierCountScoring::new(threshold, |data, model: &Line, idx| {
+        // Compute distance from point to line
+        model.distance_to_point(data[(idx, 0)], data[(idx, 1)])
+    });
+    let local_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
+    let final_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
+    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
+    let inlier_selector = NoopInlierSelector;
+
+    let settings = settings.unwrap_or_default();
+    let mut ransac = SuperRansac::new(
+        settings,
+        estimator,
+        sampler,
+        scoring,
+        local_optimizer,
+        final_optimizer,
+        termination,
+        Some(inlier_selector),
+    );
+
+    ransac.run(&data);
+
+    match (&ransac.best_model, &ransac.best_score) {
+        (Some(model), Some(score)) => Ok(EstimationResult {
+            model: model.clone(),
+            inliers: ransac.best_inliers.clone(),
+            score: *score,
+            iterations: ransac.iteration,
+        }),
+        _ => Err("Failed to estimate line".to_string()),
     }
 }

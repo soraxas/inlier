@@ -86,3 +86,59 @@ impl RigidTransform {
         r * t
     }
 }
+
+/// Line in 2D represented as ax + by + c = 0, normalized so that a² + b² = 1.
+///
+/// The line parameters are stored as [a, b, c] where:
+/// - (a, b) is the unit normal vector
+/// - c is the distance from origin (with sign)
+#[derive(Clone, Debug)]
+pub struct Line {
+    /// Line parameters [a, b, c] where ax + by + c = 0
+    pub params: Vector3<f64>,
+}
+
+impl Line {
+    /// Create a new line from parameters [a, b, c].
+    /// The parameters will be normalized so that a² + b² = 1.
+    pub fn new(a: f64, b: f64, c: f64) -> Self {
+        let norm = (a * a + b * b).sqrt();
+        if norm < 1e-10 {
+            // Degenerate line (both a and b are zero)
+            Self {
+                params: Vector3::new(0.0, 1.0, c),
+            }
+        } else {
+            Self {
+                params: Vector3::new(a / norm, b / norm, c / norm),
+            }
+        }
+    }
+
+    /// Create a line from parameters, assuming they're already normalized.
+    pub fn from_normalized(params: Vector3<f64>) -> Self {
+        Self { params }
+    }
+
+    /// Get the line parameters as [a, b, c].
+    pub fn params(&self) -> &Vector3<f64> {
+        &self.params
+    }
+
+    /// Compute the distance from a point (x, y) to this line.
+    pub fn distance_to_point(&self, x: f64, y: f64) -> f64 {
+        (self.params[0] * x + self.params[1] * y + self.params[2]).abs()
+    }
+
+    /// Convert to slope-intercept form (y = mx + b), if possible.
+    /// Returns None if the line is vertical (b ≈ 0).
+    pub fn to_slope_intercept(&self) -> Option<(f64, f64)> {
+        if self.params[1].abs() < 1e-10 {
+            None // Vertical line
+        } else {
+            let slope = -self.params[0] / self.params[1];
+            let intercept = -self.params[2] / self.params[1];
+            Some((slope, intercept))
+        }
+    }
+}
