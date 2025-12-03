@@ -3,7 +3,7 @@
 // use arrayvec::ArrayVec;
 use crate::models::EssentialMatrix;
 use nalgebra::{
-    self, DimName, Matrix3, OMatrix, OVector, UnitVector3, Vector3, Vector4,
+    self, DimName, Matrix3, OMatrix, OVector, UnitVector3, Vector4,
     dimension::{U4, U5, U9, U10, U20},
 };
 

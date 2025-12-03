@@ -230,10 +230,13 @@ impl UsearchNeighborhoodGraph {
         }
 
         // Create USearch index
-        let mut options = IndexOptions::default();
-        options.dimensions = dims;
-        options.metric = MetricKind::L2sq; // Squared L2 distance (faster)
-        options.quantization = ScalarKind::F32;
+        let options = IndexOptions {
+            dimensions: dims,
+            // Squared L2 distance (faster)
+            metric: MetricKind::L2sq,
+            quantization: ScalarKind::F32,
+            ..Default::default()
+        };
 
         let index = match Index::new(&options) {
             Ok(idx) => idx,
@@ -241,7 +244,7 @@ impl UsearchNeighborhoodGraph {
         };
 
         // Reserve capacity
-        if let Err(_) = index.reserve(n) {
+        if index.reserve(n).is_err() {
             return false;
         }
 
@@ -251,7 +254,7 @@ impl UsearchNeighborhoodGraph {
             for j in 0..dims {
                 vector.push(data[(i, j)] as f32);
             }
-            if let Err(_) = index.add(i as u64, &vector) {
+            if index.add(i as u64, &vector).is_err() {
                 return false;
             }
         }

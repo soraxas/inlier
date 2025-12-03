@@ -58,23 +58,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = estimate_fundamental_matrix(&points1, &points2, threshold, None)?;
 
     println!("Estimation results:");
-    println!("  Found {} inliers out of {} points", result.inliers.len(), n_total);
-    println!("  Inlier ratio: {:.2}%",
-             100.0 * result.inliers.len() as f64 / n_total as f64);
+    println!(
+        "  Found {} inliers out of {} points",
+        result.inliers.len(),
+        n_total
+    );
+    println!(
+        "  Inlier ratio: {:.2}%",
+        100.0 * result.inliers.len() as f64 / n_total as f64
+    );
     println!("  Score: {:?}", result.score);
     println!("  Iterations: {}", result.iterations);
 
     println!("\nEstimated fundamental matrix:");
     for i in 0..3 {
-        println!("  [{:8.4}, {:8.4}, {:8.4}]",
-                 result.model.f[(i, 0)],
-                 result.model.f[(i, 1)],
-                 result.model.f[(i, 2)]);
+        println!(
+            "  [{:8.4}, {:8.4}, {:8.4}]",
+            result.model.f[(i, 0)],
+            result.model.f[(i, 1)],
+            result.model.f[(i, 2)]
+        );
     }
 
     // Check rank-2 constraint (determinant should be small)
     let det = result.model.f.determinant();
-    println!("\nFundamental matrix determinant: {:.6} (should be close to 0)", det);
+    println!(
+        "\nFundamental matrix determinant: {:.6} (should be close to 0)",
+        det
+    );
 
     // Verify inliers
     let mut correct_inliers = 0;
@@ -83,8 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             correct_inliers += 1;
         }
     }
-    println!("Correctly identified {} out of {} true inliers",
-             correct_inliers, n_points);
+    println!(
+        "Correctly identified {} out of {} true inliers",
+        correct_inliers, n_points
+    );
 
     Ok(())
 }

@@ -9,7 +9,9 @@ use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, RigidTransformEstimator,
 };
-use crate::models::{AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform};
+use crate::models::{
+    AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
+};
 use crate::samplers::UniformRandomSampler;
 use crate::scoring::{RansacInlierCountScoring, Score};
 use crate::settings::RansacSettings;

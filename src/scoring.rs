@@ -149,6 +149,24 @@ where
     }
 }
 
+/// Approximate gamma function using Stirling's approximation for a > 0
+fn approximate_gamma(a: f64) -> f64 {
+    if a <= 0.0 {
+        return 1.0;
+    }
+    if a < 0.5 {
+        // Use reflection formula: Γ(1-z) = π / (Γ(z) * sin(πz))
+        let z = 1.0 - a;
+        let gamma_z = approximate_gamma(z);
+        std::f64::consts::PI / (gamma_z * (std::f64::consts::PI * a).sin())
+    } else {
+        // Stirling's approximation: Γ(a) ≈ sqrt(2π/a) * (a/e)^a * (1 + 1/(12a) + ...)
+        let sqrt_2pi = (2.0 * std::f64::consts::PI).sqrt();
+        let base = (sqrt_2pi / a).sqrt() * (a / std::f64::consts::E).powf(a);
+        base * (1.0 + 1.0 / (12.0 * a))
+    }
+}
+
 /// MAGSAC-style scoring: uses a soft inlier/outlier threshold with marginalization.
 ///
 /// This implementation uses an improved approximation of MAGSAC's marginalization
@@ -196,7 +214,7 @@ where
         // For small x, use series expansion
         if x < 1.0 {
             // Γ(a, x) ≈ Γ(a) - x^a * e^(-x) * (1 + x/(a+1) + ...)
-            let gamma_a = self.approximate_gamma(a);
+            let gamma_a = approximate_gamma(a);
             let x_pow_a = x.powf(a);
             let exp_neg_x = (-x).exp();
             let series = 1.0 + x / (a + 1.0) + x * x / ((a + 1.0) * (a + 2.0));
@@ -208,24 +226,6 @@ where
             let exp_neg_x = (-x).exp();
             let asymptotic = 1.0 + (a - 1.0) / x;
             x_pow_a_minus_1 * exp_neg_x * asymptotic
-        }
-    }
-
-    /// Approximate gamma function using Stirling's approximation for a > 0
-    fn approximate_gamma(&self, a: f64) -> f64 {
-        if a <= 0.0 {
-            return 1.0;
-        }
-        if a < 0.5 {
-            // Use reflection formula: Γ(1-z) = π / (Γ(z) * sin(πz))
-            let z = 1.0 - a;
-            let gamma_z = self.approximate_gamma(z);
-            std::f64::consts::PI / (gamma_z * (std::f64::consts::PI * a).sin())
-        } else {
-            // Stirling's approximation: Γ(a) ≈ sqrt(2π/a) * (a/e)^a * (1 + 1/(12a) + ...)
-            let sqrt_2pi = (2.0 * std::f64::consts::PI).sqrt();
-            let base = (sqrt_2pi / a).sqrt() * (a / std::f64::consts::E).powf(a);
-            base * (1.0 + 1.0 / (12.0 * a))
         }
     }
 
@@ -244,7 +244,7 @@ where
 
             // Approximate lower incomplete gamma: γ(a, x) = Γ(a) - Γ(a, x)
             // For small x: γ(a, x) ≈ x^a / a * (1 - x/(a+1) + ...)
-            let gamma_a = self.approximate_gamma(n_plus_1_per_2);
+            let gamma_a = approximate_gamma(n_plus_1_per_2);
             let upper_gamma_lower =
                 self.approximate_upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
             let lower_gamma = gamma_a - upper_gamma_lower;
@@ -418,11 +418,11 @@ where
         let mut logc_n = vec![0.0; n + 1];
         let mut logc_k = vec![0.0; n + 1];
 
-        for k in 0..=n {
-            logc_n[k] = self.log_combi(k, n, &log10_table);
+        for (k, logc_n_val) in logc_n.iter_mut().enumerate() {
+            *logc_n_val = self.log_combi(k, n, &log10_table);
         }
-        for k_val in 0..=n {
-            logc_k[k_val] = self.log_combi(self.minimal_sample_size, k_val, &log10_table);
+        for (k_val, logc_k_val) in logc_k.iter_mut().enumerate() {
+            *logc_k_val = self.log_combi(self.minimal_sample_size, k_val, &log10_table);
         }
 
         // Compute log epsilon 0

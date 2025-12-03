@@ -49,32 +49,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shuffled_points[(new_idx, 1)] = points[(old_idx, 1)];
     }
 
-    println!("Generated {} inliers and {} outliers", n_inliers, n_outliers);
-    println!("True line: y = {:.2}x + {:.2}\n", true_slope, true_intercept);
+    println!(
+        "Generated {} inliers and {} outliers",
+        n_inliers, n_outliers
+    );
+    println!(
+        "True line: y = {:.2}x + {:.2}\n",
+        true_slope, true_intercept
+    );
 
     // Estimate line using RANSAC
     let threshold = 0.2; // Distance threshold
     let result = estimate_line(&shuffled_points, threshold, None)?;
 
     println!("RANSAC Linear Regression Results:");
-    println!("  Found {} inliers out of {} points", result.inliers.len(), n_total);
-    println!("  Inlier ratio: {:.2}%",
-             100.0 * result.inliers.len() as f64 / n_total as f64);
+    println!(
+        "  Found {} inliers out of {} points",
+        result.inliers.len(),
+        n_total
+    );
+    println!(
+        "  Inlier ratio: {:.2}%",
+        100.0 * result.inliers.len() as f64 / n_total as f64
+    );
     println!("  Score: {:?}", result.score);
     println!("  Iterations: {}", result.iterations);
 
     // Display estimated line
     let line = &result.model;
     let params = line.params();
-    println!("\nEstimated line: {:.4}x + {:.4}y + {:.4} = 0",
-             params[0], params[1], params[2]);
+    println!(
+        "\nEstimated line: {:.4}x + {:.4}y + {:.4} = 0",
+        params[0], params[1], params[2]
+    );
 
     // Convert to slope-intercept form for comparison
     if let Some((slope, intercept)) = line.to_slope_intercept() {
-        println!("  In slope-intercept form: y = {:.4}x + {:.4}", slope, intercept);
-        println!("  True line: y = {:.4}x + {:.4}", true_slope, true_intercept);
+        println!(
+            "  In slope-intercept form: y = {:.4}x + {:.4}",
+            slope, intercept
+        );
+        println!(
+            "  True line: y = {:.4}x + {:.4}",
+            true_slope, true_intercept
+        );
         println!("  Error in slope: {:.4}", (slope - true_slope).abs());
-        println!("  Error in intercept: {:.4}", (intercept - true_intercept).abs());
+        println!(
+            "  Error in intercept: {:.4}",
+            (intercept - true_intercept).abs()
+        );
     }
 
     // Count how many true inliers were found
@@ -88,8 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             found_inliers += 1;
         }
     }
-    println!("\nCorrectly identified {} out of {} true inliers",
-             found_inliers, n_inliers);
+    println!(
+        "\nCorrectly identified {} out of {} true inliers",
+        found_inliers, n_inliers
+    );
 
     // Create plot and save to image
     let output_file = "linear_regression_result.png";
@@ -97,7 +122,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     root.fill(&WHITE).unwrap();
 
     let mut chart = ChartBuilder::on(&root)
-        .caption("Robust Linear Regression with RANSAC", ("sans-serif", 40).into_font())
+        .caption(
+            "Robust Linear Regression with RANSAC",
+            ("sans-serif", 40).into_font(),
+        )
         .margin(10)
         .x_label_area_size(40)
         .y_label_area_size(50)
@@ -112,23 +140,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Plot outliers (red)
     for i in 0..n_total {
         if !inlier_set.contains(&i) {
-            chart.draw_series(std::iter::once(Circle::new(
-                (shuffled_points[(i, 0)], shuffled_points[(i, 1)]),
-                3,
-                RED.filled(),
-            )))
-            .unwrap();
+            chart
+                .draw_series(std::iter::once(Circle::new(
+                    (shuffled_points[(i, 0)], shuffled_points[(i, 1)]),
+                    3,
+                    RED.filled(),
+                )))
+                .unwrap();
         }
     }
 
     // Plot inliers (green)
     for &idx in &result.inliers {
-        chart.draw_series(std::iter::once(Circle::new(
-            (shuffled_points[(idx, 0)], shuffled_points[(idx, 1)]),
-            3,
-            GREEN.filled(),
-        )))
-        .unwrap();
+        chart
+            .draw_series(std::iter::once(Circle::new(
+                (shuffled_points[(idx, 0)], shuffled_points[(idx, 1)]),
+                3,
+                GREEN.filled(),
+            )))
+            .unwrap();
     }
 
     // Plot true line (blue, dashed)
