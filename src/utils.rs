@@ -22,7 +22,7 @@ where
 impl<T> Default for UniformRandomGenerator<T>
 where
     T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
- {
+{
     fn default() -> Self {
         Self::new()
     }
@@ -141,7 +141,10 @@ mod tests {
 /// The matrix `augmented` should be [A | b] where A is n x n and b is n x 1.
 /// The result is stored in `result`.
 /// This matches the C++ `gaussElimination` implementation.
-pub fn gauss_elimination(augmented: &mut nalgebra::DMatrix<f64>, result: &mut nalgebra::DVector<f64>) -> bool {
+pub fn gauss_elimination(
+    augmented: &mut nalgebra::DMatrix<f64>,
+    result: &mut nalgebra::DVector<f64>,
+) -> bool {
     let n = augmented.nrows();
     if n != augmented.ncols() - 1 || n != result.len() {
         return false;
@@ -233,7 +236,6 @@ pub fn solve_cubic_real(c2: f64, c1: f64, c0: f64, roots: &mut [f64; 3]) -> usiz
 /// Sturm sequence-based polynomial root finder for high-degree polynomials.
 /// This is a simplified implementation for degree 10 polynomials (used in 5-point Nister solver).
 pub mod sturm {
-
 
     /// Evaluate polynomial using Horner's method.
     /// Assumes that coeffs[degree] = 1.0 (monic polynomial)

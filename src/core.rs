@@ -166,14 +166,20 @@ where
         }
 
         // Refit model using all inliers with non-minimal estimation (like C++)
-        let refined_models = self.estimator.estimate_model_nonminimal(data, inliers, None);
+        let refined_models = self
+            .estimator
+            .estimate_model_nonminimal(data, inliers, None);
 
         if refined_models.is_empty() {
             // Fallback to original model if refitting fails
             (model.clone(), best_score.clone(), inliers.to_vec())
         } else {
             // Use the first refined model
-            (refined_models[0].clone(), best_score.clone(), inliers.to_vec())
+            (
+                refined_models[0].clone(),
+                best_score.clone(),
+                inliers.to_vec(),
+            )
         }
     }
 }
@@ -222,7 +228,9 @@ where
 
         for _iteration in 0..self.max_iterations {
             // Refit using current inliers
-            let refined_models = self.estimator.estimate_model_nonminimal(data, &current_inliers, None);
+            let refined_models =
+                self.estimator
+                    .estimate_model_nonminimal(data, &current_inliers, None);
 
             if refined_models.is_empty() {
                 break;
@@ -337,7 +345,9 @@ where
             }
 
             // Estimate model from sample
-            let refined_models = self.estimator.estimate_model_nonminimal(data, &sample, None);
+            let refined_models = self
+                .estimator
+                .estimate_model_nonminimal(data, &sample, None);
             if refined_models.is_empty() {
                 continue;
             }
@@ -448,7 +458,9 @@ where
             let weights = self.compute_weights(data, &current_model, inliers);
 
             // Refit with weighted least squares
-            let refined_models = self.estimator.estimate_model_nonminimal(data, inliers, Some(&weights));
+            let refined_models =
+                self.estimator
+                    .estimate_model_nonminimal(data, inliers, Some(&weights));
             if refined_models.is_empty() {
                 break;
             }
@@ -573,12 +585,18 @@ where
             .collect();
 
         // Refit model with computed weights
-        let refined_models = self.estimator.estimate_model_nonminimal(data, inliers, Some(&weights));
+        let refined_models =
+            self.estimator
+                .estimate_model_nonminimal(data, inliers, Some(&weights));
         if refined_models.is_empty() {
             return (model.clone(), best_score.clone(), inliers.to_vec());
         }
 
-        (refined_models[0].clone(), best_score.clone(), inliers.to_vec())
+        (
+            refined_models[0].clone(),
+            best_score.clone(),
+            inliers.to_vec(),
+        )
     }
 }
 

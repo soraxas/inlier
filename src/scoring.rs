@@ -24,7 +24,10 @@ pub struct Score {
 
 impl Score {
     pub fn new(inlier_count: usize, value: f64) -> Self {
-        Self { inlier_count, value }
+        Self {
+            inlier_count,
+            value,
+        }
     }
 }
 
@@ -65,12 +68,7 @@ where
         self.threshold
     }
 
-    fn score(
-        &self,
-        data: &DataMatrix,
-        model: &M,
-        inliers_out: &mut Vec<usize>,
-    ) -> Self::Score {
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
         let n = data.nrows();
         let thresh_sq = self.threshold * self.threshold;
         inliers_out.clear();
@@ -126,12 +124,7 @@ where
         self.threshold
     }
 
-    fn score(
-        &self,
-        data: &DataMatrix,
-        model: &M,
-        inliers_out: &mut Vec<usize>,
-    ) -> Self::Score {
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
         let n = data.nrows();
         let thresh_sq = self.threshold * self.threshold;
         inliers_out.clear();
@@ -181,7 +174,7 @@ where
             threshold,
             residual_fn,
             sigma_max: threshold * 2.0, // Default: 2x threshold
-            degrees_of_freedom: 2, // Default: 2D residuals
+            degrees_of_freedom: 2,      // Default: 2D residuals
             _marker: std::marker::PhantomData,
         }
     }
@@ -252,11 +245,13 @@ where
             // Approximate lower incomplete gamma: γ(a, x) = Γ(a) - Γ(a, x)
             // For small x: γ(a, x) ≈ x^a / a * (1 - x/(a+1) + ...)
             let gamma_a = self.approximate_gamma(n_plus_1_per_2);
-            let upper_gamma_lower = self.approximate_upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
+            let upper_gamma_lower =
+                self.approximate_upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
             let lower_gamma = gamma_a - upper_gamma_lower;
 
             // Upper incomplete gamma approximation
-            let upper_gamma = self.approximate_upper_incomplete_gamma(n_minus_1_per_2, residual_norm);
+            let upper_gamma =
+                self.approximate_upper_incomplete_gamma(n_minus_1_per_2, residual_norm);
             let value0 = self.approximate_upper_incomplete_gamma(n_minus_1_per_2, 0.0);
 
             // MAGSAC loss formula (simplified)
@@ -278,12 +273,7 @@ where
         self.threshold
     }
 
-    fn score(
-        &self,
-        data: &DataMatrix,
-        model: &M,
-        inliers_out: &mut Vec<usize>,
-    ) -> Self::Score {
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
         let n = data.nrows();
         let thresh_sq = self.threshold * self.threshold;
         inliers_out.clear();
@@ -389,12 +379,7 @@ where
         self.initial_threshold
     }
 
-    fn score(
-        &self,
-        data: &DataMatrix,
-        model: &M,
-        inliers_out: &mut Vec<usize>,
-    ) -> Self::Score {
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
         let n = data.nrows();
         inliers_out.clear();
 
@@ -456,7 +441,9 @@ where
             }
 
             // Count inliers up to current threshold
-            while current_max_idx < residuals.len() && residuals[current_max_idx].0 <= current_threshold {
+            while current_max_idx < residuals.len()
+                && residuals[current_max_idx].0 <= current_threshold
+            {
                 current_max_idx += 1;
             }
 
@@ -465,7 +452,8 @@ where
             }
 
             // Compute NFA: log_e0 + log_alpha * (k - m) + logc_n[k] + logc_k[k]
-            let log_alpha = self.log_alpha0 + self.mult_error * (current_threshold + f64::EPSILON).log10();
+            let log_alpha =
+                self.log_alpha0 + self.mult_error * (current_threshold + f64::EPSILON).log10();
             let k = current_max_idx;
             let nfa = log_e0
                 + log_alpha * (k - self.minimal_sample_size) as f64

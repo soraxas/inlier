@@ -4,6 +4,7 @@
 //! similar to the Python API.
 
 use crate::core::SuperRansac;
+use crate::core::{LeastSquaresOptimizer, NoopInlierSelector};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     RigidTransformEstimator,
@@ -11,7 +12,6 @@ use crate::estimators::{
 use crate::models::{AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, RigidTransform};
 use crate::samplers::UniformRandomSampler;
 use crate::scoring::{RansacInlierCountScoring, Score};
-use crate::core::{NoopInlierSelector, LeastSquaresOptimizer};
 use crate::settings::RansacSettings;
 use crate::types::DataMatrix;
 use nalgebra::{DMatrix, Vector2, Vector3};
@@ -81,9 +81,7 @@ pub fn estimate_homography(
     });
     let local_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion {
-        confidence: 0.99,
-    };
+    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
     let inlier_selector = NoopInlierSelector;
 
     let settings = settings.unwrap_or_default();
@@ -146,17 +144,16 @@ pub fn estimate_fundamental_matrix(
 
     let estimator = FundamentalEstimator::new();
     let sampler = UniformRandomSampler::new();
-    let scoring = RansacInlierCountScoring::new(threshold, |data, model: &FundamentalMatrix, idx| {
-        // Compute Sampson error
-        let p1 = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
-        let p2 = Vector2::new(data[(idx, 2)], data[(idx, 3)]);
-        crate::bundle_adjustment::sampson_error(&model.f, &p1, &p2)
-    });
+    let scoring =
+        RansacInlierCountScoring::new(threshold, |data, model: &FundamentalMatrix, idx| {
+            // Compute Sampson error
+            let p1 = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
+            let p2 = Vector2::new(data[(idx, 2)], data[(idx, 3)]);
+            crate::bundle_adjustment::sampson_error(&model.f, &p1, &p2)
+        });
     let local_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion {
-        confidence: 0.99,
-    };
+    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
     let inlier_selector = NoopInlierSelector;
 
     let settings = settings.unwrap_or_default();
@@ -227,9 +224,7 @@ pub fn estimate_essential_matrix(
     });
     let local_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion {
-        confidence: 0.99,
-    };
+    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
     let inlier_selector = NoopInlierSelector;
 
     let settings = settings.unwrap_or_default();
@@ -306,9 +301,7 @@ pub fn estimate_absolute_pose(
     });
     let local_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion {
-        confidence: 0.99,
-    };
+    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
     let inlier_selector = NoopInlierSelector;
 
     let settings = settings.unwrap_or_default();
@@ -383,9 +376,7 @@ pub fn estimate_rigid_transform(
     });
     let local_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion {
-        confidence: 0.99,
-    };
+    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
     let inlier_selector = NoopInlierSelector;
 
     let settings = settings.unwrap_or_default();

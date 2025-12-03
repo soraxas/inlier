@@ -4,7 +4,7 @@
 //! geometric models using argmin.
 
 use argmin::core::{CostFunction, Gradient};
-use nalgebra::{Matrix3, Vector2, Vector3, DVector, UnitQuaternion, Quaternion};
+use nalgebra::{DVector, Matrix3, Quaternion, UnitQuaternion, Vector2, Vector3};
 
 /// Sampson error for fundamental matrix refinement.
 /// Minimizes the Sampson distance: r = (x2^T * F * x1) / ||J_C||
@@ -21,10 +21,10 @@ pub fn sampson_error(f: &Matrix3<f64>, x1: &Vector2<f64>, x2: &Vector2<f64>) -> 
     //                      F.block<2, 3>(0, 0) * x1[k].homogeneous();
     // F.block<3,2>(0,0) is first 2 columns, F.block<2,3>(0,0) is first 2 rows
     let f_cols_01 = f.columns(0, 2); // First 2 columns (3x2)
-    let f_rows_01 = f.rows(0, 2);     // First 2 rows (2x3)
+    let f_rows_01 = f.rows(0, 2); // First 2 rows (2x3)
 
     let f_t_x2_part = f_cols_01.transpose() * x2_home; // 2x1
-    let f_x1_part = f_rows_01 * x1_home;                // 2x1
+    let f_x1_part = f_rows_01 * x1_home; // 2x1
 
     // Build 4D J_C vector: [f_t_x2_part[0], f_t_x2_part[1], f_x1_part[0], f_x1_part[1]]
     let j_c_0 = f_t_x2_part[0];
@@ -91,8 +91,10 @@ impl FactorizedFundamentalMatrix {
         }
 
         // Convert to quaternions
-        let q_u = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(u));
-        let q_v = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(v));
+        let q_u =
+            UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(u));
+        let q_v =
+            UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(v));
 
         // Normalize: use s[1]/s[0] as sigma, set s[0] = 1
         let sigma = if s[0] > 1e-10 { s[1] / s[0] } else { 1.0 };
@@ -137,16 +139,16 @@ impl FactorizedFundamentalMatrix {
             return;
         }
 
-    // Reconstruct quaternions from imaginary parts (assuming real part is positive)
-    let q_u_imag = Vector3::new(params[0], params[1], params[2]);
-    let q_u_w = (1.0 - q_u_imag.norm_squared()).max(0.0).sqrt();
-    let q_u = Quaternion::new(q_u_w, q_u_imag.x, q_u_imag.y, q_u_imag.z);
-    self.q_u = UnitQuaternion::from_quaternion(q_u.normalize());
+        // Reconstruct quaternions from imaginary parts (assuming real part is positive)
+        let q_u_imag = Vector3::new(params[0], params[1], params[2]);
+        let q_u_w = (1.0 - q_u_imag.norm_squared()).max(0.0).sqrt();
+        let q_u = Quaternion::new(q_u_w, q_u_imag.x, q_u_imag.y, q_u_imag.z);
+        self.q_u = UnitQuaternion::from_quaternion(q_u.normalize());
 
-    let q_v_imag = Vector3::new(params[3], params[4], params[5]);
-    let q_v_w = (1.0 - q_v_imag.norm_squared()).max(0.0).sqrt();
-    let q_v = Quaternion::new(q_v_w, q_v_imag.x, q_v_imag.y, q_v_imag.z);
-    self.q_v = UnitQuaternion::from_quaternion(q_v.normalize());
+        let q_v_imag = Vector3::new(params[3], params[4], params[5]);
+        let q_v_w = (1.0 - q_v_imag.norm_squared()).max(0.0).sqrt();
+        let q_v = Quaternion::new(q_v_w, q_v_imag.x, q_v_imag.y, q_v_imag.z);
+        self.q_v = UnitQuaternion::from_quaternion(q_v.normalize());
 
         self.sigma = params[6];
     }
@@ -182,7 +184,9 @@ impl CostFunction for FundamentalCostFunction {
         let mut total_cost = 0.0;
         for i in 0..self.x1.len() {
             let error = sampson_error(&f, &self.x1[i], &self.x2[i]);
-            let weight = self.weights.as_ref()
+            let weight = self
+                .weights
+                .as_ref()
                 .and_then(|w| w.get(i))
                 .copied()
                 .unwrap_or(1.0);
@@ -305,9 +309,7 @@ impl CostFunction for AbsolutePoseCostFunction {
         } else {
             let axis = axis_angle / angle;
             let k = nalgebra::Matrix3::new(
-                0.0, -axis.z, axis.y,
-                axis.z, 0.0, -axis.x,
-                -axis.y, axis.x, 0.0,
+                0.0, -axis.z, axis.y, axis.z, 0.0, -axis.x, -axis.y, axis.x, 0.0,
             );
             Matrix3::identity() + angle.sin() * k + (1.0 - angle.cos()) * (k * k)
         };
@@ -316,7 +318,9 @@ impl CostFunction for AbsolutePoseCostFunction {
         let mut total_cost = 0.0;
         for i in 0..self.points_2d.len() {
             let error = reprojection_error(&r, &t, &self.points_2d[i], &self.points_3d[i]);
-            let weight = self.weights.as_ref()
+            let weight = self
+                .weights
+                .as_ref()
                 .and_then(|w| w.get(i))
                 .copied()
                 .unwrap_or(1.0);
@@ -403,17 +407,23 @@ pub fn refine_absolute_pose(
     let optimized_params = current_params;
 
     // Reconstruct rotation and translation
-    let axis_angle = Vector3::new(optimized_params[0], optimized_params[1], optimized_params[2]);
+    let axis_angle = Vector3::new(
+        optimized_params[0],
+        optimized_params[1],
+        optimized_params[2],
+    );
     let angle = axis_angle.norm();
     if angle > 1e-10 {
         let axis = axis_angle / angle;
         let k = nalgebra::Matrix3::new(
-            0.0, -axis.z, axis.y,
-            axis.z, 0.0, -axis.x,
-            -axis.y, axis.x, 0.0,
+            0.0, -axis.z, axis.y, axis.z, 0.0, -axis.x, -axis.y, axis.x, 0.0,
         );
         *r = Matrix3::identity() + angle.sin() * k + (1.0 - angle.cos()) * (k * k);
     }
-    *t = Vector3::new(optimized_params[3], optimized_params[4], optimized_params[5]);
+    *t = Vector3::new(
+        optimized_params[3],
+        optimized_params[4],
+        optimized_params[5],
+    );
     true
 }

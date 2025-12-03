@@ -9,8 +9,8 @@
 use crate::core::Sampler;
 use crate::types::DataMatrix;
 use crate::utils::UniformRandomGenerator;
-use rand::distributions::{Distribution, WeightedIndex};
 use rand::SeedableRng;
+use rand::distributions::{Distribution, WeightedIndex};
 use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
 
 /// Uniform random sampler drawing minimal samples without replacement.
@@ -41,12 +41,7 @@ impl UniformRandomSampler {
 }
 
 impl Sampler for UniformRandomSampler {
-    fn sample(
-        &mut self,
-        data: &DataMatrix,
-        sample_size: usize,
-        out_indices: &mut [usize],
-    ) -> bool {
+    fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         let n = data.nrows();
         if sample_size == 0 || n == 0 || sample_size > n || out_indices.len() < sample_size {
             return false;
@@ -82,12 +77,9 @@ pub struct ImportanceSampler {
 impl ImportanceSampler {
     /// Construct a new importance sampler from a probability vector and a
     /// random seed.
-    pub fn from_probabilities_with_seed(
-        probabilities: &[f64],
-        seed: u64,
-    ) -> Self {
-        let dist = WeightedIndex::new(probabilities)
-            .expect("ImportanceSampler: invalid weight vector");
+    pub fn from_probabilities_with_seed(probabilities: &[f64], seed: u64) -> Self {
+        let dist =
+            WeightedIndex::new(probabilities).expect("ImportanceSampler: invalid weight vector");
         let rng = rand::rngs::StdRng::seed_from_u64(seed);
         Self { dist, rng }
     }
@@ -95,20 +87,15 @@ impl ImportanceSampler {
     /// Construct a new importance sampler from a probability vector using
     /// an OS-provided random seed.
     pub fn from_probabilities(probabilities: &[f64]) -> Self {
-        let dist = WeightedIndex::new(probabilities)
-            .expect("ImportanceSampler: invalid weight vector");
+        let dist =
+            WeightedIndex::new(probabilities).expect("ImportanceSampler: invalid weight vector");
         let rng = rand::rngs::StdRng::from_entropy();
         Self { dist, rng }
     }
 }
 
 impl Sampler for ImportanceSampler {
-    fn sample(
-        &mut self,
-        data: &DataMatrix,
-        sample_size: usize,
-        out_indices: &mut [usize],
-    ) -> bool {
+    fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         let n = data.nrows();
         if sample_size == 0 || n == 0 || out_indices.len() < sample_size {
             return false;
@@ -217,10 +204,8 @@ impl ProsacSampler {
                 self.growth_function[i] = t_n_prime;
                 continue;
             }
-            let t_n_plus1 =
-                (i + 1) as f64 * t_n / (i + 1 - sample_size) as f64;
-            self.growth_function[i] =
-                t_n_prime + ((t_n_plus1 - t_n).ceil() as usize);
+            let t_n_plus1 = (i + 1) as f64 * t_n / (i + 1 - sample_size) as f64;
+            self.growth_function[i] = t_n_prime + ((t_n_plus1 - t_n).ceil() as usize);
             t_n = t_n_plus1;
             t_n_prime = self.growth_function[i];
         }
@@ -336,7 +321,10 @@ impl NeighborhoodGraph for GridNeighborhoodGraph {
         }
 
         let cell_idx = self.point_to_cell[index];
-        self.grid.get(&cell_idx).map(|v| v.as_slice()).unwrap_or(&self.empty)
+        self.grid
+            .get(&cell_idx)
+            .map(|v| v.as_slice())
+            .unwrap_or(&self.empty)
     }
 
     fn initialize(&mut self, data: &DataMatrix) {
@@ -523,12 +511,7 @@ impl<N: NeighborhoodGraph> NapsacSampler<N> {
 }
 
 impl<N: NeighborhoodGraph> Sampler for NapsacSampler<N> {
-    fn sample(
-        &mut self,
-        data: &DataMatrix,
-        sample_size: usize,
-        out_indices: &mut [usize],
-    ) -> bool {
+    fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         let n = data.nrows();
         if sample_size == 0 || n == 0 || sample_size > n || out_indices.len() < sample_size {
             return false;
@@ -560,8 +543,7 @@ impl<N: NeighborhoodGraph> Sampler for NapsacSampler<N> {
             // Otherwise, randomly pick (sample_size - 1) distinct neighbors
             // and include the center itself.
             let mut neighbor_indices = vec![0usize; sample_size - 1];
-            self.rng
-                .gen_unique_current(&mut neighbor_indices[..]);
+            self.rng.gen_unique_current(&mut neighbor_indices[..]);
 
             out_indices[0] = center;
             for (dst, &ni) in out_indices[1..].iter_mut().zip(neighbor_indices.iter()) {
@@ -652,12 +634,7 @@ impl AdaptiveReorderingSampler {
 }
 
 impl Sampler for AdaptiveReorderingSampler {
-    fn sample(
-        &mut self,
-        data: &DataMatrix,
-        sample_size: usize,
-        out_indices: &mut [usize],
-    ) -> bool {
+    fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         let n = data.nrows();
         if sample_size == 0 || n == 0 || out_indices.len() < sample_size {
             return false;
@@ -688,8 +665,7 @@ impl Sampler for AdaptiveReorderingSampler {
                 let (ref mut p, _point_idx, ref mut appearance, a, b) = *entry;
                 *appearance += 1;
 
-                let base =
-                    (a / (a + b + (*appearance as f64))).abs();
+                let base = (a / (a + b + (*appearance as f64))).abs();
                 let jitter: f64 = self
                     .rng
                     .gen_range(-self.randomness_half..self.randomness_half);
@@ -697,20 +673,14 @@ impl Sampler for AdaptiveReorderingSampler {
                 updated = updated.max(0.0).min(0.999);
 
                 *p = updated;
-                self.queue
-                    .push((ordered_float::OrderedFloat(updated), idx));
+                self.queue.push((ordered_float::OrderedFloat(updated), idx));
             }
         }
     }
 }
 
 impl Sampler for ProsacSampler {
-    fn sample(
-        &mut self,
-        data: &DataMatrix,
-        sample_size: usize,
-        out_indices: &mut [usize],
-    ) -> bool {
+    fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         let n = data.nrows();
         if sample_size == 0 || n == 0 || sample_size > n || out_indices.len() < sample_size {
             return false;
@@ -736,8 +706,7 @@ impl Sampler for ProsacSampler {
 
         if self.kth_sample_number > self.ransac_convergence_iterations {
             // Fall back to RANSAC: draw a uniform random sample.
-            self.rng
-                .gen_unique_current(&mut out_indices[..sample_size]);
+            self.rng.gen_unique_current(&mut out_indices[..sample_size]);
             return true;
         }
 
@@ -845,8 +814,7 @@ mod tests {
         for p in &mut probs[num_points / 2..] {
             *p = 0.2;
         }
-        let mut sampler =
-            AdaptiveReorderingSampler::new_with_seed(&probs, 0.9765, 0.01, 123);
+        let mut sampler = AdaptiveReorderingSampler::new_with_seed(&probs, 0.9765, 0.01, 123);
 
         let sample_size = 3;
         let mut indices = vec![0usize; sample_size];
@@ -911,7 +879,7 @@ mod tests {
 
     #[test]
     fn usearch_neighborhood_graph_finds_neighbors() {
-        use super::{UsearchNeighborhoodGraph, NeighborhoodGraph};
+        use super::{NeighborhoodGraph, UsearchNeighborhoodGraph};
 
         // Create 2D data with points in a grid pattern
         let n = 25; // 5x5 grid
@@ -933,7 +901,10 @@ mod tests {
             assert!(neighbors.len() <= 4, "Should have at most 4 neighbors");
             // Points in the grid should have neighbors
             if i > 0 && i < n - 1 {
-                assert!(!neighbors.is_empty(), "Interior points should have neighbors");
+                assert!(
+                    !neighbors.is_empty(),
+                    "Interior points should have neighbors"
+                );
             }
         }
     }
@@ -1028,19 +999,13 @@ impl<N: NeighborhoodGraph> ProgressiveNapsacSampler<N> {
     fn initialize(&mut self, point_number: usize) {
         self.point_number = point_number;
         self.one_point_prosac.initialize(point_number, 1);
-        self.max_progressive_iterations =
-            (self.sampler_length * point_number as f64) as usize;
+        self.max_progressive_iterations = (self.sampler_length * point_number as f64) as usize;
         self.initialized = true;
     }
 }
 
 impl<N: NeighborhoodGraph> Sampler for ProgressiveNapsacSampler<N> {
-    fn sample(
-        &mut self,
-        data: &DataMatrix,
-        sample_size: usize,
-        out_indices: &mut [usize],
-    ) -> bool {
+    fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         let n = data.nrows();
         if sample_size == 0 || n == 0 || sample_size > n || out_indices.len() < sample_size {
             return false;
@@ -1087,14 +1052,10 @@ impl<N: NeighborhoodGraph> Sampler for ProgressiveNapsacSampler<N> {
         true
     }
 
-    fn update(
-        &mut self,
-        sample: &[usize],
-        sample_size: usize,
-        iteration: usize,
-        score_hint: f64,
-    ) {
-        self.one_point_prosac.update(sample, 1, iteration, score_hint);
-        self.napsac.update(sample, sample_size, iteration, score_hint);
+    fn update(&mut self, sample: &[usize], sample_size: usize, iteration: usize, score_hint: f64) {
+        self.one_point_prosac
+            .update(sample, 1, iteration, score_hint);
+        self.napsac
+            .update(sample, sample_size, iteration, score_hint);
     }
 }

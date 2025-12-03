@@ -7,9 +7,7 @@
 
 use crate::bundle_adjustment::refine_absolute_pose;
 use crate::core::Estimator;
-use crate::models::{
-    AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, RigidTransform,
-};
+use crate::models::{AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, RigidTransform};
 use crate::types::DataMatrix;
 use crate::utils::{gauss_elimination, solve_cubic_real};
 use nalgebra::{DMatrix, DVector, Matrix3, SVD, Vector2, Vector3};
@@ -379,23 +377,25 @@ impl FundamentalEstimator {
         let f2_8 = f2[idx(2, 2)];
 
         // Compute cubic coefficients (matching C++ code exactly)
-        c3 = f1_0 * (f1_4 * f1_8 - f1_5 * f1_7) - f1_1 * (f1_3 * f1_8 - f1_5 * f1_6) + f1_2 * (f1_3 * f1_7 - f1_4 * f1_6);
+        c3 = f1_0 * (f1_4 * f1_8 - f1_5 * f1_7) - f1_1 * (f1_3 * f1_8 - f1_5 * f1_6)
+            + f1_2 * (f1_3 * f1_7 - f1_4 * f1_6);
 
-        c2 = f1_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7) +
-             f2_0 * (f1_4 * f1_8 - f1_5 * f1_7) -
-             f1_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6) -
-             f2_1 * (f1_3 * f1_8 - f1_5 * f1_6) +
-             f1_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6) +
-             f2_2 * (f1_3 * f1_7 - f1_4 * f1_6);
+        c2 = f1_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7)
+            + f2_0 * (f1_4 * f1_8 - f1_5 * f1_7)
+            - f1_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6)
+            - f2_1 * (f1_3 * f1_8 - f1_5 * f1_6)
+            + f1_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6)
+            + f2_2 * (f1_3 * f1_7 - f1_4 * f1_6);
 
-        c1 = f1_0 * (f2_4 * f2_8 - f2_5 * f2_7) +
-             f2_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7) -
-             f1_1 * (f2_3 * f2_8 - f2_5 * f2_6) -
-             f2_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6) +
-             f1_2 * (f2_3 * f2_7 - f2_4 * f2_6) +
-             f2_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6);
+        c1 = f1_0 * (f2_4 * f2_8 - f2_5 * f2_7)
+            + f2_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7)
+            - f1_1 * (f2_3 * f2_8 - f2_5 * f2_6)
+            - f2_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6)
+            + f1_2 * (f2_3 * f2_7 - f2_4 * f2_6)
+            + f2_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6);
 
-        c0 = f2_0 * (f2_4 * f2_8 - f2_5 * f2_7) - f2_1 * (f2_3 * f2_8 - f2_5 * f2_6) + f2_2 * (f2_3 * f2_7 - f2_4 * f2_6);
+        c0 = f2_0 * (f2_4 * f2_8 - f2_5 * f2_7) - f2_1 * (f2_3 * f2_8 - f2_5 * f2_6)
+            + f2_2 * (f2_3 * f2_7 - f2_4 * f2_6);
 
         // Normalize polynomial (divide by c3 to get monic form)
         if c3.abs() < 1e-10_f64 {
@@ -649,7 +649,11 @@ impl EssentialEstimator {
     ///
     /// This would require ~500+ lines of code. For now, we fall back to
     /// 8-point + constraints which works well in practice.
-    fn estimate_five_point_nister(&self, data: &DataMatrix, sample: &[usize]) -> Vec<EssentialMatrix> {
+    fn estimate_five_point_nister(
+        &self,
+        data: &DataMatrix,
+        sample: &[usize],
+    ) -> Vec<EssentialMatrix> {
         // Fall back to 8-point approach with constraints
         // This is a reasonable approximation for most use cases
         let fundamental_est = FundamentalEstimator::new();
@@ -821,7 +825,7 @@ impl Estimator for AbsolutePoseEstimator {
         // For a proper implementation, we'd solve the P3P polynomial system
         // Here we use a simplified approach: estimate pose using 3D-2D correspondences
 
-        use nalgebra::{DMatrix, Vector3, Matrix3, SVD};
+        use nalgebra::{DMatrix, Matrix3, SVD, Vector3};
 
         // Build system: For each point, we have:
         // [u, v, 1]^T = K * [R | t] * [X, Y, Z, 1]^T
@@ -939,8 +943,19 @@ impl Estimator for AbsolutePoseEstimator {
                 }
             }
 
-            let weights_slice = if weights_vec.is_empty() { None } else { Some(weights_vec.as_slice()) };
-            refine_absolute_pose(&points_2d, &points_3d, &mut r, &mut t_vec, weights_slice, 100);
+            let weights_slice = if weights_vec.is_empty() {
+                None
+            } else {
+                Some(weights_vec.as_slice())
+            };
+            refine_absolute_pose(
+                &points_2d,
+                &points_3d,
+                &mut r,
+                &mut t_vec,
+                weights_slice,
+                100,
+            );
         }
 
         vec![AbsolutePose::from_rt(r, t_vec)]
@@ -1137,12 +1152,7 @@ mod tests {
         let ty = 2.0;
 
         // Four perfect correspondences (x, y) -> (x + tx, y + ty).
-        let correspondences = [
-            (0.0, 0.0),
-            (1.0, 0.0),
-            (0.0, 1.0),
-            (1.0, 1.0),
-        ];
+        let correspondences = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)];
 
         let mut data = DataMatrix::zeros(4, 4);
         for (i, (x, y)) in correspondences.iter().enumerate() {
@@ -1201,7 +1211,11 @@ mod tests {
         if let Some(fundamental) = models.first() {
             // Check rank-2 constraint (determinant should be small)
             let det = fundamental.f.determinant().abs();
-            assert!(det < 1.0, "Fundamental matrix should have small determinant: {}", det);
+            assert!(
+                det < 1.0,
+                "Fundamental matrix should have small determinant: {}",
+                det
+            );
             // The validation check might be too strict, so we just check the determinant
             // which is the key property of a fundamental matrix
         }
@@ -1249,7 +1263,10 @@ mod tests {
             // Check that rotation is proper
             let r = transform.rotation.to_rotation_matrix();
             let det = r.matrix().determinant();
-            assert!((det - 1.0).abs() < 0.1, "Rotation should have determinant close to 1");
+            assert!(
+                (det - 1.0).abs() < 0.1,
+                "Rotation should have determinant close to 1"
+            );
         }
     }
 }

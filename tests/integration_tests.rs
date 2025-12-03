@@ -28,7 +28,10 @@ fn test_estimate_homography_synthetic() {
 
     // RANSAC might not always succeed with minimal synthetic data
     if let Ok(result) = result {
-        assert!(!result.inliers.is_empty(), "Should find some inliers if estimation succeeds");
+        assert!(
+            !result.inliers.is_empty(),
+            "Should find some inliers if estimation succeeds"
+        );
     }
     // If it fails, that's also acceptable for synthetic data
 }
@@ -54,7 +57,10 @@ fn test_estimate_fundamental_matrix_synthetic() {
     let threshold = 2.0;
     let result = estimate_fundamental_matrix(&points1, &points2, threshold, None);
 
-    assert!(result.is_ok(), "Fundamental matrix estimation should succeed");
+    assert!(
+        result.is_ok(),
+        "Fundamental matrix estimation should succeed"
+    );
     let result = result.unwrap();
     assert!(!result.inliers.is_empty(), "Should find some inliers");
 }
@@ -80,7 +86,10 @@ fn test_estimate_essential_matrix_synthetic() {
 
     // RANSAC might not always succeed with minimal synthetic data
     if let Ok(result) = result {
-        assert!(!result.inliers.is_empty(), "Should find some inliers if estimation succeeds");
+        assert!(
+            !result.inliers.is_empty(),
+            "Should find some inliers if estimation succeeds"
+        );
     }
 }
 
@@ -140,7 +149,10 @@ fn test_estimate_rigid_transform_synthetic() {
     assert!(result.is_ok(), "Rigid transform estimation should succeed");
     let result = result.unwrap();
     assert!(!result.inliers.is_empty(), "Should find some inliers");
-    assert!(result.inliers.len() >= n_points / 2, "Should find at least half the points as inliers");
+    assert!(
+        result.inliers.len() >= n_points / 2,
+        "Should find at least half the points as inliers"
+    );
 }
 
 #[test]
@@ -204,6 +216,9 @@ fn test_estimate_fundamental_matrix_insufficient_points() {
     // Should either succeed (if it can find a model) or fail gracefully
     // We don't assert failure here since RANSAC might still work with minimal samples
     if let Ok(result) = result {
-        assert!(!result.inliers.is_empty() || result.inliers.is_empty(), "Result should be valid");
+        assert!(
+            !result.inliers.is_empty() || result.inliers.is_empty(),
+            "Result should be valid"
+        );
     }
 }

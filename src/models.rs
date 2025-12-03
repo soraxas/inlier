@@ -51,7 +51,10 @@ pub struct AbsolutePose {
 
 impl AbsolutePose {
     pub fn new(rotation: UnitQuaternion<f64>, translation: Translation3<f64>) -> Self {
-        Self { rotation, translation }
+        Self {
+            rotation,
+            translation,
+        }
     }
 
     pub fn from_rt(r: Matrix3<f64>, t: Vector3<f64>) -> Self {
@@ -71,7 +74,10 @@ pub struct RigidTransform {
 
 impl RigidTransform {
     pub fn new(rotation: UnitQuaternion<f64>, translation: Translation3<f64>) -> Self {
-        Self { rotation, translation }
+        Self {
+            rotation,
+            translation,
+        }
     }
 
     pub fn to_matrix4(&self) -> Matrix4<f64> {
