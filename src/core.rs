@@ -467,23 +467,29 @@ where
 /// This optimizer repeatedly samples from inliers, builds models, and evaluates them
 /// to compute reliability weights for each point. Points that consistently yield
 /// low errors receive higher weights.
-pub struct CrossValidationOptimizer<E>
+pub struct CrossValidationOptimizer<E, F>
 where
     E: Estimator,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
 {
     estimator: E,
+    residual_fn: F,
+    threshold: f64,
     repetitions: usize,
     sample_size_multiplier: f64,
     use_inliers: bool,
 }
 
-impl<E> CrossValidationOptimizer<E>
+impl<E, F> CrossValidationOptimizer<E, F>
 where
     E: Estimator,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
 {
-    pub fn new(estimator: E) -> Self {
+    pub fn new(estimator: E, residual_fn: F, threshold: f64) -> Self {
         Self {
             estimator,
+            residual_fn,
+            threshold,
             repetitions: 100,
             sample_size_multiplier: 0.5,
             use_inliers: false,
@@ -505,10 +511,11 @@ where
     }
 }
 
-impl<E, S> LocalOptimizer<E::Model, S> for CrossValidationOptimizer<E>
+impl<E, F, S> LocalOptimizer<E::Model, S> for CrossValidationOptimizer<E, F>
 where
     E: Estimator,
     E::Model: Clone,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
     S: Clone,
 {
     fn run(
@@ -529,8 +536,8 @@ where
         let sample_size = (self.sample_size_multiplier * inlier_count as f64)
             .max(minimal_sample_size as f64) as usize;
 
-        // Accumulated scores for each inlier (lower is better)
-        let mut accumulated_errors = vec![0.0; inlier_count];
+        // Accumulated scores for each inlier (higher is better)
+        let mut accumulated_scores = vec![0.0; inlier_count];
         let mut rng = rand::thread_rng();
 
         // Cross-validation loop: bootstrap sample, build model, evaluate all inliers
@@ -550,27 +557,19 @@ where
 
             let bootstrap_model = &bootstrap_models[0];
 
-            // Evaluate all inliers with this model (using a simple residual function)
-            // In practice, we'd use the scoring function's residual computation
+            // Evaluate all inliers with this model and accumulate scores
+            // Score = max(0, 1 - error/threshold) as in C++
             for (i, &inlier_idx) in inliers.iter().enumerate() {
-                // Simple residual: for homography/fundamental, compute point-to-line distance
-                // This is simplified - in practice we'd use the proper residual function
-                let error = 1.0; // Placeholder - would need proper residual computation
-                accumulated_errors[i] += error;
+                let error = (self.residual_fn)(data, bootstrap_model, inlier_idx);
+                let score = (1.0 - error / self.threshold).max(0.0);
+                accumulated_scores[i] += score;
             }
         }
 
-        // Convert accumulated errors to weights (inverse relationship)
-        let max_error = accumulated_errors.iter().copied().fold(0.0, f64::max);
-        let weights: Vec<f64> = accumulated_errors
+        // Convert accumulated scores to weights (normalize by repetitions)
+        let weights: Vec<f64> = accumulated_scores
             .iter()
-            .map(|&err| {
-                if max_error > 0.0 {
-                    1.0 - (err / max_error)
-                } else {
-                    1.0
-                }
-            })
+            .map(|&score| score / self.repetitions as f64)
             .collect();
 
         // Refit model with computed weights
