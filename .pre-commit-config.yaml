@@ -30,22 +30,12 @@ repos:
       - id: shellcheck
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.39.2
+    rev: v1.40.0
     hooks:
       - id: typos
 
-  # - repo: local
-  #   hooks:
-  #     - id: cargo-fmt
-  #       name: cargo fmt
-  #       entry: cargo fmt --
-  #       language: system
-  #       types: [rust]
-  #       pass_filenames: false # This makes it a lot faster
-
-  - repo: https://github.com/soraxas/pre-commit-rust
-    # - repo: https://github.com/FeryET/pre-commit-rust
-    rev: a615316828afd24bd35c59a415523e4cc9e1e8cb
+  - repo: https://github.com/FeryET/pre-commit-rust
+    rev: v1.2.1
     hooks:
       - id: fmt
       - id: cargo-check
@@ -59,7 +49,7 @@ repos:
         types_or: [yaml, json5]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.6
+    rev: v0.14.7
     hooks:
       - id: ruff-format
       - id: ruff-check
