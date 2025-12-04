@@ -102,7 +102,7 @@ impl Sampler for AdaptiveReorderingSampler {
                 let base = (a / (a + b + (*appearance as f64))).abs();
                 let jitter: f64 = self
                     .rng
-                    .gen_range(-self.randomness_half..self.randomness_half);
+                    .random_range(-self.randomness / 2.0..self.randomness / 2.0);
                 let mut updated = base + jitter;
                 updated = updated.clamp(0.0, 0.999);
 

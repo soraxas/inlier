@@ -4,7 +4,7 @@
 //! behavior of the C++ `UniformRandomGenerator` in
 //! `include/utils/uniform_random_generator.h`.
 
-use rand::distributions::Uniform;
+use rand::distr::{Uniform, uniform};
 use rand::prelude::*;
 
 /// Uniform integer random-number generator similar to the C++ utility.
@@ -13,7 +13,7 @@ use rand::prelude::*;
 /// it from a fixed seed for reproducible behavior.
 pub struct UniformRandomGenerator<T>
 where
-    T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
+    T: Copy + uniform::SampleUniform + PartialOrd,
 {
     rng: StdRng,
     dist: Option<Uniform<T>>,
@@ -21,7 +21,7 @@ where
 
 impl<T> Default for UniformRandomGenerator<T>
 where
-    T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
+    T: Copy + uniform::SampleUniform + PartialOrd,
 {
     fn default() -> Self {
         Self::new()
@@ -31,7 +31,7 @@ where
 // implement iterator trait
 impl<T> Iterator for UniformRandomGenerator<T>
 where
-    T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
+    T: Copy + uniform::SampleUniform + PartialOrd,
 {
     type Item = T;
 
@@ -44,11 +44,12 @@ where
 
 impl<T> UniformRandomGenerator<T>
 where
-    T: Copy + rand::distributions::uniform::SampleUniform + PartialOrd,
+    T: Copy + uniform::SampleUniform + PartialOrd,
 {
     /// Construct with a random seed (suitable for production use).
     pub fn new() -> Self {
-        let rng = StdRng::from_rng(thread_rng()).expect("failed to seed StdRng");
+        let mut thread_rng = rand::rng();
+        let rng = StdRng::from_rng(&mut thread_rng);
         Self { rng, dist: None }
     }
 
@@ -60,7 +61,9 @@ where
 
     /// Reset the distribution range.
     pub fn reset(&mut self, min: T, max: T) {
-        self.dist = Some(Uniform::new_inclusive(min, max));
+        let dist =
+            Uniform::new_inclusive(min, max).expect("UniformRandomGenerator: invalid range bounds");
+        self.dist = Some(dist);
     }
 
     /// Generate a set of unique random integers in `[min, max]` into `out`.

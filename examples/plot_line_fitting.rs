@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_outliers = 1500;
     let n_total = n_inliers + n_outliers;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // True line parameters: y = mx + b
     let true_slope = -3.0;
@@ -28,14 +28,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut points = Vec::new();
     for i in 0..n_inliers {
         let x = (i as f64) * 0.2 - 5.0;
-        let y = true_slope * x + true_intercept + rng.gen_range(-0.5..0.5);
+        let y = true_slope * x + true_intercept + rng.random_range(-0.5..0.5);
         points.push((x, y));
     }
 
     // Generate outliers (random points)
     for _ in 0..n_outliers {
-        let x = rng.gen_range(-8.0..8.0);
-        let y = rng.gen_range(-15.0..15.0);
+        let x = rng.random_range(-8.0..8.0);
+        let y = rng.random_range(-15.0..15.0);
         points.push((x, y));
     }
 
@@ -134,8 +134,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     chart
         .configure_series_labels()
-        .background_style(&WHITE.mix(0.8))
-        .border_style(&BLACK)
+        .background_style(WHITE.mix(0.8))
+        .border_style(BLACK)
         .draw()?;
 
     root.present()?;

@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_outliers = 20;
     let n_total = n_inliers + n_outliers;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut points = DMatrix::<f64>::zeros(n_total, 2);
 
     // True line parameters: y = mx + b
@@ -27,15 +27,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate inliers: y = 2x + 1 + noise
     for i in 0..n_inliers {
         let x = (i as f64) * 0.1 - 2.5;
-        let y = true_slope * x + true_intercept + rng.gen_range(-0.1..0.1);
+        let y = true_slope * x + true_intercept + rng.random_range(-0.1..0.1);
         points[(i, 0)] = x;
         points[(i, 1)] = y;
     }
 
     // Generate outliers (random points)
     for i in n_inliers..n_total {
-        points[(i, 0)] = rng.gen_range(-5.0..5.0);
-        points[(i, 1)] = rng.gen_range(-10.0..10.0);
+        points[(i, 0)] = rng.random_range(-5.0..5.0);
+        points[(i, 1)] = rng.random_range(-10.0..10.0);
     }
 
     // Shuffle points to mix inliers and outliers
@@ -191,8 +191,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     chart
         .configure_series_labels()
-        .background_style(&WHITE.mix(0.8))
-        .border_style(&BLACK)
+        .background_style(WHITE.mix(0.8))
+        .border_style(BLACK)
         .draw()
         .unwrap();
 

@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_outliers = 10;
     let n_total = n_points + n_outliers;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut points1 = DMatrix::<f64>::zeros(n_total, 2);
     let mut points2 = DMatrix::<f64>::zeros(n_total, 2);
 
@@ -37,16 +37,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Apply transformation: rotation + translation
         let x_rot = cos_a * x - sin_a * y;
         let y_rot = sin_a * x + cos_a * y;
-        points2[(i, 0)] = x_rot + tx + rng.gen_range(-0.5..0.5); // Add noise
-        points2[(i, 1)] = y_rot + ty + rng.gen_range(-0.5..0.5);
+        points2[(i, 0)] = x_rot + tx + rng.random_range(-0.5..0.5); // Add noise
+        points2[(i, 1)] = y_rot + ty + rng.random_range(-0.5..0.5);
     }
 
     // Generate outliers (random correspondences)
     for i in n_points..n_total {
-        points1[(i, 0)] = rng.gen_range(-100.0..100.0);
-        points1[(i, 1)] = rng.gen_range(-100.0..100.0);
-        points2[(i, 0)] = rng.gen_range(-100.0..100.0);
-        points2[(i, 1)] = rng.gen_range(-100.0..100.0);
+        points1[(i, 0)] = rng.random_range(-100.0..100.0);
+        points1[(i, 1)] = rng.random_range(-100.0..100.0);
+        points2[(i, 0)] = rng.random_range(-100.0..100.0);
+        points2[(i, 1)] = rng.random_range(-100.0..100.0);
     }
 
     println!("Generated {} inliers and {} outliers", n_points, n_outliers);

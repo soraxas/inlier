@@ -250,7 +250,8 @@ pub trait Estimator {
 /// ```rust
 /// use inlier::core::Sampler;
 /// use inlier::types::DataMatrix;
-/// use rand::Rng;
+/// use rand::SeedableRng;
+/// use rand::distr::{Distribution, weighted::WeightedIndex};
 ///
 /// struct AdaptiveSampler {
 ///     point_weights: Vec<f64>,
@@ -259,9 +260,10 @@ pub trait Estimator {
 ///
 /// impl AdaptiveSampler {
 ///     fn new(n_points: usize) -> Self {
+///         let mut entropy_rng = rand::rng();
 ///         Self {
 ///             point_weights: vec![1.0; n_points],
-///             rng: rand::rngs::StdRng::from_entropy(),
+///             rng: rand::rngs::StdRng::from_rng(&mut entropy_rng),
 ///         }
 ///     }
 /// }
@@ -277,18 +279,16 @@ pub trait Estimator {
 ///         if sample_size > n || out_indices.len() < sample_size {
 ///             return false;
 ///         }
+///         let dist = WeightedIndex::new(&self.point_weights[..n]);
 ///
-///         // Weighted sampling based on point weights
-///         use rand::distributions::{Distribution, WeightedIndex};
-///         let dist = match WeightedIndex::new(&self.point_weights[..n]) {
-///             Ok(d) => d,
-///             Err(_) => return false,
-///         };
-///
-///         for i in 0..sample_size {
-///             out_indices[i] = dist.sample(&mut self.rng);
+///         if let Ok(dist) = dist {
+///             for i in 0..sample_size {
+///                 out_indices[i] = dist.sample(&mut self.rng);
+///             }
+///             true
+///         } else {
+///             false
 ///         }
-///         true
 ///     }
 ///
 ///     fn update(
@@ -444,6 +444,7 @@ pub trait Scoring<M> {
 /// use inlier::core::{LocalOptimizer, Estimator};
 /// use inlier::types::DataMatrix;
 ///
+/// #[derive(Clone)]
 /// struct MyModel {
 ///     // Your model
 /// }
@@ -970,14 +971,14 @@ where
 
         // Accumulated scores for each inlier (higher is better)
         let mut accumulated_scores = vec![0.0; inlier_count];
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Cross-validation loop: bootstrap sample, build model, evaluate all inliers
         for _rep in 0..self.repetitions {
             // Create bootstrap sample (with replacement)
             let mut bootstrap_sample = Vec::with_capacity(sample_size);
             for _ in 0..sample_size {
-                let idx = rand::Rng::gen_range(&mut rng, 0..inlier_count);
+                let idx = rand::Rng::random_range(&mut rng, 0..inlier_count);
                 bootstrap_sample.push(inliers[idx]);
             }
 

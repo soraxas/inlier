@@ -3,7 +3,8 @@
 use crate::core::Sampler;
 use crate::types::DataMatrix;
 use rand::SeedableRng;
-use rand::distributions::{Distribution, WeightedIndex};
+use rand::distr::Distribution;
+use rand::distr::weighted::WeightedIndex;
 
 /// Importance sampler drawing samples according to per-point probabilities.
 ///
@@ -30,7 +31,8 @@ impl ImportanceSampler {
     pub fn from_probabilities(probabilities: &[f64]) -> Self {
         let dist =
             WeightedIndex::new(probabilities).expect("ImportanceSampler: invalid weight vector");
-        let rng = rand::rngs::StdRng::from_entropy();
+        let mut entropy_rng = rand::rng();
+        let rng = rand::rngs::StdRng::from_rng(&mut entropy_rng);
         Self { dist, rng }
     }
 }
