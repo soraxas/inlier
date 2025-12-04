@@ -9,7 +9,7 @@ repository = "https://github.com/soraxas/inlier"
 homepage = "https://github.com/soraxas/inlier"
 readme = "README.md"
 keywords = ["ransac", "computer-vision", "geometry", "estimation", "robust"]
-categories = ["statistics", "algorithms", "computer-vision", "science"]
+categories = ["algorithms", "computer-vision", "mathematics", "science"]
 
 [features]
 default = ["rayon"]
