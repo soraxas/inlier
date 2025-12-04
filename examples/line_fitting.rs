@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_outliers = 25;
     let n_total = n_inliers + n_outliers;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // True line parameters: y = mx + b
     let true_slope = 2.0;
@@ -30,20 +30,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut points = Vec::new();
     for i in 0..n_inliers {
         let x = (i as f64) * 0.2 - 6.0;
-        let y = true_slope * x + true_intercept + rng.gen_range(-0.3..0.3);
+        let y = true_slope * x + true_intercept + rng.random_range(-0.3..0.3);
         points.push((x, y));
     }
 
     // Generate outliers (random points)
     for _ in 0..n_outliers {
-        let x = rng.gen_range(-10.0..10.0);
-        let y = rng.gen_range(-20.0..20.0);
+        let x = rng.random_range(-10.0..10.0);
+        let y = rng.random_range(-20.0..20.0);
         points.push((x, y));
     }
 
     // Shuffle points
     use rand::seq::SliceRandom;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     points.shuffle(&mut rng);
 
     // Convert to DMatrix format

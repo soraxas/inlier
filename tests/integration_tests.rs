@@ -188,7 +188,10 @@ fn test_estimate_homography_with_outliers() {
     match result {
         Ok(result) => {
             // If it succeeds, should find some inliers
-            assert!(result.inliers.len() >= 0, "Result should be valid");
+            assert!(
+                !result.inliers.is_empty(),
+                "Result should be valid with at least one inlier"
+            );
         }
         Err(_) => {
             // Failure is acceptable for synthetic data with outliers

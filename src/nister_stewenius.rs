@@ -433,7 +433,6 @@ mod test {
 
     #[test]
     fn test_compute_eigenvector() {
-        let rng = rand::thread_rng();
         for i in 0..100 {
             let s10 = Square10::from_fn(|_, _| rand::random::<f64>());
             // simple prng for testing purposes
