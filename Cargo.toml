@@ -2,6 +2,14 @@
 name = "inlier"
 version = "0.1.0"
 edition = "2024"
+description = "Robust model fitting primitives for RANSAC-based pipelines in Rust."
+license = "MIT"
+authors = ["Tin Lai <tin@tinyiu.com>"]
+repository = "https://github.com/soraxas/inlier"
+homepage = "https://github.com/soraxas/inlier"
+readme = "README.md"
+keywords = ["ransac", "computer-vision", "geometry", "estimation", "robust"]
+categories = ["statistics", "algorithms", "computer-vision", "science"]
 
 [features]
 default = ["rayon"]
