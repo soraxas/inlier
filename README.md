@@ -9,9 +9,11 @@ pluggable estimators, samplers, scoring functions, and optimizers.
 - Drop-in estimators for homography, fundamental/essential matrices, absolute pose,
   rigid transform, etc.
 - Ready-to-use RANSAC variants (RANSAC, MSAC, MAGSAC, ACRANSAC) with local
-  optimization pipelines (LSQ, IRLS, nested RANSAC, etc.).
+  optimization pipelines (LSQ, IRLS, nested RANSAC, graph-cut-inspired smoothing, etc.).
 - Flexible samplers (uniform, PROSAC, NAPSAC, progressive NAPSAC, adaptive
   reordering) plus neighborhood graphs (grid, USearch ANN).
+- Optional `kornia-pnp` feature to enable EPnP/OnP absolute pose solving via `kornia-pnp`.
+- Optional `graph-cut` feature enables a petgraph-backed k-NN Potts smoother local optimizer.
 
 ### Run Examples
 

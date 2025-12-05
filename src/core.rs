@@ -8,6 +8,8 @@
 //! - A generic `SuperRansac` struct that orchestrates these components.
 
 use crate::{settings::RansacSettings, types::DataMatrix};
+#[cfg(feature = "graph-cut")]
+use petgraph::graph::UnGraph;
 
 /// Estimator responsible for generating model hypotheses from minimal samples.
 ///
@@ -888,6 +890,161 @@ where
         }
 
         (current_model, best_score.clone(), inliers.to_vec())
+    }
+}
+
+/// Graph-cut-inspired local optimizer using a simple Potts model over a k-NN graph.
+///
+/// This is a lightweight approximation of the Graph-Cut RANSAC refinement:
+/// it builds a k-NN graph over all data points, then iteratively re-labels
+/// nodes (inlier/outlier) using unary residual costs and a pairwise smoothness term.
+#[cfg(feature = "graph-cut")]
+pub struct GraphCutLocalOptimizer<E, F>
+where
+    E: Estimator,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
+{
+    estimator: E,
+    residual_fn: F,
+    threshold: f64,
+    k_neighbors: usize,
+    smooth_weight: f64,
+    max_iterations: usize,
+}
+
+#[cfg(feature = "graph-cut")]
+impl<E, F> GraphCutLocalOptimizer<E, F>
+where
+    E: Estimator,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
+{
+    pub fn new(estimator: E, residual_fn: F, threshold: f64) -> Self {
+        Self {
+            estimator,
+            residual_fn,
+            threshold,
+            k_neighbors: 8,
+            smooth_weight: 0.5,
+            max_iterations: 5,
+        }
+    }
+
+    pub fn with_k_neighbors(mut self, k: usize) -> Self {
+        self.k_neighbors = k.max(1);
+        self
+    }
+
+    pub fn with_smooth_weight(mut self, weight: f64) -> Self {
+        self.smooth_weight = weight.max(0.0);
+        self
+    }
+
+    fn build_graph(&self, data: &DataMatrix) -> UnGraph<(), f64> {
+        let n = data.nrows();
+        let mut graph: UnGraph<(), f64> = UnGraph::default();
+        let nodes: Vec<_> = (0..n).map(|_| graph.add_node(())).collect();
+
+        for i in 0..n {
+            let mut dists: Vec<(usize, f64)> = (0..n)
+                .filter(|&j| j != i)
+                .map(|j| {
+                    let diff = data.row(i) - data.row(j);
+                    let dist = diff.norm();
+                    (j, dist)
+                })
+                .collect();
+            dists.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for &(j, dist) in dists.iter().take(self.k_neighbors.min(n.saturating_sub(1))) {
+                graph.update_edge(nodes[i], nodes[j], dist);
+            }
+        }
+
+        graph
+    }
+}
+
+#[cfg(feature = "graph-cut")]
+impl<E, F, S> LocalOptimizer<E::Model, S> for GraphCutLocalOptimizer<E, F>
+where
+    E: Estimator,
+    E::Model: Clone,
+    F: Fn(&DataMatrix, &E::Model, usize) -> f64,
+    S: Clone,
+{
+    fn run(
+        &mut self,
+        data: &DataMatrix,
+        inliers: &[usize],
+        model: &E::Model,
+        best_score: &S,
+    ) -> (E::Model, S, Vec<usize>) {
+        let n = data.nrows();
+        if n == 0 || inliers.len() < self.estimator.sample_size() {
+            return (model.clone(), best_score.clone(), inliers.to_vec());
+        }
+
+        let graph = self.build_graph(data);
+        let mut labels = vec![false; n];
+        for &idx in inliers {
+            if idx < n {
+                labels[idx] = true;
+            }
+        }
+
+        for _ in 0..self.max_iterations {
+            let mut changed = false;
+            let mut new_labels = labels.clone();
+
+            for node in graph.node_indices() {
+                let idx = node.index();
+                let residual = (self.residual_fn)(data, model, idx).abs();
+                let unary_in = residual / self.threshold.max(1e-9);
+                let unary_out = 1.0;
+
+                let mut smooth_in = 0.0;
+                let mut smooth_out = 0.0;
+                for neighbor in graph.neighbors(node) {
+                    let n_label = labels[neighbor.index()];
+                    if n_label {
+                        smooth_out += self.smooth_weight;
+                    } else {
+                        smooth_in += self.smooth_weight;
+                    }
+                }
+
+                let e_in = unary_in + smooth_in;
+                let e_out = unary_out + smooth_out;
+                new_labels[idx] = e_in <= e_out;
+                if new_labels[idx] != labels[idx] {
+                    changed = true;
+                }
+            }
+
+            labels = new_labels;
+            if !changed {
+                break;
+            }
+        }
+
+        let refined_inliers: Vec<usize> = labels
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &l)| if l { Some(i) } else { None })
+            .collect();
+
+        if refined_inliers.len() < self.estimator.sample_size() {
+            return (model.clone(), best_score.clone(), refined_inliers);
+        }
+
+        let refined_models = self
+            .estimator
+            .estimate_model_nonminimal(data, &refined_inliers, None);
+
+        if let Some(refined) = refined_models.first() {
+            return (refined.clone(), best_score.clone(), refined_inliers);
+        }
+
+        (model.clone(), best_score.clone(), refined_inliers)
     }
 }
 
