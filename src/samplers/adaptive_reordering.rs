@@ -17,7 +17,6 @@ pub struct AdaptiveReorderingSampler {
     /// Max-heap by current probability `p`.
     queue: std::collections::BinaryHeap<(ordered_float::OrderedFloat<f64>, usize)>,
     /// Randomness parameters (see C++ implementation).
-    randomness: f64,
     randomness_half: f64,
     /// RNG for the small random perturbation.
     rng: rand::rngs::StdRng,
@@ -58,7 +57,6 @@ impl AdaptiveReorderingSampler {
         Self {
             probabilities,
             queue,
-            randomness,
             randomness_half,
             rng,
         }
@@ -102,7 +100,7 @@ impl Sampler for AdaptiveReorderingSampler {
                 let base = (a / (a + b + (*appearance as f64))).abs();
                 let jitter: f64 = self
                     .rng
-                    .random_range(-self.randomness / 2.0..self.randomness / 2.0);
+                    .random_range(-self.randomness_half..self.randomness_half);
                 let mut updated = base + jitter;
                 updated = updated.clamp(0.0, 0.999);
 

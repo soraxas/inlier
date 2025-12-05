@@ -867,16 +867,13 @@ where
         }
 
         let mut current_model = model.clone();
-        let mut updated = true;
 
         for _iteration in 0..self.max_iterations {
-            if !updated {
-                break;
-            }
-            updated = false;
-
             // Compute weights based on current model (MSAC-style)
             let weights = self.compute_weights(data, &current_model, inliers);
+            if weights.iter().copied().sum::<f64>() < self.convergence_threshold {
+                break;
+            }
 
             // Refit with weighted least squares
             let refined_models =
@@ -888,7 +885,6 @@ where
 
             // Check if model improved (simplified: always accept if we got a model)
             current_model = refined_models[0].clone();
-            updated = true;
         }
 
         (current_model, best_score.clone(), inliers.to_vec())

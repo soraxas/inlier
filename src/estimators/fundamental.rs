@@ -133,11 +133,6 @@ impl FundamentalEstimator {
         // Compute cubic polynomial coefficients for det(lambda*f1 + mu*f2) = 0
         // where we set mu = 1 and solve for lambda
         // The determinant is a cubic in lambda
-        let mut c3 = 0.0;
-        let mut c2 = 0.0;
-        let mut c1 = 0.0;
-        let mut c0 = 0.0;
-
         // Compute determinant coefficients manually (matching C++ implementation)
         // det(F) = F[0]*(F[4]*F[8] - F[5]*F[7]) - F[1]*(F[3]*F[8] - F[5]*F[6]) + F[2]*(F[3]*F[7] - F[4]*F[6])
         // f1 and f2 are stored in column-major order: [f00, f10, f20, f01, f11, f21, f02, f12, f22]
@@ -164,24 +159,24 @@ impl FundamentalEstimator {
         let f2_8 = f2[idx(2, 2)];
 
         // Compute cubic coefficients (matching C++ code exactly)
-        c3 = f1_0 * (f1_4 * f1_8 - f1_5 * f1_7) - f1_1 * (f1_3 * f1_8 - f1_5 * f1_6)
+        let c3 = f1_0 * (f1_4 * f1_8 - f1_5 * f1_7) - f1_1 * (f1_3 * f1_8 - f1_5 * f1_6)
             + f1_2 * (f1_3 * f1_7 - f1_4 * f1_6);
 
-        c2 = f1_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7)
+        let c2 = f1_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7)
             + f2_0 * (f1_4 * f1_8 - f1_5 * f1_7)
             - f1_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6)
             - f2_1 * (f1_3 * f1_8 - f1_5 * f1_6)
             + f1_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6)
             + f2_2 * (f1_3 * f1_7 - f1_4 * f1_6);
 
-        c1 = f1_0 * (f2_4 * f2_8 - f2_5 * f2_7)
+        let c1 = f1_0 * (f2_4 * f2_8 - f2_5 * f2_7)
             + f2_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7)
             - f1_1 * (f2_3 * f2_8 - f2_5 * f2_6)
             - f2_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6)
             + f1_2 * (f2_3 * f2_7 - f2_4 * f2_6)
             + f2_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6);
 
-        c0 = f2_0 * (f2_4 * f2_8 - f2_5 * f2_7) - f2_1 * (f2_3 * f2_8 - f2_5 * f2_6)
+        let c0 = f2_0 * (f2_4 * f2_8 - f2_5 * f2_7) - f2_1 * (f2_3 * f2_8 - f2_5 * f2_6)
             + f2_2 * (f2_3 * f2_7 - f2_4 * f2_6);
 
         // Normalize polynomial (divide by c3 to get monic form)

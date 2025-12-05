@@ -1,5 +1,3 @@
-#![no_std]
-
 // use arrayvec::ArrayVec;
 use crate::models::EssentialMatrix;
 use nalgebra::{
@@ -248,8 +246,8 @@ pub fn five_points_relative_pose(
     let e_constraints = five_points_polynomial_constraints(&e_basis);
 
     // Step 3: Gauss-Jordan Elimination (done thanks to a LU decomposition).
-    let c_lu = e_constraints.fixed_slice::<10, 10>(0, 0).full_piv_lu();
-    let m = if let Some(m) = c_lu.solve(&e_constraints.fixed_slice::<10, 10>(0, 10).into_owned()) {
+    let c_lu = e_constraints.fixed_view::<10, 10>(0, 0).full_piv_lu();
+    let m = if let Some(m) = c_lu.solve(&e_constraints.fixed_view::<10, 10>(0, 10).into_owned()) {
         m
     } else {
         return essentials_from_action_ebasis(Square10::zeros(), NullspaceMat::zeros());
@@ -260,8 +258,8 @@ pub fn five_points_relative_pose(
     // Build action matrix.
 
     let mut at = Square10::zeros();
-    at.fixed_slice_mut::<3, 10>(0, 0)
-        .copy_from(&m.fixed_slice::<3, 10>(0, 0));
+    at.fixed_view_mut::<3, 10>(0, 0)
+        .copy_from(&m.fixed_view::<3, 10>(0, 0));
 
     at.row_mut(3).copy_from(&m.row(4));
     at.row_mut(4).copy_from(&m.row(5));

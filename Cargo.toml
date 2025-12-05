@@ -14,6 +14,7 @@ categories = ["algorithms", "computer-vision", "mathematics", "science"]
 [features]
 default = ["rayon"]
 rayon = ["argmin/rayon"]
+kornia-pnp = ["dep:kornia-pnp"]
 
 [dependencies]
 argmin = "0.11.0"
@@ -22,7 +23,7 @@ ordered-float = "5.1.0"
 rand = "0.9.2"
 usearch = "2.21.4"
 float-ord = "0.3.2"
-kornia-pnp = "0.1.10"
+kornia-pnp = { version = "0.1.10", optional = true }
 
 [dev-dependencies]
 plotters = "0.3"
