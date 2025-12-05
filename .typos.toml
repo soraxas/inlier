@@ -1,0 +1,4 @@
+[default.extend-words]
+PnP = "PnP"
+PnPMethod = "PnPMethod"
+EPnP = "EPnP"
