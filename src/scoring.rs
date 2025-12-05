@@ -176,6 +176,302 @@ where
     }
 }
 
+/// Weighted inlier-count scoring (MinPRAN-style) using optional per-point priors.
+pub struct MinpranScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    threshold: f64,
+    residual_fn: F,
+    priors: Option<Vec<f64>>,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M, F> MinpranScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    pub fn new(threshold: f64, residual_fn: F) -> Self {
+        Self {
+            threshold,
+            residual_fn,
+            priors: None,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
+        self
+    }
+}
+
+impl<M, F> Scoring<M> for MinpranScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        self.threshold
+    }
+
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
+        let n = data.nrows();
+        let thresh_sq = self.threshold * self.threshold;
+        inliers_out.clear();
+
+        let mut inlier_count = 0usize;
+        let mut weighted = 0.0f64;
+
+        for i in 0..n {
+            let w = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
+            let r = (self.residual_fn)(data, model, i);
+            if r * r <= thresh_sq {
+                inliers_out.push(i);
+                inlier_count += 1;
+                weighted += w;
+            }
+        }
+
+        Score::new(inlier_count, weighted)
+    }
+}
+
+/// Gaussian log-likelihood scoring (approximate GAU) with optional priors.
+pub struct GaussianScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    sigma: f64,
+    residual_fn: F,
+    priors: Option<Vec<f64>>,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M, F> GaussianScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    pub fn new(sigma: f64, residual_fn: F) -> Self {
+        Self {
+            sigma,
+            residual_fn,
+            priors: None,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
+        self
+    }
+}
+
+impl<M, F> Scoring<M> for GaussianScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        self.sigma * 3.0
+    }
+
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
+        let n = data.nrows();
+        inliers_out.clear();
+
+        let var2 = 2.0 * self.sigma * self.sigma;
+        let norm = -(self.sigma * (2.0 * std::f64::consts::PI).sqrt()).ln();
+
+        let mut loglik = 0.0f64;
+        let mut inlier_count = 0usize;
+
+        for i in 0..n {
+            let w = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
+            let r = (self.residual_fn)(data, model, i);
+            let ll = norm - r * r / var2;
+            loglik += w * ll;
+            if r.abs() < self.threshold() {
+                inliers_out.push(i);
+                inlier_count += 1;
+            }
+        }
+
+        Score::new(inlier_count, loglik)
+    }
+}
+
+/// Simple ML-style scoring using a two-component mixture (inlier Gaussian + uniform outlier).
+pub struct MlScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    threshold: f64,
+    sigma: f64,
+    inlier_prob: f64,
+    residual_fn: F,
+    priors: Option<Vec<f64>>,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M, F> MlScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    pub fn new(threshold: f64, sigma: f64, residual_fn: F) -> Self {
+        Self {
+            threshold,
+            sigma,
+            inlier_prob: 0.5,
+            residual_fn,
+            priors: None,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_inlier_prob(mut self, p: f64) -> Self {
+        self.inlier_prob = p.clamp(1e-6, 1.0 - 1e-6);
+        self
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
+        self
+    }
+}
+
+impl<M, F> Scoring<M> for MlScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        self.threshold
+    }
+
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
+        let n = data.nrows();
+        inliers_out.clear();
+
+        let var2 = 2.0 * self.sigma * self.sigma;
+        let gauss_norm = 1.0 / (self.sigma * (2.0 * std::f64::consts::PI).sqrt());
+        let outlier_density = 1.0 / self.threshold.max(1e-9);
+
+        let mut loglik = 0.0f64;
+        let mut inlier_count = 0usize;
+
+        for i in 0..n {
+            let w_prior = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
+            let r = (self.residual_fn)(data, model, i);
+            let gauss = gauss_norm * (-r * r / var2).exp();
+            let mix = self.inlier_prob * gauss + (1.0 - self.inlier_prob) * outlier_density;
+            loglik += w_prior * mix.max(1e-20).ln();
+            if r.abs() <= self.threshold {
+                inliers_out.push(i);
+                inlier_count += 1;
+            }
+        }
+
+        Score::new(inlier_count, loglik)
+    }
+}
+
+/// Grid-based scoring that rewards spatial coverage (approximate to C++ grid scoring).
+pub struct GridScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    threshold: f64,
+    residual_fn: F,
+    cell_size: f64,
+    priors: Option<Vec<f64>>,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M, F> GridScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    pub fn new(threshold: f64, cell_size: f64, residual_fn: F) -> Self {
+        Self {
+            threshold,
+            residual_fn,
+            cell_size,
+            priors: None,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
+        self
+    }
+}
+
+impl<M, F> Scoring<M> for GridScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        self.threshold
+    }
+
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
+        let n = data.nrows();
+        inliers_out.clear();
+        if data.ncols() < 2 || self.cell_size <= 0.0 {
+            return Score::new(0, f64::NEG_INFINITY);
+        }
+
+        let mut inlier_count = 0usize;
+        let mut weighted = 0.0f64;
+        let mut grid: std::collections::HashMap<(i64, i64), f64> = std::collections::HashMap::new();
+
+        for i in 0..n {
+            let w = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
+            let r = (self.residual_fn)(data, model, i);
+            if r.abs() <= self.threshold {
+                inliers_out.push(i);
+                inlier_count += 1;
+                weighted += w;
+
+                let x = (data[(i, 0)] / self.cell_size).floor() as i64;
+                let y = (data[(i, 1)] / self.cell_size).floor() as i64;
+                *grid.entry((x, y)).or_insert(0.0) += w;
+            }
+        }
+
+        // Coverage bonus: sum of cell weights encourages spatial spread.
+        let coverage: f64 = grid.values().sum();
+        Score::new(inlier_count, weighted + coverage)
+    }
+}
+
 /// Approximate gamma function using Stirling's approximation for a > 0
 fn approximate_gamma(a: f64) -> f64 {
     if a <= 0.0 {
