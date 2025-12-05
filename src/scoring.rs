@@ -42,6 +42,7 @@ where
 {
     threshold: f64,
     residual_fn: F,
+    priors: Option<Vec<f64>>,
     _marker: std::marker::PhantomData<M>,
 }
 
@@ -53,8 +54,14 @@ where
         Self {
             threshold,
             residual_fn,
+            priors: None,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
+        self
     }
 }
 
@@ -74,17 +81,24 @@ where
         inliers_out.clear();
 
         let mut inlier_count = 0usize;
+        let mut weighted = 0.0f64;
         for i in 0..n {
+            let w = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
             let r = (self.residual_fn)(data, model, i);
             if r * r <= thresh_sq {
                 inliers_out.push(i);
                 inlier_count += 1;
+                weighted += w;
             }
         }
 
-        // For a pure inlier-count RANSAC objective, we just use the inlier
-        // count as both the quality value and count.
-        Score::new(inlier_count, inlier_count as f64)
+        // Weighted inlier support is used as the score value.
+        Score::new(inlier_count, weighted)
     }
 }
 
@@ -98,6 +112,7 @@ where
 {
     threshold: f64,
     residual_fn: F,
+    priors: Option<Vec<f64>>,
     _marker: std::marker::PhantomData<M>,
 }
 
@@ -109,8 +124,14 @@ where
         Self {
             threshold,
             residual_fn,
+            priors: None,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
+        self
     }
 }
 
@@ -133,14 +154,20 @@ where
         let mut cost = 0.0f64;
 
         for i in 0..n {
+            let w = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
             let r = (self.residual_fn)(data, model, i);
             let r2 = r * r;
             if r2 <= thresh_sq {
                 inliers_out.push(i);
                 inlier_count += 1;
-                cost += r2;
+                cost += w * r2;
             } else {
-                cost += thresh_sq;
+                cost += w * thresh_sq;
             }
         }
 
@@ -180,6 +207,7 @@ where
     residual_fn: F,
     sigma_max: f64,
     degrees_of_freedom: usize,
+    priors: Option<Vec<f64>>,
     _marker: std::marker::PhantomData<M>,
 }
 
@@ -193,6 +221,7 @@ where
             residual_fn,
             sigma_max: threshold * 2.0, // Default: 2x threshold
             degrees_of_freedom: 2,      // Default: 2D residuals
+            priors: None,
             _marker: std::marker::PhantomData,
         }
     }
@@ -204,6 +233,11 @@ where
 
     pub fn with_degrees_of_freedom(mut self, dof: usize) -> Self {
         self.degrees_of_freedom = dof;
+        self
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
         self
     }
 
@@ -283,11 +317,17 @@ where
 
         // MAGSAC: marginalize over threshold and compute loss for each point
         for i in 0..n {
+            let w = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
             let r = (self.residual_fn)(data, model, i);
             let r_sq = r * r;
 
             let loss = self.compute_loss(r_sq);
-            cost += loss;
+            cost += w * loss;
 
             // Still track inliers for compatibility
             if r_sq <= thresh_sq {

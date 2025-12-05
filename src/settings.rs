@@ -150,6 +150,8 @@ pub struct RansacSettings {
     pub local_optimization_settings: LocalOptimizationSettings,
     pub final_optimization_settings: LocalOptimizationSettings,
     pub neighborhood_settings: NeighborhoodSettings,
+    /// Optional per-point priors (probability-like weights) aligned to input rows.
+    pub point_priors: Option<Vec<f64>>,
 }
 
 impl Default for RansacSettings {
@@ -170,6 +172,7 @@ impl Default for RansacSettings {
             local_optimization_settings: LocalOptimizationSettings::default(),
             final_optimization_settings: LocalOptimizationSettings::default(),
             neighborhood_settings: NeighborhoodSettings::default(),
+            point_priors: None,
         }
     }
 }
@@ -193,6 +196,7 @@ mod tests {
         assert_eq!(cfg.final_optimization, LocalOptimizationType::Irls);
         assert_eq!(cfg.termination_criterion, TerminationType::Ransac);
         assert_eq!(cfg.inlier_selector, InlierSelectorType::None);
+        assert!(cfg.point_priors.is_none());
     }
 
     #[test]

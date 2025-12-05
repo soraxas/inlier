@@ -15,6 +15,7 @@ pluggable estimators, samplers, scoring functions, and optimizers.
 - Optional `p3p` feature to enable Lambda-Twist minimal absolute pose solver.
 - Optional `kornia-pnp` feature to enable EPnP/OnP absolute pose solving via `kornia-pnp`.
 - Optional `graph-cut` feature enables a petgraph-backed k-NN Potts smoother local optimizer.
+- Optional per-point priors (e.g., from a learned detector) via `RansacSettings::point_priors` for weighted scoring.
 
 ### Run Examples
 

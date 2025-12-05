@@ -17,6 +17,7 @@ This crate mirrors the SupeRANSAC architecture with pluggable pieces. This doc s
 - **Nature:** Approximate graph-cut (no max-flow); fast and dependency-light. Intended as a smoother on top of standard scoring, not a replacement for full Graph-Cut RANSAC.
 
 ## Per-Point Priors / Probabilities
-- Current scoring and optimizers compute weights from residuals; they do not ingest user-supplied per-point priors (as MAGSAC++ can).
+- Provide per-point priors via `RansacSettings.point_priors` (length = #rows in data). RANSAC/MSAC/MAGSAC scoring will weight costs and support accordingly.
+- Samplers currently ignore priors (PROSAC uses ordering only); local optimizers still rely on residual-derived weights.
 - Neighborhood samplers (PROSAC/adaptive reordering) use ordering or update rules but not explicit probability inputs.
 - If per-point priors are needed, they could be threaded through scoring functions and local optimizers as weights; this is not yet implemented.
