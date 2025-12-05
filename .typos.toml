@@ -1,4 +1,10 @@
+[default]
+extend-ignore-identifiers-re = [
+    ".*PnP*",
+]
+
 [default.extend-words]
+Pn = "Pn"
 PnP = "PnP"
 PnPMethod = "PnPMethod"
 EPnP = "EPnP"

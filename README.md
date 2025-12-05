@@ -12,6 +12,7 @@ pluggable estimators, samplers, scoring functions, and optimizers.
   optimization pipelines (LSQ, IRLS, nested RANSAC, graph-cut-inspired smoothing, etc.).
 - Flexible samplers (uniform, PROSAC, NAPSAC, progressive NAPSAC, adaptive
   reordering) plus neighborhood graphs (grid, USearch ANN).
+- Optional `p3p` feature to enable Lambda-Twist minimal absolute pose solver.
 - Optional `kornia-pnp` feature to enable EPnP/OnP absolute pose solving via `kornia-pnp`.
 - Optional `graph-cut` feature enables a petgraph-backed k-NN Potts smoother local optimizer.
 

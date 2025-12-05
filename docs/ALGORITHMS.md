@@ -4,7 +4,7 @@ This crate mirrors the SupeRANSAC architecture with pluggable pieces. This doc s
 
 ## Pipeline
 - **Sampling:** Uniform, PROSAC, NAPSAC, progressive NAPSAC, adaptive reordering. Neighborhoods use grid or USearch ANN.
-- **Estimators:** Homography (4/8 point), Fundamental (7/8 point + BA), Essential (5-point Nister + BA), Absolute pose (DLT/P3P minimal, EPnP via `kornia-pnp` feature), Rigid transform (Procrustes).
+- **Estimators:** Homography (4/8 point), Fundamental (7/8 point with bundle adjustment), Essential (5-point Nister with bundle adjustment), Absolute pose (Lambda-Twist P3P when `p3p` feature is enabled, DLT fallback otherwise, EOnP via `kornia-pnp` feature), Rigid transform (Procrustes).
 - **Scoring:** RANSAC and MSAC are exact; MAGSAC/ACRANSAC approximations; scores expose per-point residual evaluation but do not yet consume external per-point priors.
 - **Local optimization:** LSQ, Iterated LSQ, IRLS (MSAC weights), Nested RANSAC, Cross-validation, and the graph-cut smoother (feature `graph-cut`).
 

@@ -4,7 +4,11 @@ use crate::bundle_adjustment::refine_absolute_pose;
 use crate::core::Estimator;
 use crate::models::AbsolutePose;
 use crate::types::DataMatrix;
+#[cfg(feature = "kornia-pnp")]
+use kornia_pnp::{PnPMethod, solve_pnp};
 use nalgebra::{Vector2, Vector3};
+#[cfg(feature = "p3p")]
+use p3p::nordberg;
 
 /// Absolute pose estimator using P3P (Perspective-3-Point) algorithm.
 ///
@@ -12,9 +16,9 @@ use nalgebra::{Vector2, Vector3};
 /// For non-minimal samples (4+ points), it uses bundle adjustment for refinement.
 ///
 /// # Note
-/// The `kornia-pnp` crate is available for more robust OnP solvers (e.g., EOnP).
-/// To use it, enable the `kornia-pnp` feature and update the `estimate_model_nonminimal`
-/// method to call `kornia_pnp::epnp::solve_epnp` with proper tensor type conversions.
+/// Enable optional features for stronger solvers:
+/// - `p3p`: Lambda-Twist (Nordberg) minimal solver for 3-point samples.
+/// - `kornia-pnp`: EPnP for non-minimal samples via `kornia_pnp::solve_pnp`.
 pub struct AbsolutePoseEstimator;
 
 impl Default for AbsolutePoseEstimator {
@@ -26,6 +30,57 @@ impl Default for AbsolutePoseEstimator {
 impl AbsolutePoseEstimator {
     pub fn new() -> Self {
         Self
+    }
+
+    #[cfg(feature = "p3p")]
+    fn solve_p3p(&self, data: &DataMatrix, sample: &[usize]) -> Vec<AbsolutePose> {
+        if sample.len() != 3 || data.ncols() < 5 {
+            return Vec::new();
+        }
+
+        let mut world = [[0f32; 3]; 3];
+        let mut bearings = [[0f32; 3]; 3];
+
+        for (i, &idx) in sample.iter().enumerate() {
+            let u = data[(idx, 0)] as f32;
+            let v = data[(idx, 1)] as f32;
+            let x = data[(idx, 2)] as f32;
+            let y = data[(idx, 3)] as f32;
+            let z = data[(idx, 4)] as f32;
+
+            world[i] = [x, y, z];
+
+            let mut b = [u, v, 1.0f32];
+            let norm = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt();
+            if norm < 1e-6 {
+                return Vec::new();
+            }
+            b[0] /= norm;
+            b[1] /= norm;
+            b[2] /= norm;
+            bearings[i] = b;
+        }
+
+        let poses = match std::panic::catch_unwind(|| nordberg::solve(&world, &bearings)) {
+            Ok(poses) => poses,
+            Err(_) => return Vec::new(),
+        };
+        poses
+            .into_iter()
+            .map(|pose| {
+                // Pose stores quaternion as [x, y, z, w] (real part last).
+                let [qx, qy, qz, qw] = pose.rotation;
+                let quat = nalgebra::Quaternion::new(qw as f64, qx as f64, qy as f64, qz as f64);
+                let rot = nalgebra::UnitQuaternion::from_quaternion(quat).to_rotation_matrix();
+                let r = *rot.matrix();
+                let t = Vector3::new(
+                    pose.translation[0] as f64,
+                    pose.translation[1] as f64,
+                    pose.translation[2] as f64,
+                );
+                AbsolutePose::from_rt(r, t)
+            })
+            .collect()
     }
 }
 
@@ -59,6 +114,16 @@ impl Estimator for AbsolutePoseEstimator {
         let n = sample.len();
         if n < self.sample_size() || data.ncols() < 5 {
             return Vec::new();
+        }
+
+        #[cfg(feature = "p3p")]
+        {
+            if n == 3 {
+                let models = self.solve_p3p(data, sample);
+                if !models.is_empty() {
+                    return models;
+                }
+            }
         }
 
         // Simplified P3P: Use DLT-style approach with 3 points
@@ -180,12 +245,39 @@ impl Estimator for AbsolutePoseEstimator {
             return Vec::new();
         }
 
-        // Use kornia-pnp EOnP solver for non-minimal estimation
-        // EOnP works with >= 4 points and is more robust than DLT
+        // Use kornia-pnp EPnP solver for non-minimal estimation
+        // EPnP works with >= 4 points and is more robust than DLT
         #[cfg(feature = "kornia-pnp")]
         {
-            // TODO: Integrate kornia-pnp once tensor conversions are supported.
-            let _ = (&points_2d, &points_3d, weights);
+            let world: Vec<[f32; 3]> = points_3d
+                .iter()
+                .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32])
+                .collect();
+            let image: Vec<[f32; 2]> = points_2d
+                .iter()
+                .map(|p| [p[0] as f32, p[1] as f32])
+                .collect();
+            let k = [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+            if let Ok(res) = solve_pnp(&world, &image, &k, None, PnPMethod::EPnPDefault) {
+                let r = nalgebra::Matrix3::<f64>::from_row_slice(&[
+                    res.rotation[0][0] as f64,
+                    res.rotation[0][1] as f64,
+                    res.rotation[0][2] as f64,
+                    res.rotation[1][0] as f64,
+                    res.rotation[1][1] as f64,
+                    res.rotation[1][2] as f64,
+                    res.rotation[2][0] as f64,
+                    res.rotation[2][1] as f64,
+                    res.rotation[2][2] as f64,
+                ]);
+                let t = Vector3::new(
+                    res.translation[0] as f64,
+                    res.translation[1] as f64,
+                    res.translation[2] as f64,
+                );
+                return vec![AbsolutePose::from_rt(r, t)];
+            }
         }
 
         // Fall back to existing DLT + bundle adjustment approach
