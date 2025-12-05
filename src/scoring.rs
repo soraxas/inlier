@@ -11,6 +11,16 @@
 
 use crate::core::Scoring;
 use crate::types::DataMatrix;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+type SigmaLutMap = HashMap<(usize, u64), Vec<(f64, f64)>>;
+
+// Precomputed gamma tables generated at build time for common (dof, k) pairs.
+include!(concat!(env!("OUT_DIR"), "/sigma_lut.rs"));
+
+#[allow(clippy::type_complexity)]
+static SIGMA_LUT: OnceLock<Mutex<SigmaLutMap>> = OnceLock::new();
 
 /// Scalar score storing an inlier count and a floating-point quality value.
 ///
@@ -472,42 +482,92 @@ where
     }
 }
 
-/// Approximate gamma function using Stirling's approximation for a > 0
-fn approximate_gamma(a: f64) -> f64 {
-    if a <= 0.0 {
-        return 1.0;
+/// Lanczos approximation of ln Γ(x) for x > 0.
+fn ln_gamma(x: f64) -> f64 {
+    // Coefficients from Numerical Recipes.
+    const COEFFS: [f64; 9] = [
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+        -0.0,
+    ];
+    if x < 0.5 {
+        // Reflection formula
+        return std::f64::consts::PI.ln()
+            - (std::f64::consts::PI * x).sin().ln()
+            - ln_gamma(1.0 - x);
     }
-    if a < 0.5 {
-        // Use reflection formula: Γ(1-z) = π / (Γ(z) * sin(πz))
-        let z = 1.0 - a;
-        let gamma_z = approximate_gamma(z);
-        std::f64::consts::PI / (gamma_z * (std::f64::consts::PI * a).sin())
+    let z = x - 1.0;
+    let mut sum = 0.999_999_999_999_809_9;
+    for (i, c) in COEFFS.iter().enumerate() {
+        sum += c / (z + (i as f64) + 1.0);
+    }
+    let t = z + COEFFS.len() as f64 - 0.5;
+    0.5 * (2.0 * std::f64::consts::PI).ln() + (z + 0.5) * t.ln() - t + sum.ln()
+}
+
+fn gamma_fn(x: f64) -> f64 {
+    ln_gamma(x).exp()
+}
+
+/// Regularized lower incomplete gamma P(a, x) via series expansion or continued fraction.
+fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
+    if x < 0.0 || a <= 0.0 {
+        return 0.0;
+    }
+    // Series expansion for x < a + 1
+    if x < a + 1.0 {
+        let mut ap = a;
+        let mut sum = 1.0 / a;
+        let mut del = sum;
+        for _ in 0..200 {
+            ap += 1.0;
+            del *= x / ap;
+            sum += del;
+            if del.abs() < sum.abs() * 1e-14 {
+                break;
+            }
+        }
+        sum * (-x + a * x.ln() - ln_gamma(a)).exp()
     } else {
-        // Stirling's approximation: Γ(a) ≈ sqrt(2π/a) * (a/e)^a * (1 + 1/(12a) + ...)
-        let sqrt_2pi = (2.0 * std::f64::consts::PI).sqrt();
-        let base = (sqrt_2pi / a).sqrt() * (a / std::f64::consts::E).powf(a);
-        base * (1.0 + 1.0 / (12.0 * a))
+        // Continued fraction for upper; then 1 - Q
+        let mut b = x + 1.0 - a;
+        let mut c = 1.0 / 1e-30;
+        let mut d = 1.0 / b;
+        let mut h = d;
+        for i in 1..200 {
+            let an = -(i as f64) * ((i as f64) - a);
+            b += 2.0;
+            d = an * d + b;
+            if d.abs() < 1e-30 {
+                d = 1e-30;
+            }
+            c = b + an / c;
+            if c.abs() < 1e-30 {
+                c = 1e-30;
+            }
+            d = 1.0 / d;
+            let delta = d * c;
+            h *= delta;
+            if (delta - 1.0).abs() < 1e-14 {
+                break;
+            }
+        }
+        1.0 - (-x + a * x.ln() - ln_gamma(a)).exp() * h
     }
 }
 
-fn approximate_upper_incomplete_gamma(a: f64, x: f64) -> f64 {
-    if x < 1.0 {
-        let gamma_a = approximate_gamma(a);
-        let x_pow_a = x.powf(a);
-        let exp_neg_x = (-x).exp();
-        let series = 1.0 + x / (a + 1.0) + x * x / ((a + 1.0) * (a + 2.0));
-        gamma_a - x_pow_a * exp_neg_x * series
-    } else {
-        let x_pow_a_minus_1 = x.powf(a - 1.0);
-        let exp_neg_x = (-x).exp();
-        let asymptotic = 1.0 + (a - 1.0) / x;
-        x_pow_a_minus_1 * exp_neg_x * asymptotic
-    }
+fn lower_incomplete_gamma(a: f64, x: f64) -> f64 {
+    regularized_lower_gamma(a, x) * gamma_fn(a)
 }
 
-fn approximate_lower_incomplete_gamma(a: f64, x: f64) -> f64 {
-    let gamma_a = approximate_gamma(a);
-    gamma_a - approximate_upper_incomplete_gamma(a, x)
+fn upper_incomplete_gamma(a: f64, x: f64) -> f64 {
+    gamma_fn(a) - lower_incomplete_gamma(a, x)
 }
 
 /// MAGSAC-style scoring: uses a soft inlier/outlier threshold with marginalization.
@@ -557,28 +617,6 @@ where
         self
     }
 
-    /// Approximate upper incomplete gamma function using series expansion.
-    /// For MAGSAC, we need Γ(a, x) where a = (dof-1)/2 and x = r^2/(2*σ_max^2)
-    /// This is a simplified approximation that works reasonably well.
-    fn approximate_upper_incomplete_gamma(&self, a: f64, x: f64) -> f64 {
-        // For small x, use series expansion
-        if x < 1.0 {
-            // Γ(a, x) ≈ Γ(a) - x^a * e^(-x) * (1 + x/(a+1) + ...)
-            let gamma_a = approximate_gamma(a);
-            let x_pow_a = x.powf(a);
-            let exp_neg_x = (-x).exp();
-            let series = 1.0 + x / (a + 1.0) + x * x / ((a + 1.0) * (a + 2.0));
-            gamma_a - x_pow_a * exp_neg_x * series
-        } else {
-            // For large x, use asymptotic expansion
-            // Γ(a, x) ≈ x^(a-1) * e^(-x) * (1 + (a-1)/x + ...)
-            let x_pow_a_minus_1 = x.powf(a - 1.0);
-            let exp_neg_x = (-x).exp();
-            let asymptotic = 1.0 + (a - 1.0) / x;
-            x_pow_a_minus_1 * exp_neg_x * asymptotic
-        }
-    }
-
     /// Compute MAGSAC-style loss for a given squared residual
     fn compute_loss(&self, r_sq: f64) -> f64 {
         let thresh_sq = self.threshold * self.threshold;
@@ -594,15 +632,13 @@ where
 
             // Approximate lower incomplete gamma: γ(a, x) = Γ(a) - Γ(a, x)
             // For small x: γ(a, x) ≈ x^a / a * (1 - x/(a+1) + ...)
-            let gamma_a = approximate_gamma(n_plus_1_per_2);
-            let upper_gamma_lower =
-                self.approximate_upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
+            let gamma_a = gamma_fn(n_plus_1_per_2);
+            let upper_gamma_lower = upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
             let lower_gamma = gamma_a - upper_gamma_lower;
 
             // Upper incomplete gamma approximation
-            let upper_gamma =
-                self.approximate_upper_incomplete_gamma(n_minus_1_per_2, residual_norm);
-            let value0 = self.approximate_upper_incomplete_gamma(n_minus_1_per_2, 0.0);
+            let upper_gamma = upper_incomplete_gamma(n_minus_1_per_2, residual_norm);
+            let value0 = upper_incomplete_gamma(n_minus_1_per_2, 0.0);
 
             // MAGSAC loss formula (simplified)
             sigma_max_sq / 2.0 * lower_gamma + sigma_max_sq / 4.0 * (upper_gamma - value0)
@@ -697,7 +733,39 @@ where
 
     fn c_n(&self) -> f64 {
         let n = self.degrees_of_freedom as f64;
-        (2.0f64.powf(n / 2.0) * approximate_gamma(n / 2.0)).recip()
+        (2.0f64.powf(n / 2.0) * gamma_fn(n / 2.0)).recip()
+    }
+
+    fn lut_lookup(&self, t_norm: f64) -> (f64, f64, f64) {
+        let key = (self.degrees_of_freedom, self.k_quantile.to_bits());
+        let map = SIGMA_LUT.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut guard = map.lock().expect("gamma LUT lock poisoned");
+        let table = guard.entry(key).or_insert_with(|| {
+            let step = self.k_quantile / (SIGMA_LUT_SAMPLES as f64 - 1.0);
+            let mut table = Vec::with_capacity(SIGMA_LUT_SAMPLES);
+            for i in 0..SIGMA_LUT_SAMPLES {
+                let t = i as f64 * step;
+                let x = t * t / 2.0;
+                let upper = upper_incomplete_gamma((self.degrees_of_freedom as f64 - 1.0) / 2.0, x);
+                let lower = lower_incomplete_gamma((self.degrees_of_freedom as f64 + 1.0) / 2.0, x);
+                table.push((upper, lower));
+            }
+            table
+        });
+        let clamped = t_norm.clamp(0.0, self.k_quantile);
+        let pos = clamped / self.k_quantile * (table.len() as f64 - 1.0);
+        let idx = pos.floor() as usize;
+        let frac = pos - idx as f64;
+        let (u0, l0) = table[idx];
+        let (u1, l1) = if idx + 1 < table.len() {
+            table[idx + 1]
+        } else {
+            (u0, l0)
+        };
+        let upper = u0 + frac * (u1 - u0);
+        let lower = l0 + frac * (l1 - l0);
+        let upper_k = table.last().map(|p| p.0).unwrap_or(upper);
+        (upper, lower, upper_k)
     }
 
     fn rho(&self, r: f64) -> f64 {
@@ -707,14 +775,8 @@ where
         let c_n = self.c_n();
         let power = 2.0f64.powf((n + 1.0) / 2.0);
         let sigma_sq = self.sigma_max * self.sigma_max;
-        let arg = r_clamped * r_clamped / (2.0 * sigma_sq);
-
-        let lower = approximate_lower_incomplete_gamma((n + 1.0) / 2.0, arg);
-        let upper_term = approximate_upper_incomplete_gamma((n - 1.0) / 2.0, arg);
-        let upper_k = approximate_upper_incomplete_gamma(
-            (n - 1.0) / 2.0,
-            self.k_quantile * self.k_quantile / 2.0,
-        );
+        let t_norm = r_clamped / self.sigma_max;
+        let (upper_term, lower, upper_k) = self.lut_lookup(t_norm);
 
         let term1 = (sigma_sq / 2.0) * lower;
         let term2 = (r_clamped * r_clamped / 4.0) * (upper_term - upper_k);
