@@ -490,6 +490,26 @@ fn approximate_gamma(a: f64) -> f64 {
     }
 }
 
+fn approximate_upper_incomplete_gamma(a: f64, x: f64) -> f64 {
+    if x < 1.0 {
+        let gamma_a = approximate_gamma(a);
+        let x_pow_a = x.powf(a);
+        let exp_neg_x = (-x).exp();
+        let series = 1.0 + x / (a + 1.0) + x * x / ((a + 1.0) * (a + 2.0));
+        gamma_a - x_pow_a * exp_neg_x * series
+    } else {
+        let x_pow_a_minus_1 = x.powf(a - 1.0);
+        let exp_neg_x = (-x).exp();
+        let asymptotic = 1.0 + (a - 1.0) / x;
+        x_pow_a_minus_1 * exp_neg_x * asymptotic
+    }
+}
+
+fn approximate_lower_incomplete_gamma(a: f64, x: f64) -> f64 {
+    let gamma_a = approximate_gamma(a);
+    gamma_a - approximate_upper_incomplete_gamma(a, x)
+}
+
 /// MAGSAC-style scoring: uses a soft inlier/outlier threshold with marginalization.
 ///
 /// This implementation uses an improved approximation of MAGSAC's marginalization
@@ -634,6 +654,110 @@ where
 
         // Larger scores should be better (negate cost)
         Score::new(inlier_count, -cost)
+    }
+}
+
+/// σ-consensus++ (MAGSAC++) style scoring using closed-form weights/ρ with optional priors.
+pub struct SigmaConsensusScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    sigma_max: f64,
+    degrees_of_freedom: usize,
+    k_quantile: f64,
+    residual_fn: F,
+    priors: Option<Vec<f64>>,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M, F> SigmaConsensusScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    pub fn new(sigma_max: f64, degrees_of_freedom: usize, residual_fn: F) -> Self {
+        Self {
+            sigma_max,
+            degrees_of_freedom,
+            k_quantile: 3.64, // ~0.99 chi quantile (common choice in the paper)
+            residual_fn,
+            priors: None,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_k(mut self, k: f64) -> Self {
+        self.k_quantile = k;
+        self
+    }
+
+    pub fn with_priors(mut self, priors: &[f64]) -> Self {
+        self.priors = Some(priors.to_vec());
+        self
+    }
+
+    fn c_n(&self) -> f64 {
+        let n = self.degrees_of_freedom as f64;
+        (2.0f64.powf(n / 2.0) * approximate_gamma(n / 2.0)).recip()
+    }
+
+    fn rho(&self, r: f64) -> f64 {
+        let k_sigma = self.k_quantile * self.sigma_max;
+        let r_clamped = r.min(k_sigma);
+        let n = self.degrees_of_freedom as f64;
+        let c_n = self.c_n();
+        let power = 2.0f64.powf((n + 1.0) / 2.0);
+        let sigma_sq = self.sigma_max * self.sigma_max;
+        let arg = r_clamped * r_clamped / (2.0 * sigma_sq);
+
+        let lower = approximate_lower_incomplete_gamma((n + 1.0) / 2.0, arg);
+        let upper_term = approximate_upper_incomplete_gamma((n - 1.0) / 2.0, arg);
+        let upper_k = approximate_upper_incomplete_gamma(
+            (n - 1.0) / 2.0,
+            self.k_quantile * self.k_quantile / 2.0,
+        );
+
+        let term1 = (sigma_sq / 2.0) * lower;
+        let term2 = (r_clamped * r_clamped / 4.0) * (upper_term - upper_k);
+
+        (1.0 / self.sigma_max) * c_n * power * (term1 + term2)
+    }
+}
+
+impl<M, F> Scoring<M> for SigmaConsensusScoring<M, F>
+where
+    F: Fn(&DataMatrix, &M, usize) -> f64,
+{
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        self.k_quantile * self.sigma_max
+    }
+
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
+        let n = data.nrows();
+        inliers_out.clear();
+
+        let mut inlier_count = 0usize;
+        let mut loss = 0.0f64;
+
+        for i in 0..n {
+            let w_prior = self
+                .priors
+                .as_ref()
+                .and_then(|p| p.get(i))
+                .copied()
+                .unwrap_or(1.0);
+            let r = (self.residual_fn)(data, model, i).abs();
+            let rho_val = self.rho(r);
+            loss += w_prior * rho_val;
+
+            if r <= self.threshold() {
+                inliers_out.push(i);
+                inlier_count += 1;
+            }
+        }
+
+        Score::new(inlier_count, -loss)
     }
 }
 
