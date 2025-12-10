@@ -165,6 +165,7 @@
 
 pub mod api;
 pub mod bundle_adjustment;
+pub mod choices;
 pub mod core;
 pub mod estimators;
 pub mod models;
