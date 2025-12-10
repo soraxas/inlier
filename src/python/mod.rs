@@ -1,4 +1,5 @@
 #![cfg(feature = "python")]
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use pyo3::{
     exceptions::PyValueError,
@@ -615,24 +616,25 @@ pub fn probe_estimator(
     estimator,
     sampler,
     scoring,
-    data,
     local_optimizer=None,
     final_optimizer=None,
     termination=None,
     inlier_selector=None,
     settings=None,
+    data=None,
 ))]
 pub fn run_python_ransac(
     estimator: PyEstimatorAdapter,
     sampler: PySamplerAdapter,
     scoring: PyScoringAdapter,
-    data: Bound<PyAny>,
     local_optimizer: Option<PyLocalOptimizerAdapter>,
     final_optimizer: Option<PyLocalOptimizerAdapter>,
     termination: Option<PyTerminationAdapter>,
     mut inlier_selector: Option<PyInlierSelectorAdapter>,
     settings: Option<PyRansacSettings>,
+    data: Option<Bound<PyAny>>,
 ) -> PyResult<Option<(PyObject, Vec<usize>, f64)>> {
+    let data = data.ok_or_else(|| PyValueError::new_err("data is required"))?;
     let matrix = matrix_from_python(&data)?;
     let settings = settings.map(|s| s.inner).unwrap_or_default();
     let mut pipeline = SuperRansac::new(
