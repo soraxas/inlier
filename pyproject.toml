@@ -15,7 +15,7 @@ classifiers = [
 dependencies = ["typing-extensions>=4"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "numpy>=1.26"]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -27,4 +27,4 @@ module-name = "inlier._inlier_rs"
 features = ["python"]
 
 [tool.uv]
-dev-dependencies = ["pytest>=8"]
+dev-dependencies = ["pytest>=8", "numpy>=1.26"]
