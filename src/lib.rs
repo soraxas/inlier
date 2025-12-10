@@ -175,6 +175,9 @@ pub mod settings;
 pub mod types;
 pub mod utils;
 
+#[cfg(feature = "python")]
+pub mod python;
+
 // Re-export high-level API
 pub use api::{
     EstimationResult, estimate_absolute_pose, estimate_essential_matrix,

@@ -11,12 +11,16 @@ readme = "README.md"
 keywords = ["ransac", "computer-vision", "geometry", "estimation", "robust"]
 categories = ["algorithms", "computer-vision", "mathematics", "science"]
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [features]
 default = ["rayon"]
 rayon = ["argmin/rayon", "petgraph/rayon"]
 kornia-pnp = ["dep:kornia-pnp"]
 graph-cut = ["dep:petgraph"]
 p3p = ["dep:p3p"]
+python = ["pyo3", "pyo3/extension-module", "pyo3/abi3-py39"]
 
 [dependencies]
 argmin = "0.11.0"
@@ -28,6 +32,7 @@ float-ord = "0.3.2"
 kornia-pnp = { version = "0.1.10", optional = true }
 petgraph = { version = "0.8.3", optional = true }
 p3p = { version = "0.1.0", optional = true }
+pyo3 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 plotters = "0.3"
