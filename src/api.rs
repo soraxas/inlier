@@ -3,8 +3,9 @@
 //! This module provides user-friendly functions for estimating geometric models
 //! similar to the Python API.
 
+use crate::core::Scoring as ScoringTrait;
 use crate::core::SuperRansac;
-use crate::core::{LeastSquaresOptimizer, NoopInlierSelector};
+use crate::core::{Estimator, LeastSquaresOptimizer, LocalOptimizer, NoopInlierSelector, Sampler};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, RigidTransformEstimator,
@@ -29,6 +30,56 @@ pub struct EstimationResult<M> {
     pub score: Score,
     /// Number of iterations performed.
     pub iterations: usize,
+}
+
+/// Generic helper to run a RANSAC pipeline with user-provided components.
+///
+/// This is useful when you want full control over the sampler, scoring, and
+/// local/final optimizers without relying on preset enums.
+pub fn run_ransac_with_components<E, Sa, Sc, LO>(
+    settings: RansacSettings,
+    data: &DataMatrix,
+    estimator: E,
+    sampler: Sa,
+    scoring: Sc,
+    local_optimizer: Option<LO>,
+    final_optimizer: Option<LO>,
+) -> Option<EstimationResult<E::Model>>
+where
+    E: Estimator,
+    E::Model: Clone,
+    Sa: Sampler,
+    Sc: ScoringTrait<E::Model, Score = Score>,
+    Sc::Score: Clone + PartialOrd,
+    LO: LocalOptimizer<E::Model, Score>,
+{
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
+    let inlier_selector = NoopInlierSelector;
+
+    let mut ransac = SuperRansac::new(
+        settings,
+        estimator,
+        sampler,
+        scoring,
+        local_optimizer,
+        final_optimizer,
+        termination,
+        Some(inlier_selector),
+    );
+
+    ransac.run(data);
+
+    match (&ransac.best_model, &ransac.best_score) {
+        (Some(model), Some(score)) => Some(EstimationResult {
+            model: model.clone(),
+            inliers: ransac.best_inliers.clone(),
+            score: *score,
+            iterations: ransac.iteration,
+        }),
+        _ => None,
+    }
 }
 
 /// Estimate a homography matrix from 2D point correspondences.
