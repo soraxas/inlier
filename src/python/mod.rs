@@ -1,5 +1,5 @@
-#![cfg(feature = "python")]
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::useless_conversion, clippy::redundant_closure)]
 
 use pyo3::{
     exceptions::PyValueError,
@@ -90,11 +90,13 @@ impl PyRansacSettings {
         inlier_threshold: f64,
         confidence: f64,
     ) -> Self {
-        let mut settings = RansacSettings::default();
-        settings.min_iterations = min_iterations;
-        settings.max_iterations = max_iterations;
-        settings.inlier_threshold = inlier_threshold;
-        settings.confidence = confidence;
+        let settings = RansacSettings {
+            min_iterations,
+            max_iterations,
+            inlier_threshold,
+            confidence,
+            ..RansacSettings::default()
+        };
         Self { inner: settings }
     }
 
@@ -482,7 +484,7 @@ pub fn estimate_homography_py(
     let data1 = matrix_from_python(&points1)?;
     let data2 = matrix_from_python(&points2)?;
     let result = crate::estimate_homography(&data1, &data2, threshold, settings.map(|s| s.inner))
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", matrix3_to_python(py, result.model.h)?)?;
     out.set_item("inliers", result.inliers)?;
@@ -502,7 +504,7 @@ pub fn estimate_fundamental_matrix_py(
     let data2 = matrix_from_python(&points2)?;
     let result =
         crate::estimate_fundamental_matrix(&data1, &data2, threshold, settings.map(|s| s.inner))
-            .map_err(PyValueError::new_err)?;
+            .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", matrix3_to_python(py, result.model.f)?)?;
     out.set_item("inliers", result.inliers)?;
@@ -522,7 +524,7 @@ pub fn estimate_essential_matrix_py(
     let data2 = matrix_from_python(&points2)?;
     let result =
         crate::estimate_essential_matrix(&data1, &data2, threshold, settings.map(|s| s.inner))
-            .map_err(PyValueError::new_err)?;
+            .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", matrix3_to_python(py, result.model.e)?)?;
     out.set_item("inliers", result.inliers)?;
@@ -542,7 +544,7 @@ pub fn estimate_absolute_pose_py(
     let data_2d = matrix_from_python(&points_2d)?;
     let result =
         crate::estimate_absolute_pose(&data_3d, &data_2d, threshold, settings.map(|s| s.inner))
-            .map_err(PyValueError::new_err)?;
+            .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item(
         "rotation",
@@ -569,7 +571,7 @@ pub fn estimate_rigid_transform_py(
     let data2 = matrix_from_python(&points2)?;
     let result =
         crate::estimate_rigid_transform(&data1, &data2, threshold, settings.map(|s| s.inner))
-            .map_err(PyValueError::new_err)?;
+            .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item(
         "rotation",
@@ -593,7 +595,7 @@ pub fn estimate_line_py(
     let py = points.py();
     let data = matrix_from_python(&points)?;
     let result = crate::estimate_line(&data, threshold, settings.map(|s| s.inner))
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", vec3_to_python(py, result.model.params())?)?;
     out.set_item("inliers", result.inliers)?;
@@ -612,12 +614,12 @@ pub fn probe_estimator(
     Ok(if valid { estimator.sample_size() } else { 0 })
 }
 
+#[allow(clippy::too_many_arguments)]
 #[pyfunction(signature = (
     estimator,
     sampler,
     scoring,
     local_optimizer=None,
-    final_optimizer=None,
     termination=None,
     inlier_selector=None,
     settings=None,
@@ -628,7 +630,6 @@ pub fn run_python_ransac(
     sampler: PySamplerAdapter,
     scoring: PyScoringAdapter,
     local_optimizer: Option<PyLocalOptimizerAdapter>,
-    final_optimizer: Option<PyLocalOptimizerAdapter>,
     termination: Option<PyTerminationAdapter>,
     mut inlier_selector: Option<PyInlierSelectorAdapter>,
     settings: Option<PyRansacSettings>,
@@ -643,7 +644,7 @@ pub fn run_python_ransac(
         sampler,
         scoring,
         local_optimizer,
-        final_optimizer,
+        None,
         termination.unwrap_or_else(|| PyTerminationAdapter {
             inner: Python::with_gil(|py| py.None()),
         }),
