@@ -1,0 +1,21 @@
+[book]
+title = "Inlier - robust model fitting"
+authors = ["Tin Lai"]
+language = "en"
+
+[build]
+use-default-preprocessors = true
+
+[output.html]
+edit-url-template = "https://github.com/soraxas/inlier/edit/master/docs/{path}"
+git-repository-url = "https://github.com/soraxas/inlier/tree/master/docs"
+mathjax-support = true
+
+[output.html.search]
+boost-hierarchy = 2
+boost-paragraph = 1
+boost-title = 2
+expand = true
+heading-split-level = 2
+limit-results = 20
+use-boolean-and = true
