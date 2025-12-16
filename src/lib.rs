@@ -170,6 +170,7 @@ pub mod core;
 pub mod estimators;
 pub mod models;
 pub mod nister_stewenius;
+pub mod optimisers;
 pub mod samplers;
 pub mod scoring;
 pub mod settings;
@@ -186,7 +187,8 @@ pub use api::{
 };
 
 // Re-export core traits for easy access
-pub use core::{Estimator, InlierSelector, LocalOptimizer, Sampler, Scoring, TerminationCriterion};
+pub use core::{Estimator, InlierSelector, Sampler, Scoring, TerminationCriterion};
+pub use optimisers::LocalOptimizer;
 
 // Re-export settings for convenience
 pub use settings::RansacSettings;

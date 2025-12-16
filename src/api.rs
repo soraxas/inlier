@@ -5,7 +5,7 @@
 
 use crate::core::Scoring as ScoringTrait;
 use crate::core::SuperRansac;
-use crate::core::{Estimator, LeastSquaresOptimizer, LocalOptimizer, NoopInlierSelector, Sampler};
+use crate::core::{Estimator, NoopInlierSelector, Sampler};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, RigidTransformEstimator,
@@ -13,6 +13,7 @@ use crate::estimators::{
 use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
 };
+use crate::optimisers::{LeastSquaresOptimizer, LocalOptimizer};
 use crate::samplers::UniformRandomSampler;
 use crate::scoring::{RansacInlierCountScoring, Score};
 use crate::settings::RansacSettings;
