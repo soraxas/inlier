@@ -22,6 +22,8 @@ graph-cut = ["dep:petgraph"]
 p3p = ["dep:p3p"]
 python = ["pyo3", "pyo3/extension-module", "pyo3/abi3-py39"]
 
+examples = ["plotters"]
+
 [dependencies]
 argmin = "0.11.0"
 nalgebra = { version = "0.33", features = ["std"] }
@@ -33,6 +35,8 @@ kornia-pnp = { version = "0.1.10", optional = true }
 petgraph = { version = "0.8.3", optional = true }
 p3p = { version = "0.1.0", optional = true }
 pyo3 = { version = "0.22", optional = true }
+plotters = { version = "0.3", optional = true }
 
-[dev-dependencies]
-plotters = "0.3"
+[[example]]
+name = "plot_line_fitting"
+required-features = ["examples"]
