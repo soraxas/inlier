@@ -1,6 +1,6 @@
 [project]
 name = "inlier"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "Tin Lai", email = "tin@tinyiu.com" }]
