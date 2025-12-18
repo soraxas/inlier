@@ -1,0 +1,4 @@
+[tools]
+mdbook = "latest"
+rust = "latest"
+# "cargo:mdbookkit" = { version = "latest", features = "rustdoc-link" }
