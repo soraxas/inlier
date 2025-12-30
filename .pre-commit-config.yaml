@@ -51,11 +51,10 @@ repos:
         pass_filenames: false
         entry: cargo clippy --all-targets --all-features -- -D warnings
 
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v2.3.10
     hooks:
-      - id: prettier
-        types_or: [yaml, json5]
+      - id: biome-check
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.9
