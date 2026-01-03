@@ -37,6 +37,13 @@ p3p = { version = "0.1.0", optional = true }
 pyo3 = { version = "0.22", optional = true }
 plotters = { version = "0.3", optional = true }
 
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "line_ransac"
+harness = false
+
 [[example]]
 name = "plot_line_fitting"
 required-features = ["examples"]

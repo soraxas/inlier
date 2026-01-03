@@ -2,5 +2,5 @@
 @default:
   just --help
 
-test:
-  cargo test --features python,examples
+test +args='':
+  cargo test {{args}} --features python,examples
