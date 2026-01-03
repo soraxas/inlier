@@ -3,4 +3,4 @@
   just --help
 
 test:
-  cargo test --features python
+  cargo test --features python,examples
