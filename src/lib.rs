@@ -168,10 +168,12 @@ pub mod bundle_adjustment;
 pub mod choices;
 pub mod core;
 pub mod estimators;
+pub mod features;
 pub mod models;
 pub mod nister_stewenius;
 pub mod optimisers;
 pub mod pointcloud;
+pub mod robust;
 pub mod samplers;
 pub mod scoring;
 pub mod settings;
@@ -189,11 +191,14 @@ pub use api::{
 
 // Re-export core traits for easy access
 pub use core::{Estimator, InlierSelector, Sampler, Scoring, TerminationCriterion};
+pub use features::{FeatureMatchSettings, FpfhSettings, compute_fpfh_features, match_features};
 pub use optimisers::LocalOptimizer;
 pub use pointcloud::{
-    ColoredIcpPipeline, ColoredIcpScale, ColoredIcpSettings, IcpConvergenceCriteria, PointCloud,
-    RegistrationResult,
+    ColoredIcpPipeline, ColoredIcpScale, ColoredIcpSettings, GlobalRegistrationSettings,
+    IcpConvergenceCriteria, PointCloud, PointCloudRegistrationPipeline, PointToPlaneKernel,
+    PreprocessSettings, RegistrationPipelineResult, RegistrationResult,
 };
+pub use robust::RobustLoss;
 
 // Re-export settings for convenience
 pub use settings::RansacSettings;
