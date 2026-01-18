@@ -1,6 +1,9 @@
 
 @default:
-  just --help
+  just --list
 
 test +args='':
-  cargo test {{args}} --features python,examples
+  cargo test {{args}} --all-features
+
+coverage:
+  cargo tarpaulin --no-dead-code --engine llvm

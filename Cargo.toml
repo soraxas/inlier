@@ -44,6 +44,10 @@ criterion = "0.5.1"
 name = "line_ransac"
 harness = false
 
+[[bench]]
+name = "colored_icp"
+harness = false
+
 [[example]]
 name = "plot_line_fitting"
 required-features = ["examples"]
