@@ -1,7 +1,7 @@
 //! Point cloud registration utilities and colored ICP pipeline.
 use std::collections::HashMap;
 
-use nalgebra::{Matrix3, Matrix4, SMatrix, SVector, SymmetricEigen, Vector3};
+use nalgebra::{Matrix3, Matrix4, SMatrix, SVD, SVector, SymmetricEigen, Vector3};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
@@ -11,7 +11,10 @@ use crate::estimators::RigidTransformEstimator;
 use crate::features::{FeatureMatchSettings, FpfhSettings, compute_fpfh_features, match_features};
 use crate::models::RigidTransform;
 use crate::robust::RobustLoss;
+use crate::samplers::{NeighborhoodGraph, UsearchNeighborhoodGraph};
 use crate::types::DataMatrix;
+
+type Correspondence = (usize, usize);
 
 #[derive(Clone, Debug)]
 pub struct PointCloud {
@@ -522,27 +525,85 @@ pub struct GlobalRegistrationSettings {
     pub ransac_n: usize,
     pub max_iterations: usize,
     pub confidence: f64,
-    pub edge_length_threshold: f64,
-    pub normal_angle_threshold: f64,
     pub mutual_filter: bool,
     pub max_correspondences: usize,
     pub seed: u64,
+    pub checkers: Vec<CorrespondenceChecker>,
 }
 
 impl Default for GlobalRegistrationSettings {
     fn default() -> Self {
+        let distance_threshold = 0.075;
         Self {
-            distance_threshold: 0.075,
+            distance_threshold,
             ransac_n: 3,
             max_iterations: 100_000,
             confidence: 0.999,
-            edge_length_threshold: 0.9,
-            normal_angle_threshold: 0.5235987755982988,
             mutual_filter: true,
             max_correspondences: 0,
             seed: 42,
+            checkers: vec![
+                CorrespondenceChecker::EdgeLength { threshold: 0.9 },
+                CorrespondenceChecker::Distance {
+                    threshold: distance_threshold,
+                },
+            ],
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum CorrespondenceChecker {
+    EdgeLength { threshold: f64 },
+    Distance { threshold: f64 },
+    Normal { max_angle: f64 },
+}
+
+impl CorrespondenceChecker {
+    fn check_sample(
+        &self,
+        source: &PointCloud,
+        target: &PointCloud,
+        correspondences: &[Correspondence],
+        transform: &Matrix4<f64>,
+    ) -> bool {
+        match *self {
+            CorrespondenceChecker::EdgeLength { threshold } => {
+                edge_length_check(source, target, correspondences, threshold)
+            }
+            CorrespondenceChecker::Distance { threshold } => {
+                distance_check(source, target, correspondences, transform, threshold)
+            }
+            CorrespondenceChecker::Normal { max_angle } => {
+                normal_set_check(source, target, correspondences, max_angle.cos())
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FastGlobalRegistrationOptions {
+    pub maximum_correspondence_distance: f64,
+    pub max_iterations: usize,
+    pub mu: f64,
+    pub mu_decay: f64,
+}
+
+impl Default for FastGlobalRegistrationOptions {
+    fn default() -> Self {
+        Self {
+            maximum_correspondence_distance: 0.025,
+            max_iterations: 64,
+            mu: 1.0,
+            mu_decay: 0.5,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum GlobalRegistrationMethod {
+    Ransac,
+    FastGlobalRegistration,
 }
 
 pub trait IcpKernel {
@@ -550,7 +611,7 @@ pub trait IcpKernel {
         &self,
         source: &PointCloud,
         target: &PointCloud,
-        correspondences: &[(usize, usize)],
+        correspondences: &[Correspondence],
         transform: &Matrix4<f64>,
         settings: &ColoredIcpSettings,
     ) -> Option<Matrix4<f64>>;
@@ -566,24 +627,24 @@ fn se3_exp(delta: &SVector<f64, 6>) -> Matrix4<f64> {
     let w = Vector3::new(delta[0], delta[1], delta[2]);
     let v = Vector3::new(delta[3], delta[4], delta[5]);
     let theta = w.norm();
-    let mut r = Matrix3::identity();
-    let mut v_mat = Matrix3::identity();
-    if theta > 1e-12 {
+    let (r, v_mat) = if theta > 1e-12 {
         let w_hat = skew(&w);
         let w_hat2 = w_hat * w_hat;
         let sin_t = theta.sin();
         let cos_t = theta.cos();
-        r = Matrix3::identity()
+        let r = Matrix3::identity()
             + (sin_t / theta) * w_hat
             + ((1.0 - cos_t) / (theta * theta)) * w_hat2;
-        v_mat = Matrix3::identity()
+        let v_mat = Matrix3::identity()
             + ((1.0 - cos_t) / (theta * theta)) * w_hat
             + ((theta - sin_t) / (theta * theta * theta)) * w_hat2;
+        (r, v_mat)
     } else {
         let w_hat = skew(&w);
-        r = Matrix3::identity() + w_hat;
-        v_mat = Matrix3::identity() + 0.5 * w_hat;
-    }
+        let r = Matrix3::identity() + w_hat;
+        let v_mat = Matrix3::identity() + 0.5 * w_hat;
+        (r, v_mat)
+    };
     let t = v_mat * v;
     let mut out = Matrix4::identity();
     out.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
@@ -769,7 +830,58 @@ fn edge_length_check(
     true
 }
 
-fn normal_check(
+fn normal_set_check(
+    source: &PointCloud,
+    target: &PointCloud,
+    correspondences: &[(usize, usize)],
+    cos_threshold: f64,
+) -> bool {
+    if cos_threshold <= -1.0 {
+        return true;
+    }
+    for &(s_i, t_i) in correspondences {
+        let ns = match source.normal(s_i) {
+            Some(n) => n,
+            None => return true,
+        };
+        let nt = match target.normal(t_i) {
+            Some(n) => n,
+            None => return true,
+        };
+        if ns.norm() < 1e-9 || nt.norm() < 1e-9 {
+            return false;
+        }
+        if ns.normalize().dot(&nt.normalize()) < cos_threshold {
+            return false;
+        }
+    }
+    true
+}
+
+fn distance_check(
+    source: &PointCloud,
+    target: &PointCloud,
+    correspondences: &[(usize, usize)],
+    transform: &Matrix4<f64>,
+    threshold: f64,
+) -> bool {
+    if threshold <= 0.0 {
+        return true;
+    }
+    let r = transform.fixed_view::<3, 3>(0, 0).into_owned();
+    let t = Vector3::new(transform[(0, 3)], transform[(1, 3)], transform[(2, 3)]);
+    for &(s_i, t_i) in correspondences {
+        let p = source.point(s_i);
+        let q = target.point(t_i);
+        let p_trans = r * p + t;
+        if (p_trans - q).norm() > threshold {
+            return false;
+        }
+    }
+    true
+}
+
+fn normal_pair_check(
     source: &PointCloud,
     target: &PointCloud,
     correspondence: (usize, usize),
@@ -793,6 +905,34 @@ fn normal_check(
     ns.normalize().dot(&nt.normalize()) >= cos_threshold
 }
 
+fn normal_cos_threshold(checkers: &[CorrespondenceChecker]) -> Option<f64> {
+    let mut out = None;
+    for checker in checkers {
+        if let CorrespondenceChecker::Normal { max_angle } = *checker {
+            let cos = max_angle.cos();
+            out = Some(out.map(|prev: f64| prev.min(cos)).unwrap_or(cos));
+        }
+    }
+    out
+}
+
+fn normalized_checkers(
+    checkers: &[CorrespondenceChecker],
+    distance_threshold: f64,
+) -> Vec<CorrespondenceChecker> {
+    checkers
+        .iter()
+        .map(|checker| match *checker {
+            CorrespondenceChecker::Distance { threshold } if threshold <= 0.0 => {
+                CorrespondenceChecker::Distance {
+                    threshold: distance_threshold,
+                }
+            }
+            _ => checker.clone(),
+        })
+        .collect()
+}
+
 pub fn registration_ransac_based_on_feature_matching(
     source_down: &PointCloud,
     target_down: &PointCloud,
@@ -809,12 +949,27 @@ pub fn registration_ransac_based_on_feature_matching(
         max_correspondences: settings.max_correspondences,
     };
     let correspondences = match_features(source_fpfh, target_fpfh, &match_settings)?;
+    registration_ransac_based_on_correspondence(
+        source_down,
+        target_down,
+        &correspondences,
+        settings,
+    )
+}
+
+pub fn registration_ransac_based_on_correspondence(
+    source_down: &PointCloud,
+    target_down: &PointCloud,
+    correspondences: &[Correspondence],
+    settings: &GlobalRegistrationSettings,
+) -> Result<RegistrationResult, String> {
     if correspondences.len() < settings.ransac_n {
         return Err("not enough correspondences for RANSAC".to_string());
     }
 
-    let data = build_correspondence_matrix(source_down, target_down, &correspondences);
+    let data = build_correspondence_matrix(source_down, target_down, correspondences);
     let mut rng = StdRng::seed_from_u64(settings.seed);
+    let checkers = normalized_checkers(&settings.checkers, settings.distance_threshold);
     let mut best = RegistrationResult {
         transformation: Matrix4::identity(),
         fitness: 0.0,
@@ -823,7 +978,6 @@ pub fn registration_ransac_based_on_feature_matching(
         iterations: 0,
     };
 
-    let cos_threshold = settings.normal_angle_threshold.cos();
     let mut max_iterations = settings.max_iterations.max(1);
     let mut iter = 0;
     let total = correspondences.len();
@@ -832,30 +986,30 @@ pub fn registration_ransac_based_on_feature_matching(
         iter += 1;
         let mut sample = Vec::with_capacity(settings.ransac_n);
         while sample.len() < settings.ransac_n {
-            let idx = rng.gen_range(0..total);
+            let idx = rng.random_range(0..total);
             if !sample.contains(&idx) {
                 sample.push(idx);
             }
         }
 
         let sample_corr: Vec<(usize, usize)> = sample.iter().map(|&i| correspondences[i]).collect();
-        if !edge_length_check(
-            source_down,
-            target_down,
-            &sample_corr,
-            settings.edge_length_threshold,
-        ) {
-            continue;
-        }
 
         let model = match estimate_rigid_from_sample(&data, &sample) {
             Some(m) => m,
             None => continue,
         };
         let transform = model.to_matrix4();
+
+        if !checkers
+            .iter()
+            .all(|checker| checker.check_sample(source_down, target_down, &sample_corr, &transform))
+        {
+            continue;
+        }
         let r = transform.fixed_view::<3, 3>(0, 0).into_owned();
         let t = Vector3::new(transform[(0, 3)], transform[(1, 3)], transform[(2, 3)]);
 
+        let normal_cos = normal_cos_threshold(&checkers);
         let mut inliers = Vec::new();
         let mut sum_sq = 0.0;
         for (row_idx, &(si, ti)) in correspondences.iter().enumerate() {
@@ -864,7 +1018,9 @@ pub fn registration_ransac_based_on_feature_matching(
             let q = target_down.point(ti);
             let dist = (p_trans - q).norm();
             if dist <= settings.distance_threshold
-                && normal_check(source_down, target_down, (si, ti), cos_threshold)
+                && normal_cos
+                    .map(|cos| normal_pair_check(source_down, target_down, (si, ti), cos))
+                    .unwrap_or(true)
             {
                 inliers.push(row_idx);
                 sum_sq += dist * dist;
@@ -901,6 +1057,154 @@ pub fn registration_ransac_based_on_feature_matching(
     Ok(best)
 }
 
+fn weighted_rigid_transform(pairs: &[(Vector3<f64>, Vector3<f64>, f64)]) -> Option<Matrix4<f64>> {
+    if pairs.len() < 3 {
+        return None;
+    }
+    let mut sum_w = 0.0;
+    let mut c0 = Vector3::zeros();
+    let mut c1 = Vector3::zeros();
+    for (p, q, w) in pairs {
+        if *w <= 0.0 {
+            continue;
+        }
+        sum_w += *w;
+        c0 += *w * p;
+        c1 += *w * q;
+    }
+    if sum_w <= 0.0 {
+        return None;
+    }
+    c0 /= sum_w;
+    c1 /= sum_w;
+
+    let mut h = Matrix3::zeros();
+    for (p, q, w) in pairs {
+        if *w <= 0.0 {
+            continue;
+        }
+        let dp = p - c0;
+        let dq = q - c1;
+        h += *w * (dp * dq.transpose());
+    }
+
+    let svd = SVD::new(h, true, true);
+    let u = svd.u?;
+    let vt = svd.v_t?;
+    let v = vt.transpose();
+    let mut r = v * u.transpose();
+    if r.determinant() < 0.0 {
+        let mut v_fix = v;
+        v_fix.column_mut(2).neg_mut();
+        r = v_fix * u.transpose();
+    }
+    let t = c1 - r * c0;
+
+    let mut out = Matrix4::identity();
+    out.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
+    out[(0, 3)] = t.x;
+    out[(1, 3)] = t.y;
+    out[(2, 3)] = t.z;
+    Some(out)
+}
+
+pub fn registration_fgr_based_on_correspondence(
+    source_down: &PointCloud,
+    target_down: &PointCloud,
+    correspondences: &[Correspondence],
+    options: &FastGlobalRegistrationOptions,
+) -> Result<RegistrationResult, String> {
+    if correspondences.len() < 3 {
+        return Err("not enough correspondences for FGR".to_string());
+    }
+
+    let mut transform = Matrix4::identity();
+    let mut weights = vec![1.0; correspondences.len()];
+    let mut mu = options.mu.max(1e-6);
+
+    for _ in 0..options.max_iterations.max(1) {
+        let mut pairs = Vec::with_capacity(correspondences.len());
+        let r = transform.fixed_view::<3, 3>(0, 0).into_owned();
+        let t = Vector3::new(transform[(0, 3)], transform[(1, 3)], transform[(2, 3)]);
+        for (idx, &(si, ti)) in correspondences.iter().enumerate() {
+            let p = source_down.point(si);
+            let q = target_down.point(ti);
+            let p_trans = r * p + t;
+            let dist = (p_trans - q).norm();
+            if options.maximum_correspondence_distance > 0.0
+                && dist > options.maximum_correspondence_distance
+            {
+                weights[idx] = 0.0;
+                continue;
+            }
+            let w = weights[idx];
+            pairs.push((p, q, w));
+        }
+
+        if let Some(next) = weighted_rigid_transform(&pairs) {
+            transform = next;
+        }
+
+        let r = transform.fixed_view::<3, 3>(0, 0).into_owned();
+        let t = Vector3::new(transform[(0, 3)], transform[(1, 3)], transform[(2, 3)]);
+        for (idx, &(si, ti)) in correspondences.iter().enumerate() {
+            let p = source_down.point(si);
+            let q = target_down.point(ti);
+            let p_trans = r * p + t;
+            let dist = (p_trans - q).norm();
+            weights[idx] = mu / (mu + dist * dist);
+        }
+
+        mu *= 1.0 - options.mu_decay;
+        if mu < 1e-6 {
+            mu = 1e-6;
+        }
+    }
+
+    let mut inliers = 0usize;
+    let mut sum_sq = 0.0;
+    let r = transform.fixed_view::<3, 3>(0, 0).into_owned();
+    let t = Vector3::new(transform[(0, 3)], transform[(1, 3)], transform[(2, 3)]);
+    for &(si, ti) in correspondences {
+        let p = source_down.point(si);
+        let q = target_down.point(ti);
+        let p_trans = r * p + t;
+        let dist = (p_trans - q).norm();
+        if options.maximum_correspondence_distance <= 0.0
+            || dist <= options.maximum_correspondence_distance
+        {
+            inliers += 1;
+            sum_sq += dist * dist;
+        }
+    }
+    let fitness = inliers as f64 / correspondences.len() as f64;
+    let rmse = if inliers == 0 {
+        0.0
+    } else {
+        (sum_sq / inliers as f64).sqrt()
+    };
+
+    Ok(RegistrationResult {
+        transformation: transform,
+        fitness,
+        inlier_rmse: rmse,
+        correspondence_count: inliers,
+        iterations: options.max_iterations,
+    })
+}
+
+pub fn registration_fgr_based_on_feature_matching(
+    source_down: &PointCloud,
+    target_down: &PointCloud,
+    source_fpfh: &DataMatrix,
+    target_fpfh: &DataMatrix,
+    options: &FastGlobalRegistrationOptions,
+    match_settings: &FeatureMatchSettings,
+) -> Result<RegistrationResult, String> {
+    let correspondences = match_features(source_fpfh, target_fpfh, match_settings)?;
+    registration_fgr_based_on_correspondence(source_down, target_down, &correspondences, options)
+}
+
 #[derive(Clone, Debug)]
 pub struct RegistrationPipelineResult {
     pub global: RegistrationResult,
@@ -910,6 +1214,8 @@ pub struct RegistrationPipelineResult {
 pub struct PointCloudRegistrationPipeline {
     pub preprocess: PreprocessSettings,
     pub global: GlobalRegistrationSettings,
+    pub fgr: FastGlobalRegistrationOptions,
+    pub global_method: GlobalRegistrationMethod,
     pub local: ColoredIcpPipeline,
 }
 
@@ -929,15 +1235,31 @@ impl PointCloudRegistrationPipeline {
             fpfh_radius: voxel_size * 5.0,
             fpfh_max_nn: 100,
         };
-        let global = GlobalRegistrationSettings {
+        let mut global = GlobalRegistrationSettings {
             distance_threshold: voxel_size * 1.5,
             ..GlobalRegistrationSettings::default()
         };
+        global.checkers = vec![
+            CorrespondenceChecker::EdgeLength { threshold: 0.9 },
+            CorrespondenceChecker::Distance {
+                threshold: global.distance_threshold,
+            },
+        ];
         Self {
             preprocess,
             global,
+            fgr: FastGlobalRegistrationOptions {
+                maximum_correspondence_distance: voxel_size * 0.5,
+                ..FastGlobalRegistrationOptions::default()
+            },
+            global_method: GlobalRegistrationMethod::Ransac,
             local: ColoredIcpPipeline::new(),
         }
+    }
+
+    pub fn with_global_method(mut self, method: GlobalRegistrationMethod) -> Self {
+        self.global_method = method;
+        self
     }
 
     pub fn run(
@@ -947,19 +1269,106 @@ impl PointCloudRegistrationPipeline {
     ) -> Result<RegistrationPipelineResult, String> {
         let (source_down, source_fpfh) = preprocess_point_cloud(source, &self.preprocess)?;
         let (target_down, target_fpfh) = preprocess_point_cloud(target, &self.preprocess)?;
-
-        let global = registration_ransac_based_on_feature_matching(
-            &source_down,
-            &target_down,
-            &source_fpfh,
-            &target_fpfh,
-            &self.global,
-        )?;
+        let global = match self.global_method {
+            GlobalRegistrationMethod::Ransac => registration_ransac_based_on_feature_matching(
+                &source_down,
+                &target_down,
+                &source_fpfh,
+                &target_fpfh,
+                &self.global,
+            )?,
+            GlobalRegistrationMethod::FastGlobalRegistration => {
+                let match_settings = FeatureMatchSettings {
+                    mutual: self.global.mutual_filter,
+                    max_correspondences: self.global.max_correspondences,
+                };
+                registration_fgr_based_on_feature_matching(
+                    &source_down,
+                    &target_down,
+                    &source_fpfh,
+                    &target_fpfh,
+                    &self.fgr,
+                    &match_settings,
+                )?
+            }
+        };
 
         let local = self.local.run(source, target, global.transformation)?;
 
         Ok(RegistrationPipelineResult { global, local })
     }
+}
+
+fn estimate_median_spacing(cloud: &PointCloud) -> Result<f64, String> {
+    let n = cloud.len();
+    if n < 2 {
+        return Err("point cloud has too few points".to_string());
+    }
+    let mut index = UsearchNeighborhoodGraph::new(2, 3);
+    index.initialize(&cloud.points);
+    let mut distances = Vec::with_capacity(n);
+    for i in 0..n {
+        let neighbors = index.neighbors(i);
+        if let Some(&j) = neighbors.first() {
+            let d = (cloud.point(i) - cloud.point(j)).norm();
+            if d > 0.0 {
+                distances.push(d);
+            }
+        }
+    }
+    if distances.is_empty() {
+        return Err("failed to compute spacing".to_string());
+    }
+    distances.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(distances[distances.len() / 2])
+}
+
+pub fn auto_tune_pipeline(
+    source: &PointCloud,
+    target: &PointCloud,
+) -> Result<PointCloudRegistrationPipeline, String> {
+    let source_spacing = estimate_median_spacing(source)?;
+    let target_spacing = estimate_median_spacing(target)?;
+    let base = source_spacing.max(target_spacing);
+    if base <= 0.0 {
+        return Err("invalid spacing estimate".to_string());
+    }
+
+    let voxel_size = base * 2.5;
+    let preprocess = PreprocessSettings {
+        voxel_size,
+        normal_radius: voxel_size * 2.0,
+        normal_max_nn: 30,
+        fpfh_radius: voxel_size * 5.0,
+        fpfh_max_nn: 100,
+    };
+    let mut global = GlobalRegistrationSettings {
+        distance_threshold: voxel_size * 1.5,
+        ..GlobalRegistrationSettings::default()
+    };
+    global.checkers = vec![
+        CorrespondenceChecker::EdgeLength { threshold: 0.9 },
+        CorrespondenceChecker::Distance {
+            threshold: global.distance_threshold,
+        },
+    ];
+    let local = ColoredIcpPipeline::new().with_settings(ColoredIcpSettings {
+        distance_threshold: voxel_size * 0.4,
+        normal_radius: voxel_size * 2.0,
+        gradient_radius: voxel_size * 2.0,
+        ..ColoredIcpSettings::default()
+    });
+
+    Ok(PointCloudRegistrationPipeline {
+        preprocess,
+        global,
+        fgr: FastGlobalRegistrationOptions {
+            maximum_correspondence_distance: voxel_size * 0.5,
+            ..FastGlobalRegistrationOptions::default()
+        },
+        global_method: GlobalRegistrationMethod::Ransac,
+        local,
+    })
 }
 
 pub struct ColoredIcpPipeline {
@@ -1133,7 +1542,7 @@ impl ColoredIcpPipeline {
         target: &PointCloud,
         transform: &Matrix4<f64>,
         voxel: f64,
-    ) -> Result<(Vec<(usize, usize)>, f64, f64), String> {
+    ) -> Result<(Vec<Correspondence>, f64, f64), String> {
         let r = transform.fixed_view::<3, 3>(0, 0).into_owned();
         let t = Vector3::new(transform[(0, 3)], transform[(1, 3)], transform[(2, 3)]);
         let threshold = if self.settings.distance_threshold > 0.0 {

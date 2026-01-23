@@ -1,7 +1,9 @@
 use inlier::pointcloud::NormalEstimationStrategy;
 use inlier::{
-    ColoredIcpPipeline, ColoredIcpScale, ColoredIcpSettings, IcpConvergenceCriteria, PointCloud,
+    ColoredIcpPipeline, ColoredIcpScale, ColoredIcpSettings, FastGlobalRegistrationOptions,
+    GlobalRegistrationMethod, GlobalRegistrationSettings, IcpConvergenceCriteria, PointCloud,
     PointCloudRegistrationPipeline, PointToPlaneKernel, RobustLoss,
+    registration_fgr_based_on_correspondence, registration_ransac_based_on_correspondence,
 };
 use nalgebra::{DMatrix, Matrix4};
 use rand::rngs::StdRng;
@@ -141,7 +143,8 @@ fn global_to_local_pipeline_runs() {
     let source = make_sphere_cloud(500);
     let target = make_sphere_cloud(500);
 
-    let mut pipeline = PointCloudRegistrationPipeline::new();
+    let mut pipeline =
+        PointCloudRegistrationPipeline::new().with_global_method(GlobalRegistrationMethod::Ransac);
     pipeline.preprocess.voxel_size = 0.05;
     pipeline.preprocess.normal_radius = 0.1;
     pipeline.preprocess.fpfh_radius = 0.25;
@@ -149,8 +152,70 @@ fn global_to_local_pipeline_runs() {
     pipeline.global.max_iterations = 800;
     pipeline.global.mutual_filter = false;
     pipeline.global.max_correspondences = 2000;
+    pipeline.global.checkers = vec![
+        inlier::CorrespondenceChecker::EdgeLength { threshold: 0.9 },
+        inlier::CorrespondenceChecker::Distance {
+            threshold: pipeline.global.distance_threshold,
+        },
+    ];
 
     let result = pipeline.run(&source, &target).expect("pipeline should run");
     assert!(result.global.fitness > 0.05);
     assert!(result.local.fitness > 0.1);
+}
+
+#[test]
+fn global_to_local_pipeline_runs_with_fgr() {
+    let source = make_sphere_cloud(500);
+    let target = make_sphere_cloud(500);
+
+    let mut pipeline = PointCloudRegistrationPipeline::new()
+        .with_global_method(GlobalRegistrationMethod::FastGlobalRegistration);
+    pipeline.preprocess.voxel_size = 0.05;
+    pipeline.preprocess.normal_radius = 0.1;
+    pipeline.preprocess.fpfh_radius = 0.25;
+    pipeline.fgr.maximum_correspondence_distance = 0.08;
+    pipeline.global.mutual_filter = false;
+    pipeline.global.max_correspondences = 2000;
+
+    let result = pipeline.run(&source, &target).expect("pipeline should run");
+    assert!(result.global.fitness > 0.05);
+    assert!(result.local.fitness > 0.1);
+}
+
+#[test]
+fn fgr_based_on_correspondence_runs() {
+    let source = make_grid_cloud(8, 8, 0.05);
+    let target = make_grid_cloud(8, 8, 0.05);
+    let correspondences: Vec<(usize, usize)> = (0..source.len()).map(|i| (i, i)).collect();
+
+    let options = FastGlobalRegistrationOptions {
+        maximum_correspondence_distance: 0.1,
+        max_iterations: 20,
+        ..FastGlobalRegistrationOptions::default()
+    };
+    let result =
+        registration_fgr_based_on_correspondence(&source, &target, &correspondences, &options)
+            .expect("fgr should run");
+
+    assert!(result.fitness > 0.9);
+}
+
+#[test]
+fn ransac_based_on_correspondence_runs() {
+    let source = make_grid_cloud(8, 8, 0.05);
+    let target = make_grid_cloud(8, 8, 0.05);
+    let correspondences: Vec<(usize, usize)> = (0..source.len()).map(|i| (i, i)).collect();
+
+    let settings = GlobalRegistrationSettings {
+        distance_threshold: 0.1,
+        checkers: Vec::new(),
+        ..GlobalRegistrationSettings::default()
+    };
+
+    let result =
+        registration_ransac_based_on_correspondence(&source, &target, &correspondences, &settings)
+            .expect("ransac should run");
+
+    assert!(result.fitness > 0.9);
 }

@@ -48,6 +48,10 @@ harness = false
 name = "colored_icp"
 harness = false
 
+[[bench]]
+name = "global_registration"
+harness = false
+
 [[example]]
 name = "plot_line_fitting"
 required-features = ["examples"]
