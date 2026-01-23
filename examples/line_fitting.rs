@@ -2,7 +2,10 @@
 //!
 //! This example demonstrates robust line fitting using the LineEstimator.
 
-use inlier::api::estimate_line;
+use inlier::api::estimate_line_with_callback;
+use inlier::models::Line;
+use inlier::scoring::Score;
+use inlier::{RansacCallback, RansacCallbackStage};
 use nalgebra::DMatrix;
 use rand::Rng;
 
@@ -55,7 +58,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Estimate line using RANSAC
     let threshold = 0.5; // Distance threshold
-    let result = estimate_line(&points_matrix, threshold, None)?;
+    let mut progress = ProgressPrinter { print_every: 20 };
+    let result = estimate_line_with_callback(&points_matrix, threshold, None, &mut progress)?;
 
     println!("RANSAC Results:");
     println!(
@@ -114,4 +118,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     Ok(())
+}
+
+struct ProgressPrinter {
+    print_every: usize,
+}
+
+impl RansacCallback<Line, Score> for ProgressPrinter {
+    fn on_stage(
+        &mut self,
+        stage: RansacCallbackStage,
+        iteration: usize,
+        _best_model: &Option<Line>,
+        best_score: &Option<Score>,
+        _best_inliers: &[usize],
+    ) {
+        if iteration % self.print_every == 0 {
+            match stage {
+                RansacCallbackStage::Iteration => {
+                    if let Some(score) = best_score {
+                        println!("  iter {:4}: best score {:?}", iteration, score);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }

@@ -3,7 +3,10 @@
 //! This example demonstrates fundamental matrix estimation using RANSAC
 //! on synthetic 2D point correspondences simulating two camera views.
 
-use inlier::*;
+use inlier::estimate_fundamental_matrix_with_callback;
+use inlier::models::FundamentalMatrix;
+use inlier::scoring::Score;
+use inlier::{RansacCallback, RansacCallbackStage};
 use nalgebra::DMatrix;
 use rand::Rng;
 
@@ -55,7 +58,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Estimate fundamental matrix
     let threshold = 0.1; // pixels (normalized coordinates)
-    let result = estimate_fundamental_matrix(&points1, &points2, threshold, None)?;
+    let mut progress = ProgressPrinter { print_every: 10 };
+    let result = estimate_fundamental_matrix_with_callback(
+        &points1,
+        &points2,
+        threshold,
+        None,
+        &mut progress,
+    )?;
 
     println!("Estimation results:");
     println!(
@@ -100,4 +110,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     Ok(())
+}
+
+struct ProgressPrinter {
+    print_every: usize,
+}
+
+impl RansacCallback<FundamentalMatrix, Score> for ProgressPrinter {
+    fn on_stage(
+        &mut self,
+        stage: RansacCallbackStage,
+        iteration: usize,
+        _best_model: &Option<FundamentalMatrix>,
+        best_score: &Option<Score>,
+        _best_inliers: &[usize],
+    ) {
+        if iteration % self.print_every == 0 {
+            match stage {
+                RansacCallbackStage::Iteration => {
+                    if let Some(score) = best_score {
+                        println!("  iter {:4}: best score {:?}", iteration, score);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }

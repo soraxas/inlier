@@ -185,12 +185,18 @@ pub mod python;
 
 // Re-export high-level API
 pub use api::{
-    EstimationResult, estimate_absolute_pose, estimate_essential_matrix,
-    estimate_fundamental_matrix, estimate_homography, estimate_line, estimate_rigid_transform,
+    EstimationResult, estimate_absolute_pose, estimate_absolute_pose_with_callback,
+    estimate_essential_matrix, estimate_essential_matrix_with_callback,
+    estimate_fundamental_matrix, estimate_fundamental_matrix_with_callback, estimate_homography,
+    estimate_homography_with_callback, estimate_line, estimate_line_with_callback,
+    estimate_rigid_transform, estimate_rigid_transform_with_callback,
 };
 
 // Re-export core traits for easy access
-pub use core::{Estimator, InlierSelector, Sampler, Scoring, TerminationCriterion};
+pub use core::{
+    Estimator, InlierSelector, RansacCallback, RansacCallbackStage, Sampler, Scoring,
+    TerminationCriterion,
+};
 pub use features::{FeatureMatchSettings, FpfhSettings, compute_fpfh_features, match_features};
 pub use optimisers::LocalOptimizer;
 pub use pointcloud::{

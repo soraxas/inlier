@@ -13,6 +13,36 @@ use crate::{settings::RansacSettings, types::DataMatrix};
 // continue to work after moving implementations into the `optimisers` module.
 pub use crate::optimisers::LocalOptimizer;
 
+#[derive(Clone, Copy, Debug)]
+pub enum RansacCallbackStage {
+    Iteration,
+    LocalOptimization,
+    FinalOptimization,
+}
+
+pub trait RansacCallback<M, S> {
+    fn on_stage(
+        &mut self,
+        stage: RansacCallbackStage,
+        iteration: usize,
+        best_model: &Option<M>,
+        best_score: &Option<S>,
+        best_inliers: &[usize],
+    );
+}
+
+impl<M, S> RansacCallback<M, S> for () {
+    fn on_stage(
+        &mut self,
+        _stage: RansacCallbackStage,
+        _iteration: usize,
+        _best_model: &Option<M>,
+        _best_score: &Option<S>,
+        _best_inliers: &[usize],
+    ) {
+    }
+}
+
 /// Estimator responsible for generating model hypotheses from minimal samples.
 ///
 /// This is the core trait for extending `inlier` with new geometric models.
@@ -772,6 +802,14 @@ where
     /// `SupeRansac::run` implementation: it manages sampling, model
     /// generation, scoring, (optional) local optimization, and termination.
     pub fn run(&mut self, data: &DataMatrix) {
+        self.run_with_callback::<()>(&mut (), data);
+    }
+
+    /// Run the RANSAC loop with a callback for progress reporting.
+    pub fn run_with_callback<C>(&mut self, callback: &mut C, data: &DataMatrix)
+    where
+        C: RansacCallback<E::Model, Sc::Score>,
+    {
         let sample_size = self.estimator.sample_size();
         let mut sample = vec![0usize; sample_size];
         let mut tmp_inliers = Vec::new();
@@ -872,6 +910,14 @@ where
                         self.best_score = Some(refined_score);
                         self.best_inliers = refined_inliers;
                     }
+
+                    callback.on_stage(
+                        RansacCallbackStage::LocalOptimization,
+                        self.iteration,
+                        &self.best_model,
+                        &self.best_score,
+                        &self.best_inliers,
+                    );
                 }
 
                 // Update termination criterion using the current best score.
@@ -889,6 +935,14 @@ where
             // Sampler update at the end of the iteration.
             self.sampler
                 .update(&sample, sample_size, self.iteration, 0.0);
+
+            callback.on_stage(
+                RansacCallbackStage::Iteration,
+                self.iteration,
+                &self.best_model,
+                &self.best_score,
+                &self.best_inliers,
+            );
 
             self.iteration += 1;
         }
@@ -908,6 +962,14 @@ where
                 self.best_score = Some(refined_score);
                 self.best_inliers = refined_inliers;
             }
+
+            callback.on_stage(
+                RansacCallbackStage::FinalOptimization,
+                self.iteration,
+                &self.best_model,
+                &self.best_score,
+                &self.best_inliers,
+            );
         }
     }
 }

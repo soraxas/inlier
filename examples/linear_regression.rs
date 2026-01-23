@@ -4,7 +4,10 @@
 //! robust linear regression on 2D data with outliers using the LineEstimator.
 //! The results are visualized and saved to a PNG image.
 
-use inlier::api::estimate_line;
+use inlier::api::estimate_line_with_callback;
+use inlier::models::Line;
+use inlier::scoring::Score;
+use inlier::{RansacCallback, RansacCallbackStage};
 use nalgebra::DMatrix;
 use plotters::prelude::*;
 use rand::Rng;
@@ -60,7 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Estimate line using RANSAC
     let threshold = 0.2; // Distance threshold
-    let result = estimate_line(&shuffled_points, threshold, None)?;
+    let mut progress = ProgressPrinter { print_every: 25 };
+    let result = estimate_line_with_callback(&shuffled_points, threshold, None, &mut progress)?;
 
     println!("RANSAC Linear Regression Results:");
     println!(
@@ -200,4 +204,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nPlot saved to: {}", output_file);
 
     Ok(())
+}
+
+struct ProgressPrinter {
+    print_every: usize,
+}
+
+impl RansacCallback<Line, Score> for ProgressPrinter {
+    fn on_stage(
+        &mut self,
+        stage: RansacCallbackStage,
+        iteration: usize,
+        _best_model: &Option<Line>,
+        best_score: &Option<Score>,
+        _best_inliers: &[usize],
+    ) {
+        if iteration % self.print_every == 0 {
+            match stage {
+                RansacCallbackStage::Iteration => {
+                    if let Some(score) = best_score {
+                        println!("  iter {:4}: best score {:?}", iteration, score);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }

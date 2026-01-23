@@ -4,8 +4,8 @@
 //! similar to the Python API.
 
 use crate::core::Scoring as ScoringTrait;
-use crate::core::SuperRansac;
 use crate::core::{Estimator, NoopInlierSelector, Sampler};
+use crate::core::{RansacCallback, SuperRansac};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, RigidTransformEstimator,
@@ -33,11 +33,13 @@ pub struct EstimationResult<M> {
     pub iterations: usize,
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Generic helper to run a RANSAC pipeline with user-provided components.
 ///
 /// This is useful when you want full control over the sampler, scoring, and
 /// local/final optimizers without relying on preset enums.
-pub fn run_ransac_with_components<E, Sa, Sc, LO>(
+/// Generic helper to run a RANSAC pipeline with user-provided components and callbacks.
+pub fn run_ransac_with_components_with_callback<E, Sa, Sc, LO, C>(
     settings: RansacSettings,
     data: &DataMatrix,
     estimator: E,
@@ -45,6 +47,7 @@ pub fn run_ransac_with_components<E, Sa, Sc, LO>(
     scoring: Sc,
     local_optimizer: Option<LO>,
     final_optimizer: Option<LO>,
+    callback: &mut C,
 ) -> Option<EstimationResult<E::Model>>
 where
     E: Estimator,
@@ -53,6 +56,7 @@ where
     Sc: ScoringTrait<E::Model, Score = Score>,
     Sc::Score: Clone + PartialOrd,
     LO: LocalOptimizer<E::Model, Score>,
+    C: RansacCallback<E::Model, Score>,
 {
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
@@ -70,7 +74,7 @@ where
         Some(inlier_selector),
     );
 
-    ransac.run(data);
+    ransac.run_with_callback(callback, data);
 
     match (&ransac.best_model, &ransac.best_score) {
         (Some(model), Some(score)) => Some(EstimationResult {
@@ -81,6 +85,35 @@ where
         }),
         _ => None,
     }
+}
+
+pub fn run_ransac_with_components<E, Sa, Sc, LO>(
+    settings: RansacSettings,
+    data: &DataMatrix,
+    estimator: E,
+    sampler: Sa,
+    scoring: Sc,
+    local_optimizer: Option<LO>,
+    final_optimizer: Option<LO>,
+) -> Option<EstimationResult<E::Model>>
+where
+    E: Estimator,
+    E::Model: Clone,
+    Sa: Sampler,
+    Sc: ScoringTrait<E::Model, Score = Score>,
+    Sc::Score: Clone + PartialOrd,
+    LO: LocalOptimizer<E::Model, Score>,
+{
+    run_ransac_with_components_with_callback::<E, Sa, Sc, LO, ()>(
+        settings,
+        data,
+        estimator,
+        sampler,
+        scoring,
+        local_optimizer,
+        final_optimizer,
+        &mut (),
+    )
 }
 
 /// Estimate a homography matrix from 2D point correspondences.
@@ -99,6 +132,19 @@ pub fn estimate_homography(
     threshold: f64,
     settings_opt: Option<RansacSettings>,
 ) -> Result<EstimationResult<Homography>, String> {
+    estimate_homography_with_callback::<()>(points1, points2, threshold, settings_opt, &mut ())
+}
+
+pub fn estimate_homography_with_callback<C>(
+    points1: &DMatrix<f64>,
+    points2: &DMatrix<f64>,
+    threshold: f64,
+    settings_opt: Option<RansacSettings>,
+    callback: &mut C,
+) -> Result<EstimationResult<Homography>, String>
+where
+    C: RansacCallback<Homography, Score>,
+{
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
     }
@@ -155,7 +201,7 @@ pub fn estimate_homography(
         Some(inlier_selector),
     );
 
-    ransac.run(&data);
+    ransac.run_with_callback(callback, &data);
 
     match (&ransac.best_model, &ransac.best_score) {
         (Some(model), Some(score)) => Ok(EstimationResult {
@@ -184,6 +230,25 @@ pub fn estimate_fundamental_matrix(
     threshold: f64,
     settings_opt: Option<RansacSettings>,
 ) -> Result<EstimationResult<FundamentalMatrix>, String> {
+    estimate_fundamental_matrix_with_callback::<()>(
+        points1,
+        points2,
+        threshold,
+        settings_opt,
+        &mut (),
+    )
+}
+
+pub fn estimate_fundamental_matrix_with_callback<C>(
+    points1: &DMatrix<f64>,
+    points2: &DMatrix<f64>,
+    threshold: f64,
+    settings_opt: Option<RansacSettings>,
+    callback: &mut C,
+) -> Result<EstimationResult<FundamentalMatrix>, String>
+where
+    C: RansacCallback<FundamentalMatrix, Score>,
+{
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
     }
@@ -231,7 +296,7 @@ pub fn estimate_fundamental_matrix(
         Some(inlier_selector),
     );
 
-    ransac.run(&data);
+    ransac.run_with_callback(callback, &data);
 
     match (&ransac.best_model, &ransac.best_score) {
         (Some(model), Some(score)) => Ok(EstimationResult {
@@ -260,6 +325,25 @@ pub fn estimate_essential_matrix(
     threshold: f64,
     settings_opt: Option<RansacSettings>,
 ) -> Result<EstimationResult<EssentialMatrix>, String> {
+    estimate_essential_matrix_with_callback::<()>(
+        points1,
+        points2,
+        threshold,
+        settings_opt,
+        &mut (),
+    )
+}
+
+pub fn estimate_essential_matrix_with_callback<C>(
+    points1: &DMatrix<f64>,
+    points2: &DMatrix<f64>,
+    threshold: f64,
+    settings_opt: Option<RansacSettings>,
+    callback: &mut C,
+) -> Result<EstimationResult<EssentialMatrix>, String>
+where
+    C: RansacCallback<EssentialMatrix, Score>,
+{
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
     }
@@ -307,7 +391,7 @@ pub fn estimate_essential_matrix(
         Some(inlier_selector),
     );
 
-    ransac.run(&data);
+    ransac.run_with_callback(callback, &data);
 
     match (&ransac.best_model, &ransac.best_score) {
         (Some(model), Some(score)) => Ok(EstimationResult {
@@ -336,6 +420,25 @@ pub fn estimate_absolute_pose(
     threshold: f64,
     settings_opt: Option<RansacSettings>,
 ) -> Result<EstimationResult<AbsolutePose>, String> {
+    estimate_absolute_pose_with_callback::<()>(
+        points_3d,
+        points_2d,
+        threshold,
+        settings_opt,
+        &mut (),
+    )
+}
+
+pub fn estimate_absolute_pose_with_callback<C>(
+    points_3d: &DMatrix<f64>,
+    points_2d: &DMatrix<f64>,
+    threshold: f64,
+    settings_opt: Option<RansacSettings>,
+    callback: &mut C,
+) -> Result<EstimationResult<AbsolutePose>, String>
+where
+    C: RansacCallback<AbsolutePose, Score>,
+{
     if points_3d.nrows() != points_2d.nrows() {
         return Err("points_3d and points_2d must have the same number of rows".to_string());
     }
@@ -389,7 +492,7 @@ pub fn estimate_absolute_pose(
         Some(inlier_selector),
     );
 
-    ransac.run(&data);
+    ransac.run_with_callback(callback, &data);
 
     match (&ransac.best_model, &ransac.best_score) {
         (Some(model), Some(score)) => Ok(EstimationResult {
@@ -418,6 +521,19 @@ pub fn estimate_rigid_transform(
     threshold: f64,
     settings_opt: Option<RansacSettings>,
 ) -> Result<EstimationResult<RigidTransform>, String> {
+    estimate_rigid_transform_with_callback::<()>(points1, points2, threshold, settings_opt, &mut ())
+}
+
+pub fn estimate_rigid_transform_with_callback<C>(
+    points1: &DMatrix<f64>,
+    points2: &DMatrix<f64>,
+    threshold: f64,
+    settings_opt: Option<RansacSettings>,
+    callback: &mut C,
+) -> Result<EstimationResult<RigidTransform>, String>
+where
+    C: RansacCallback<RigidTransform, Score>,
+{
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
     }
@@ -469,7 +585,7 @@ pub fn estimate_rigid_transform(
         Some(inlier_selector),
     );
 
-    ransac.run(&data);
+    ransac.run_with_callback(callback, &data);
 
     match (&ransac.best_model, &ransac.best_score) {
         (Some(model), Some(score)) => Ok(EstimationResult {
@@ -520,6 +636,18 @@ pub fn estimate_line(
     threshold: f64,
     settings_opt: Option<RansacSettings>,
 ) -> Result<EstimationResult<Line>, String> {
+    estimate_line_with_callback::<()>(points, threshold, settings_opt, &mut ())
+}
+
+pub fn estimate_line_with_callback<C>(
+    points: &DMatrix<f64>,
+    threshold: f64,
+    settings_opt: Option<RansacSettings>,
+    callback: &mut C,
+) -> Result<EstimationResult<Line>, String>
+where
+    C: RansacCallback<Line, Score>,
+{
     if points.ncols() != 2 {
         return Err("points must be Nx2 matrix (each row is [x, y])".to_string());
     }
@@ -559,7 +687,7 @@ pub fn estimate_line(
         Some(inlier_selector),
     );
 
-    ransac.run(&data);
+    ransac.run_with_callback(callback, &data);
 
     match (&ransac.best_model, &ransac.best_score) {
         (Some(model), Some(score)) => Ok(EstimationResult {
