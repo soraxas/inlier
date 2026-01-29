@@ -27,3 +27,12 @@ Key modules:
 
 See [src/settings.rs](../../src/settings.rs) for `RansacSettings` and the
 enumerations that control all the components listed above.
+
+## Cargo features
+
+- `rayon`: Enables parallelism in supporting crates (e.g., `argmin`, `petgraph`). Useful for faster optimization/scoring on larger workloads.
+- `kornia-pnp`: Enables EPnP refinement for absolute pose (non-minimal samples, 4+ points). Improves pose estimation robustness.
+- `p3p`: Enables a proper P3P minimal solver for absolute pose. Crucial for reliable RANSAC hypotheses on real data.
+- `graph-cut`: Enables graph-cut local optimization (`petgraph`). Useful for spatially coherent inlier selection.
+- `python`: Builds the Python bindings via `pyo3`.
+- `examples`: Enables plotting support (`plotters`) for example programs.

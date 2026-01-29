@@ -110,3 +110,26 @@ let _ = registration_fgr_based_on_correspondence(
     &source_down, &target_down, &correspondences, &fgr,
 )?;
 ```
+
+## Absolute pose notes
+
+For real-world 2D-3D correspondences, normalize image coordinates with intrinsics:
+
+```
+x = (u - cx) / fx
+y = (v - cy) / fy
+```
+
+The `AbsolutePoseEstimator` uses a minimal 3-point solver. The default build falls back to
+a simplified DLT, which is often too weak for real data. Enable the optional `p3p` feature
+to use a proper P3P solver:
+
+```
+cargo run --example absolute_pose_real --features p3p
+```
+
+For stronger refinement on 4+ points, enable `kornia-pnp`:
+
+```
+cargo run --example absolute_pose_real --features "p3p kornia-pnp"
+```

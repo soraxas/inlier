@@ -61,6 +61,32 @@ cargo run --example plot_line_fitting
 - Red circles: Outliers
 - Blue line: True line
 
+### 6. `absolute_pose_real.rs`
+Estimates absolute pose from real-world 2D-3D correspondences in `data/pose6dscene_points.txt`.
+
+**Run:**
+```bash
+cargo run --example absolute_pose_real
+```
+
+### 7. `rigid_transform_real.rs`
+Estimates a rigid transform from real-world 3D-3D correspondences in `data/rigid_pose_example_points.txt`.
+
+**Run:**
+```bash
+cargo run --example rigid_transform_real
+```
+
 ## Custom Estimators
 
 For tasks like line fitting, you would typically create a custom estimator implementing the `Estimator` trait. The examples show the general workflow using the built-in geometric estimators.
+
+## Python examples
+
+Python RoMa + inlier demos live in `py_examples/`:
+
+```bash
+python py_examples/roma_homography.py
+python py_examples/roma_fundamental.py
+python py_examples/roma_essential.py --k1 path/to/K1.txt --k2 path/to/K2.txt
+```
