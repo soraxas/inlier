@@ -15,7 +15,7 @@ categories = ["algorithms", "computer-vision", "mathematics", "science"]
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["rayon"]
+default = ["rayon", "p3p", "kornia-pnp"]
 rayon = ["argmin/rayon", "petgraph/rayon"]
 kornia-pnp = ["dep:kornia-pnp"]
 graph-cut = ["dep:petgraph"]

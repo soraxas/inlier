@@ -92,6 +92,7 @@ where
 
         let mut inlier_count = 0usize;
         let mut weighted = 0.0f64;
+        let mut residual_sum = 0.0f64;
         for i in 0..n {
             let w = self
                 .priors
@@ -104,11 +105,12 @@ where
                 inliers_out.push(i);
                 inlier_count += 1;
                 weighted += w;
+                residual_sum += r;
             }
         }
 
-        // Weighted inlier support is used as the score value.
-        Score::new(inlier_count, weighted)
+        // Prefer more inliers first, then lower residual among ties.
+        Score::new(inlier_count, -residual_sum.max(0.0) - weighted * 1e-6)
     }
 }
 

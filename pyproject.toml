@@ -12,7 +12,10 @@ classifiers = [
     "Programming Language :: Rust",
     "Operating System :: OS Independent",
 ]
-dependencies = ["typing-extensions>=4"]
+dependencies = [
+    "inlier-data",
+    "typing-extensions>=4",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "numpy>=1.26"]
@@ -24,7 +27,15 @@ build-backend = "maturin"
 [tool.maturin]
 python-source = "python"
 module-name = "inlier._inlier_rs"
-features = ["python"]
+features = ["python", "rayon", "kornia-pnp", "graph-cut", "p3p"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "numpy>=1.26",
+    "tqdm>=4.67.3",
+    "maturin>=1.11.5",
+]
 
 [tool.uv]
 dev-dependencies = ["pytest>=8", "numpy>=1.26"]

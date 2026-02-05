@@ -875,13 +875,16 @@ where
                 }
 
                 // Update termination criterion using the current best score.
-                if let (Some(best_score), Some(_best_model)) = (&self.best_score, &self.best_model)
-                {
-                    let should_terminate =
-                        self.termination
-                            .check(data, best_score, sample_size, &mut max_iterations);
-                    if should_terminate {
-                        break;
+                if self.iteration + 1 >= min_iterations {
+                    if let (Some(best_score), Some(_best_model)) =
+                        (&self.best_score, &self.best_model)
+                    {
+                        let should_terminate =
+                            self.termination
+                                .check(data, best_score, sample_size, &mut max_iterations);
+                        if should_terminate {
+                            break;
+                        }
                     }
                 }
             }

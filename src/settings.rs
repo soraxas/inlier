@@ -137,6 +137,8 @@ pub struct RansacSettings {
     pub inlier_threshold: f64,
     /// Desired confidence level in \[0, 1\].
     pub confidence: f64,
+    /// Optional RNG seed for deterministic sampling (primarily for tests).
+    pub rng_seed: Option<u64>,
 
     pub scoring: ScoringType,
     pub sampler: SamplerType,
@@ -161,6 +163,7 @@ impl Default for RansacSettings {
             max_iterations: 5000,
             inlier_threshold: 1.5,
             confidence: 0.99,
+            rng_seed: None,
             scoring: ScoringType::Magsac,
             sampler: SamplerType::Prosac,
             neighborhood: NeighborhoodType::Grid,

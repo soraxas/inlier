@@ -3,6 +3,7 @@
 //! This module provides user-friendly functions for estimating geometric models
 //! similar to the Python API.
 
+use crate::choices::SamplerChoice;
 use crate::core::Scoring as ScoringTrait;
 use crate::core::SuperRansac;
 use crate::core::{Estimator, NoopInlierSelector, Sampler};
@@ -14,9 +15,9 @@ use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
 };
 use crate::optimisers::{LeastSquaresOptimizer, LocalOptimizer};
-use crate::samplers::UniformRandomSampler;
-use crate::scoring::{RansacInlierCountScoring, Score};
-use crate::settings::RansacSettings;
+use crate::samplers::{ProsacSampler, UniformRandomSampler};
+use crate::scoring::{MsacScoring, RansacInlierCountScoring, Score};
+use crate::settings::{RansacSettings, SamplerType};
 use crate::types::DataMatrix;
 use nalgebra::{DMatrix, Vector2, Vector3};
 
@@ -118,7 +119,17 @@ pub fn estimate_homography(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = HomographyEstimator::new();
-    let sampler = UniformRandomSampler::new();
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
+            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
+            None => ProsacSampler::new(),
+        }),
+        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
+            Some(seed) => UniformRandomSampler::from_seed(seed),
+            None => UniformRandomSampler::new(),
+        }),
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+    };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &Homography, idx| {
             // Compute symmetric transfer error
@@ -141,7 +152,9 @@ pub fn estimate_homography(
     };
     let local_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
     let inlier_selector = NoopInlierSelector;
 
     let mut ransac = SuperRansac::new(
@@ -201,8 +214,19 @@ pub fn estimate_fundamental_matrix(
         data[(i, 3)] = points2[(i, 1)];
     }
 
+    let settings = settings_opt.unwrap_or_default();
     let estimator = FundamentalEstimator::new();
-    let sampler = UniformRandomSampler::new();
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
+            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
+            None => ProsacSampler::new(),
+        }),
+        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
+            Some(seed) => UniformRandomSampler::from_seed(seed),
+            None => UniformRandomSampler::new(),
+        }),
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+    };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &FundamentalMatrix, idx| {
             // Compute Sampson error
@@ -210,14 +234,15 @@ pub fn estimate_fundamental_matrix(
             let p2 = Vector2::new(data[(idx, 2)], data[(idx, 3)]);
             crate::bundle_adjustment::sampson_error(&model.f, &p1, &p2)
         });
-    let settings = settings_opt.unwrap_or_default();
     let scoring = match settings.point_priors.as_ref() {
         Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
         _ => scoring_builder,
     };
     let local_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
     let inlier_selector = NoopInlierSelector;
 
     let mut ransac = SuperRansac::new(
@@ -279,7 +304,17 @@ pub fn estimate_essential_matrix(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = EssentialEstimator::new();
-    let sampler = UniformRandomSampler::new();
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
+            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
+            None => ProsacSampler::new(),
+        }),
+        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
+            Some(seed) => UniformRandomSampler::from_seed(seed),
+            None => UniformRandomSampler::new(),
+        }),
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+    };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &EssentialMatrix, idx| {
             // Compute Sampson error
@@ -293,7 +328,9 @@ pub fn estimate_essential_matrix(
     };
     let local_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
     let inlier_selector = NoopInlierSelector;
 
     let mut ransac = SuperRansac::new(
@@ -356,26 +393,37 @@ pub fn estimate_absolute_pose(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = AbsolutePoseEstimator::new();
-    let sampler = UniformRandomSampler::new();
-    let scoring_builder =
-        RansacInlierCountScoring::new(threshold, |data, model: &AbsolutePose, idx| {
-            // Compute reprojection error
-            let p_2d = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
-            let p_3d = Vector3::new(data[(idx, 2)], data[(idx, 3)], data[(idx, 4)]);
-            crate::bundle_adjustment::reprojection_error(
-                model.rotation.to_rotation_matrix().matrix(),
-                &model.translation.vector,
-                &p_2d,
-                &p_3d,
-            )
-        });
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
+            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
+            None => ProsacSampler::new(),
+        }),
+        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
+            Some(seed) => UniformRandomSampler::from_seed(seed),
+            None => UniformRandomSampler::new(),
+        }),
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+    };
+    let scoring_builder = MsacScoring::new(threshold, |data, model: &AbsolutePose, idx| {
+        // Compute reprojection error
+        let p_2d = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
+        let p_3d = Vector3::new(data[(idx, 2)], data[(idx, 3)], data[(idx, 4)]);
+        crate::bundle_adjustment::reprojection_error(
+            model.rotation.to_rotation_matrix().matrix(),
+            &model.translation.vector,
+            &p_2d,
+            &p_3d,
+        )
+    });
     let scoring = match settings.point_priors.as_ref() {
         Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
         _ => scoring_builder,
     };
     let local_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
     let inlier_selector = NoopInlierSelector;
 
     let mut ransac = SuperRansac::new(
@@ -439,7 +487,17 @@ pub fn estimate_rigid_transform(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = RigidTransformEstimator::new();
-    let sampler = UniformRandomSampler::new();
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
+            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
+            None => ProsacSampler::new(),
+        }),
+        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
+            Some(seed) => UniformRandomSampler::from_seed(seed),
+            None => UniformRandomSampler::new(),
+        }),
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+    };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &RigidTransform, idx| {
             // Compute point-to-point distance
@@ -455,7 +513,9 @@ pub fn estimate_rigid_transform(
     };
     let local_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
     let inlier_selector = NoopInlierSelector;
 
     let mut ransac = SuperRansac::new(
@@ -534,7 +594,17 @@ pub fn estimate_line(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = LineEstimator::new();
-    let sampler = UniformRandomSampler::new();
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
+            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
+            None => ProsacSampler::new(),
+        }),
+        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
+            Some(seed) => UniformRandomSampler::from_seed(seed),
+            None => UniformRandomSampler::new(),
+        }),
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+    };
     let scoring_builder = RansacInlierCountScoring::new(threshold, |data, model: &Line, idx| {
         // Compute distance from point to line
         model.distance_to_point(data[(idx, 0)], data[(idx, 1)])
@@ -545,7 +615,9 @@ pub fn estimate_line(
     };
     let local_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
-    let termination = crate::core::RansacTerminationCriterion { confidence: 0.99 };
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
     let inlier_selector = NoopInlierSelector;
 
     let mut ransac = SuperRansac::new(

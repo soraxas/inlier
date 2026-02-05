@@ -83,18 +83,28 @@ impl PyRansacSettings {
         max_iterations=5000,
         inlier_threshold=1.5,
         confidence=0.99,
+        rng_seed=None,
+        sampler="prosac",
     ))]
     pub fn new(
         min_iterations: usize,
         max_iterations: usize,
         inlier_threshold: f64,
         confidence: f64,
+        rng_seed: Option<u64>,
+        sampler: &str,
     ) -> Self {
+        let sampler = match sampler.to_ascii_lowercase().as_str() {
+            "uniform" => crate::settings::SamplerType::Uniform,
+            _ => crate::settings::SamplerType::Prosac,
+        };
         let settings = RansacSettings {
             min_iterations,
             max_iterations,
             inlier_threshold,
             confidence,
+            rng_seed,
+            sampler,
             ..RansacSettings::default()
         };
         Self { inner: settings }
@@ -103,6 +113,11 @@ impl PyRansacSettings {
     #[getter]
     pub fn inlier_threshold(&self) -> f64 {
         self.inner.inlier_threshold
+    }
+
+    #[getter]
+    pub fn rng_seed(&self) -> Option<u64> {
+        self.inner.rng_seed
     }
 }
 
