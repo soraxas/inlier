@@ -17,6 +17,9 @@ Key modules:
   (homography, fundamental, essential, absolute pose, rigid transform, line).
 - [src/samplers](../../src/samplers/mod.rs) – uniform, PROSAC, NAPSAC, progressive NAPSAC,
   AR, importance sampling, and neighborhood helpers.
+  - The default sampler is **uniform** to avoid surprising bias when no per-point ordering
+    is supplied. Switch to PROSAC only if you sort correspondences by decreasing inlier
+    probability first (Python: `settings.set_sampler("prosac")`).
 - [src/scoring.rs](../../src/scoring.rs) – scoring primitives (RANSAC, MSAC, MinPRAN) plus
   the generated `sigma_lut` used by σ-consensus++.
 - [src/optimisers](../../src/optimisers/mod.rs) – local refinement strategies plus

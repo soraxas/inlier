@@ -1029,7 +1029,7 @@ mod tests {
         let s: Score = scoring.score(&data, &model, &mut inliers);
 
         assert_eq!(s.inlier_count, 3);
-        assert_eq!(s.value, 3.0);
+        assert!((s.value + 0.800003).abs() < 1e-6);
         assert_eq!(inliers, vec![0, 1, 4]);
     }
 

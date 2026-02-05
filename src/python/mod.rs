@@ -84,7 +84,7 @@ impl PyRansacSettings {
         inlier_threshold=1.5,
         confidence=0.99,
         rng_seed=None,
-        sampler="prosac",
+        sampler="uniform",
     ))]
     pub fn new(
         min_iterations: usize,
@@ -118,6 +118,23 @@ impl PyRansacSettings {
     #[getter]
     pub fn rng_seed(&self) -> Option<u64> {
         self.inner.rng_seed
+    }
+
+    /// Set the sampler type. Accepted values: "uniform" (default) or "prosac".
+    pub fn set_sampler(&mut self, sampler: &str) -> PyResult<()> {
+        match sampler.to_ascii_lowercase().as_str() {
+            "uniform" | "uniform_random" => {
+                self.inner.sampler = crate::settings::SamplerType::Uniform;
+                Ok(())
+            }
+            "prosac" => {
+                self.inner.sampler = crate::settings::SamplerType::Prosac;
+                Ok(())
+            }
+            other => Err(PyValueError::new_err(format!(
+                "unknown sampler '{other}', expected 'uniform' or 'prosac'"
+            ))),
+        }
     }
 }
 

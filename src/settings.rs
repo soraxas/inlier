@@ -165,7 +165,7 @@ impl Default for RansacSettings {
             confidence: 0.99,
             rng_seed: None,
             scoring: ScoringType::Magsac,
-            sampler: SamplerType::Prosac,
+            sampler: SamplerType::Uniform,
             neighborhood: NeighborhoodType::Grid,
             local_optimization: LocalOptimizationType::NestedRansac,
             final_optimization: LocalOptimizationType::Irls,
@@ -193,7 +193,7 @@ mod tests {
         assert!((cfg.confidence - 0.99).abs() < 1e-12);
 
         assert_eq!(cfg.scoring, ScoringType::Magsac);
-        assert_eq!(cfg.sampler, SamplerType::Prosac);
+        assert_eq!(cfg.sampler, SamplerType::Uniform);
         assert_eq!(cfg.neighborhood, NeighborhoodType::Grid);
         assert_eq!(cfg.local_optimization, LocalOptimizationType::NestedRansac);
         assert_eq!(cfg.final_optimization, LocalOptimizationType::Irls);
