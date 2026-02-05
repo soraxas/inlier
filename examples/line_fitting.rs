@@ -20,11 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let true_slope = 2.0;
     let true_intercept = 1.0;
 
-    println!("True line: y = {:.2}x + {:.2}", true_slope, true_intercept);
-    println!(
-        "Generating {} inliers and {} outliers\n",
-        n_inliers, n_outliers
-    );
+    println!("True line: y = {true_slope:.2}x + {true_intercept:.2}");
+    println!("Generating {n_inliers} inliers and {n_outliers} outliers\n");
 
     // Generate inliers along the line with noise
     let mut points = Vec::new();
@@ -80,14 +77,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Convert to slope-intercept form for comparison
     if let Some((slope, intercept)) = line.to_slope_intercept() {
-        println!(
-            "  In slope-intercept form: y = {:.4}x + {:.4}",
-            slope, intercept
-        );
-        println!(
-            "  True line: y = {:.4}x + {:.4}",
-            true_slope, true_intercept
-        );
+        println!("  In slope-intercept form: y = {slope:.4}x + {intercept:.4}");
+        println!("  True line: y = {true_slope:.4}x + {true_intercept:.4}");
         println!("  Error in slope: {:.4}", (slope - true_slope).abs());
         println!(
             "  Error in intercept: {:.4}",
@@ -108,10 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             found_inliers += 1;
         }
     }
-    println!(
-        "\nCorrectly identified {} out of {} true inliers",
-        found_inliers, n_inliers
-    );
+    println!("\nCorrectly identified {found_inliers} out of {n_inliers} true inliers");
 
     Ok(())
 }

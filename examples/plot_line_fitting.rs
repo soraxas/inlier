@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let true_slope = -3.0;
     let true_intercept = 1.0;
 
-    println!("True line: y = {:.2}x + {:.2}", true_slope, true_intercept);
+    println!("True line: y = {true_slope:.2}x + {true_intercept:.2}");
 
     // Generate inliers along the line with noise
     let mut points = Vec::new();

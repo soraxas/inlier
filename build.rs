@@ -105,10 +105,9 @@ fn main() -> Result<()> {
         f,
         "// Auto-generated at build time: gamma LUTs for sigma-consensus++\n\
          // Keyed by (dof, k_bits) -> Vec<(upper_gamma((n-1)/2, t^2/2), lower_gamma((n+1)/2, t^2/2))>\n\
-         pub const SIGMA_LUT_SAMPLES: usize = {};\n\
+         pub const SIGMA_LUT_SAMPLES: usize = {samples};\n\
          pub fn precomputed_sigma_lut() -> std::collections::HashMap<(usize, u64), Vec<(f64, f64)>> {{\n\
-             let mut map: std::collections::HashMap<(usize, u64), Vec<(f64, f64)>> = std::collections::HashMap::new();",
-        samples
+             let mut map: std::collections::HashMap<(usize, u64), Vec<(f64, f64)>> = std::collections::HashMap::new();"
     )?;
 
     for (dof, k) in configs {

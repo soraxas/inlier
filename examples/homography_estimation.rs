@@ -49,11 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         points2[(i, 1)] = rng.random_range(-100.0..100.0);
     }
 
-    println!("Generated {} inliers and {} outliers", n_points, n_outliers);
-    println!(
-        "True transformation: rotation ({:.2} rad) + translation ({:.1}, {:.1})\n",
-        angle, tx, ty
-    );
+    println!("Generated {n_points} inliers and {n_outliers} outliers");
+    println!("True transformation: rotation ({angle:.2} rad) + translation ({tx:.1}, {ty:.1})\n");
 
     // Estimate homography
     let threshold = 2.0; // pixels
@@ -89,10 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             correct_inliers += 1;
         }
     }
-    println!(
-        "\nCorrectly identified {} out of {} true inliers",
-        correct_inliers, n_points
-    );
+    println!("\nCorrectly identified {correct_inliers} out of {n_points} true inliers");
 
     Ok(())
 }

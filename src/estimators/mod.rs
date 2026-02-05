@@ -97,8 +97,7 @@ mod tests {
             let det = fundamental.f.determinant().abs();
             assert!(
                 det < 1.0,
-                "Fundamental matrix should have small determinant: {}",
-                det
+                "Fundamental matrix should have small determinant: {det}"
             );
             // The validation check might be too strict, so we just check the determinant
             // which is the key property of a fundamental matrix

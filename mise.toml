@@ -1,4 +1,5 @@
 [tools]
+"cargo:cargo-nextest" = "latest"
 mdbook = "latest"
 rust = "latest"
 # "cargo:mdbookkit" = { version = "latest", features = "rustdoc-link" }

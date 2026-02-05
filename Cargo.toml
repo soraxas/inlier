@@ -40,3 +40,7 @@ plotters = { version = "0.3", optional = true }
 [[example]]
 name = "plot_line_fitting"
 required-features = ["examples"]
+
+[[example]]
+name = "linear_regression"
+required-features = ["examples"]

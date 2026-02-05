@@ -49,14 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shuffled_points[(new_idx, 1)] = points[(old_idx, 1)];
     }
 
-    println!(
-        "Generated {} inliers and {} outliers",
-        n_inliers, n_outliers
-    );
-    println!(
-        "True line: y = {:.2}x + {:.2}\n",
-        true_slope, true_intercept
-    );
+    println!("Generated {n_inliers} inliers and {n_outliers} outliers");
+    println!("True line: y = {true_slope:.2}x + {true_intercept:.2}\n");
 
     // Estimate line using RANSAC
     let threshold = 0.2; // Distance threshold
@@ -85,14 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Convert to slope-intercept form for comparison
     if let Some((slope, intercept)) = line.to_slope_intercept() {
-        println!(
-            "  In slope-intercept form: y = {:.4}x + {:.4}",
-            slope, intercept
-        );
-        println!(
-            "  True line: y = {:.4}x + {:.4}",
-            true_slope, true_intercept
-        );
+        println!("  In slope-intercept form: y = {slope:.4}x + {intercept:.4}");
+        println!("  True line: y = {true_slope:.4}x + {true_intercept:.4}");
         println!("  Error in slope: {:.4}", (slope - true_slope).abs());
         println!(
             "  Error in intercept: {:.4}",
@@ -111,10 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             found_inliers += 1;
         }
     }
-    println!(
-        "\nCorrectly identified {} out of {} true inliers",
-        found_inliers, n_inliers
-    );
+    println!("\nCorrectly identified {found_inliers} out of {n_inliers} true inliers");
 
     // Create plot and save to image
     let output_file = "linear_regression_result.png";
@@ -197,7 +182,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     root.present().unwrap();
-    println!("\nPlot saved to: {}", output_file);
+    println!("\nPlot saved to: {output_file}");
 
     Ok(())
 }

@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         points2[(i, 1)] = rng.random_range(-5.0..5.0);
     }
 
-    println!("Generated {} inliers and {} outliers", n_points, n_outliers);
+    println!("Generated {n_points} inliers and {n_outliers} outliers");
     println!("Simulating two camera views of points on a plane\n");
 
     // Estimate fundamental matrix
@@ -82,10 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check rank-2 constraint (determinant should be small)
     let det = result.model.f.determinant();
-    println!(
-        "\nFundamental matrix determinant: {:.6} (should be close to 0)",
-        det
-    );
+    println!("\nFundamental matrix determinant: {det:.6} (should be close to 0)");
 
     // Verify inliers
     let mut correct_inliers = 0;
@@ -94,10 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             correct_inliers += 1;
         }
     }
-    println!(
-        "Correctly identified {} out of {} true inliers",
-        correct_inliers, n_points
-    );
+    println!("Correctly identified {correct_inliers} out of {n_points} true inliers");
 
     Ok(())
 }
