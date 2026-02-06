@@ -58,9 +58,19 @@ class LineScoring:
     def threshold(self) -> float:
         return self._tau
 
-    def score(self, data, model):
+    def score(self, data: np.ndarray, model: np.ndarray):
         m, b = model
+        # print(data)
+
+        print(type(data))
+        # compute residuals for each point with numpy
+        # residuals = np.abs(data[:, 1] - (model[0] * data[:, 0] + model[1]))
+        # print(residuals)
+
         residuals = [abs(y - (m * x + b)) for x, y in data]
+        # print(residuals)
+        # exit()
+
         inliers = [i for i, r in enumerate(residuals) if r <= self._tau]
         return float(len(inliers)), inliers
 
@@ -87,7 +97,7 @@ def main() -> None:
         estimator=inlier.EstimatorAdapter(LineEstimator(rng)),
         sampler=inlier.SamplerAdapter(RandomSampler()),
         scoring=inlier.ScoringAdapter(LineScoring(tau=0.1)),
-        settings=inlier.RansacSettings(
+        settings=inlier.MetasacSettings(
             min_iterations=500, max_iterations=2000, confidence=0.999
         ),
     )

@@ -1,6 +1,6 @@
 # Samplers
 
-`RansacSettings.sampler` selects one of the samplers in [src/samplers/mod.rs](../../src/samplers/mod.rs).
+`MetasacSettings.sampler` selects one of the samplers in [src/samplers/mod.rs](../../src/samplers/mod.rs).
 Most other samplers rely on neighborhood graphs from
 [src/samplers/neighborhood.rs](../../src/samplers/neighborhood.rs) and optional priors.
 
@@ -16,7 +16,7 @@ custom samplers by implementing the trait and plugging it into the runtime pipel
 adapter (see the `SamplerChoice` enum in [src/choices.rs](../../src/choices.rs)).
 
 ```rust
-let mut sampler = inlier::samplers::UniformRandomSampler::new();
+let mut sampler = inlier::samplers::UniformRandomSampler::default();
 sampler.sample(&data_matrix, estimator.sample_size(), &mut indices);
 sampler.update(&indices, estimator.sample_size(), iteration, 1.0);
 ```

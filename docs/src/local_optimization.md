@@ -26,7 +26,7 @@ Every optimizer is transparent about its configuration (max iterations, weight u
 they all return the refined model, score, and inliers tuple expected by `SuperRansac`.
 
 The enum `LocalOptimizationType` in [src/settings.rs](../../src/settings.rs) selects the optimizer,
-and `RansacSettings.local_optimization_settings` exposes parameters such as `max_iterations`,
+and `MetasacSettings.local_optimization_settings` exposes parameters such as `max_iterations`,
 `graph_cut_number`, and `spatial_coherence_weight`. The `final_optimization` field lets you run a
 different optimizer once the outer loop terminates.
 

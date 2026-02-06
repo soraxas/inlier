@@ -5,13 +5,15 @@
 //! numerical routines are implemented in later phases; here we focus on:
 //! - Traits for estimators, samplers, scoring, local optimization, termination,
 //!   and inlier selection.
-//! - A generic `SuperRansac` struct that orchestrates these components.
+//! - A generic `MetaSAC` struct that orchestrates these components.
 
-use crate::{settings::RansacSettings, types::DataMatrix};
+use crate::{settings::MetasacSettings, types::DataMatrix};
 
 // Re-export the local optimizer trait so existing paths using `core::LocalOptimizer`
 // continue to work after moving implementations into the `optimisers` module.
 pub use crate::optimisers::LocalOptimizer;
+
+use hotpath::measure_block;
 
 /// Estimator responsible for generating model hypotheses from minimal samples.
 ///
@@ -435,6 +437,38 @@ pub trait Scoring<M> {
     /// # Returns
     /// A score value. Higher scores indicate better models.
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score;
+
+    /// Score a model using only a subset of points. Default falls back to full-data scoring.
+    fn score_subset(
+        &self,
+        data: &DataMatrix,
+        subset: &[usize],
+        model: &M,
+        inliers_out: &mut Vec<usize>,
+    ) -> Self::Score {
+        if subset.is_empty() {
+            return self.score(data, model, inliers_out);
+        }
+
+        // Build a temporary matrix with only the selected rows.
+        let cols = data.ncols();
+        let mut tmp = Vec::with_capacity(subset.len() * cols);
+        for &idx in subset {
+            for c in 0..cols {
+                tmp.push(data[(idx, c)]);
+            }
+        }
+        let submat = DataMatrix::from_row_slice(subset.len(), cols, &tmp);
+        let mut local_inliers = Vec::new();
+        let score = self.score(&submat, model, &mut local_inliers);
+        inliers_out.clear();
+        for &i in &local_inliers {
+            if let Some(&orig) = subset.get(i) {
+                inliers_out.push(orig);
+            }
+        }
+        score
+    }
 }
 
 /// Termination criterion deciding when the RANSAC loop can stop.
@@ -698,11 +732,11 @@ where
     }
 }
 
-/// Generic SupeRANSAC pipeline orchestrating the above components.
+/// A meta-framework for Sample Consensus (RANSAC) algorithms.
 ///
 /// This is a structural analogue of the C++ `superansac::SupeRansac` class.
 #[derive(Debug)]
-pub struct SuperRansac<E, Sa, Sc, LO, T, IS>
+pub struct MetaSAC<E, Sa, Sc, LO, T, IS>
 where
     E: Estimator,
     Sa: Sampler,
@@ -712,7 +746,7 @@ where
     T: TerminationCriterion<Sc::Score>,
     IS: InlierSelector<E::Model>,
 {
-    pub settings: RansacSettings,
+    pub settings: MetasacSettings,
     pub estimator: E,
     pub sampler: Sa,
     pub scoring: Sc,
@@ -728,7 +762,7 @@ where
     pub iteration: usize,
 }
 
-impl<E, Sa, Sc, LO, T, IS> SuperRansac<E, Sa, Sc, LO, T, IS>
+impl<E, Sa, Sc, LO, T, IS> MetaSAC<E, Sa, Sc, LO, T, IS>
 where
     E: Estimator,
     Sa: Sampler,
@@ -741,7 +775,7 @@ where
     #[allow(clippy::too_many_arguments)]
     /// Create a new pipeline from its components.
     pub fn new(
-        settings: RansacSettings,
+        settings: MetasacSettings,
         estimator: E,
         sampler: Sa,
         scoring: Sc,
@@ -771,6 +805,7 @@ where
     /// This is a simplified but structurally similar version of the C++
     /// `SupeRansac::run` implementation: it manages sampling, model
     /// generation, scoring, (optional) local optimization, and termination.
+    #[hotpath::main(percentiles = [95])]
     pub fn run(&mut self, data: &DataMatrix) {
         let sample_size = self.estimator.sample_size();
         let mut sample = vec![0usize; sample_size];
@@ -788,34 +823,36 @@ where
 
         while self.iteration < max_iterations || self.iteration < min_iterations {
             // Try to obtain a valid sample and a valid model.
-            let mut have_model = false;
             let mut models: Vec<E::Model> = Vec::new();
 
-            for _ in 0..100 {
-                if !self.sampler.sample(data, sample_size, &mut sample[..]) {
-                    self.sampler
-                        .update(&sample, sample_size, self.iteration, 0.0);
-                    continue;
+            measure_block!("ransac_sampling_and_estimation", {
+                // TODO: use multiple threads to draw samples in parallel and terminate early if any thread succeeds?
+                for _ in 0..self.settings.max_sampling_attempts {
+                    // (i) take sample, (ii) check if sample is valid, (iii) estimate model
+                    // if any failed, update sampler and continue
+                    if measure_block!(
+                        "sample_draw",
+                        self.sampler.sample(data, sample_size, &mut sample[..])
+                    ) && measure_block!(
+                        "sample_validity",
+                        self.estimator.is_valid_sample(data, &sample)
+                    ) {
+                        models = measure_block!("model_estimation", {
+                            self.estimator.estimate_model(data, &sample)
+                        });
+
+                        if !models.is_empty() {
+                            break;
+                        }
+                    };
+                    measure_block!("sampler_update_failed", {
+                        self.sampler
+                            .update(&sample, sample_size, self.iteration, 0.0)
+                    });
                 }
+            });
 
-                if !self.estimator.is_valid_sample(data, &sample) {
-                    self.sampler
-                        .update(&sample, sample_size, self.iteration, 0.0);
-                    continue;
-                }
-
-                models = self.estimator.estimate_model(data, &sample);
-                if models.is_empty() {
-                    self.sampler
-                        .update(&sample, sample_size, self.iteration, 0.0);
-                    continue;
-                }
-
-                have_model = true;
-                break;
-            }
-
-            if !have_model {
+            if models.is_empty() {
                 // No valid model could be generated for this iteration.
                 self.iteration += 1;
                 continue;
@@ -824,67 +861,86 @@ where
             // Evaluate each model.
             let mut iteration_improved_best = false;
 
-            for model in models.iter() {
-                if !self
-                    .estimator
-                    .is_valid_model(model, data, &sample, threshold)
-                {
-                    continue;
+            measure_block!("ransac_scoring", {
+                for model in models.drain(..) {
+                    if !measure_block!("model_validity", {
+                        self.estimator
+                            .is_valid_model(&model, data, &sample, threshold)
+                    }) {
+                        continue;
+                    }
+
+                    tmp_inliers.clear();
+
+                    // Optionally let an inlier selector narrow down the points.
+                    let selected_inliers = measure_block!("inlier_selection", {
+                        if let Some(selector) = &mut self.inlier_selector {
+                            selector.select(data, &model)
+                        } else {
+                            Vec::new()
+                        }
+                    });
+
+                    let score = measure_block!("scoring", {
+                        if selected_inliers.is_empty() {
+                            self.scoring.score(data, &model, &mut tmp_inliers)
+                        } else {
+                            self.scoring.score_subset(
+                                data,
+                                &selected_inliers,
+                                &model,
+                                &mut tmp_inliers,
+                            )
+                        }
+                    });
+
+                    let better = match &self.best_score {
+                        None => true,
+                        Some(best) => score > *best,
+                    };
+
+                    if better {
+                        self.best_score = Some(score);
+                        self.best_model = Some(model);
+                        self.best_inliers.clear();
+                        self.best_inliers.extend_from_slice(&tmp_inliers);
+                        iteration_improved_best = true;
+                    }
                 }
-
-                tmp_inliers.clear();
-
-                // Optionally let an inlier selector narrow down the points.
-                let _selected_inliers = if let Some(selector) = &mut self.inlier_selector {
-                    selector.select(data, model)
-                } else {
-                    Vec::new()
-                };
-
-                let score = self.scoring.score(data, model, &mut tmp_inliers);
-
-                let better = match &self.best_score {
-                    None => true,
-                    Some(best) => score > *best,
-                };
-
-                if better {
-                    self.best_score = Some(score.clone());
-                    self.best_model = Some(model.clone());
-                    self.best_inliers.clear();
-                    self.best_inliers.extend_from_slice(&tmp_inliers);
-                    iteration_improved_best = true;
-                }
-            }
+            });
 
             // Local optimization if we improved this iteration.
             if iteration_improved_best {
-                if let (Some(lo), Some(best_model), Some(best_score)) = (
-                    &mut self.local_optimizer,
-                    &self.best_model,
-                    &self.best_score,
-                ) {
-                    let (refined_model, refined_score, refined_inliers) =
-                        lo.run(data, &self.best_inliers, best_model, best_score);
+                measure_block!("ransac_local_optimization", {
+                    if let (Some(lo), Some(best_model), Some(best_score)) = (
+                        &mut self.local_optimizer,
+                        &self.best_model,
+                        &self.best_score,
+                    ) {
+                        let (refined_model, refined_score, refined_inliers) =
+                            lo.run(data, &self.best_inliers, best_model, best_score);
 
-                    if refined_score > *best_score {
-                        self.best_model = Some(refined_model);
-                        self.best_score = Some(refined_score);
-                        self.best_inliers = refined_inliers;
+                        if refined_score > *best_score {
+                            self.best_model = Some(refined_model);
+                            self.best_score = Some(refined_score);
+                            self.best_inliers = refined_inliers;
+                        }
                     }
-                }
+                });
 
                 // Update termination criterion using the current best score.
                 if self.iteration + 1 >= min_iterations {
                     if let (Some(best_score), Some(_best_model)) =
                         (&self.best_score, &self.best_model)
                     {
-                        let should_terminate = self.termination.check(
-                            data,
-                            best_score,
-                            sample_size,
-                            &mut max_iterations,
-                        );
+                        let should_terminate = measure_block!("termination_check", {
+                            self.termination.check(
+                                data,
+                                best_score,
+                                sample_size,
+                                &mut max_iterations,
+                            )
+                        });
                         if should_terminate {
                             break;
                         }
@@ -893,8 +949,11 @@ where
             }
 
             // Sampler update at the end of the iteration.
-            self.sampler
-                .update(&sample, sample_size, self.iteration, 0.0);
+            measure_block!(
+                "sampler_update",
+                self.sampler
+                    .update(&sample, sample_size, self.iteration, 0.0)
+            );
 
             self.iteration += 1;
         }
@@ -922,7 +981,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::settings::RansacSettings;
+    use crate::settings::MetasacSettings;
     use crate::types::DataMatrix;
 
     #[derive(Clone, Debug)]
@@ -1057,7 +1116,7 @@ mod tests {
     #[test]
     fn superransac_runs_and_updates_best_model() {
         let data = DataMatrix::zeros(4, 2);
-        let settings = RansacSettings::default();
+        let settings = MetasacSettings::default();
 
         let estimator = MockEstimator;
         let sampler = MockSampler {
@@ -1070,7 +1129,7 @@ mod tests {
         let termination = MockTerminationCriterion { called: 0 };
         let inlier_selector = Some(MockInlierSelector);
 
-        let mut pipeline = SuperRansac::new(
+        let mut pipeline = MetaSAC::new(
             settings,
             estimator,
             sampler,

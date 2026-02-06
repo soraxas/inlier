@@ -19,7 +19,7 @@ samplers/scorers via the `ScoringType`/`SamplerType` enums, and hook custom Pyth
 ```python
 import inlier as pysuperansac
 
-settings = pysuperansac.RansacSettings()
+settings = pysuperansac.MetasacSettings()
 settings.max_iterations = 2000
 model = pysuperansac.estimate_homography(correspondences, (800, 600), settings)
 ```

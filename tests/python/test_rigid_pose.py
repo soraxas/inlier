@@ -30,13 +30,14 @@ def test_rigid_pose():
     r_gt = gt_pose[:3, :3]
     t_gt = gt_pose[:3, 3]
 
-    settings = inlier.RansacSettings(
+    settings = inlier.MetasacSettings(
         min_iterations=5000,
         max_iterations=5000,
         inlier_threshold=0.1,
         rng_seed=2,
         confidence=0.9999,
     )
+
     result = inlier.estimate_rigid_transform_py(
         pts_src.tolist(), pts_dst.tolist(), threshold=0.1, settings=settings
     )

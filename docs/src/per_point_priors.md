@@ -1,6 +1,6 @@
 # Per-point priors and probabilities
 
-[RansacSettings](../../src/settings.rs) exposes the optional
+[MetasacSettings](../../src/settings.rs) exposes the optional
 \\(\texttt{point\_priors}: \mathrm{Option}<\mathrm{Vec}<f64>>\\) field.
 When supplied, the scoring modules consume the vector as weights aligned to the rows in your
 data matrix. Each scoring implementation provides a `.with_priors(&priors)` helper before it is
@@ -9,7 +9,7 @@ passed into `SuperRansac`.
 Examples:
 
 ```rust
-let mut settings = RansacSettings::default();
+let mut settings = MetasacSettings::default();
 settings.point_priors = Some(priors.clone());
 settings.scoring = ScoringType::Msac;
 

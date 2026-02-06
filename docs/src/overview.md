@@ -8,7 +8,7 @@ models or samplers.
 
 The high-level API in [`src/api.rs`](api) wires this generic pipeline into familiar functions
 like `estimate_homography`, `estimate_fundamental_matrix`, and `estimate_absolute_pose`. Each
-function builds the sampling/scoring/optimization stack over `RansacSettings` so you can
+function builds the sampling/scoring/optimization stack over `MetasacSettings` so you can
 tune confidence, iteration limits, or probabilities without touching the low-level traits.
 
 Key modules:
@@ -28,5 +28,5 @@ Key modules:
   distributed via `pip`/`npm`.
 - [docs/src](..) – this mdBook holds the human-readable guide you are reading now.
 
-See [src/settings.rs](../../src/settings.rs) for `RansacSettings` and the
+See [src/settings.rs](../../src/settings.rs) for `MetasacSettings` and the
 enumerations that control all the components listed above.

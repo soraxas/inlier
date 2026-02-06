@@ -3,7 +3,7 @@
 Optimisation strategies implement `crate::optimisers::LocalOptimizer` defined in
 [src/optimisers/mod.rs](../../src/optimisers/mod.rs) and the concrete variants live in
 [src/optimisers/local.rs](../../src/optimisers/local.rs). These optimizers can be attached as
-`RansacSettings.local_optimization` or `final_optimization` values via `LocalOptimizationType`.
+`MetasacSettings.local_optimization` or `final_optimization` values via `LocalOptimizationType`.
 
 Key optimizers:
 

@@ -6,7 +6,7 @@ from ._inlier_rs import (  # type: ignore[F401]
     LocalOptimizerAdapter,
     NativeSampler,
     Pipeline,
-    RansacSettings,
+    MetasacSettings,
     SamplerAdapter,
     HomographyEstimator,
     FundamentalEstimator,
@@ -22,8 +22,7 @@ from ._inlier_rs import (  # type: ignore[F401]
     estimate_homography_py,
     estimate_line_py,
     estimate_rigid_transform_py,
-    probe_estimator,
-    run_python_ransac,
+    run_metasac,
 )
 
 __all__ = [
@@ -38,7 +37,7 @@ __all__ = [
     "RigidTransformEstimator",
     "LineEstimatorNative",
     "Pipeline",
-    "RansacSettings",
+    "MetasacSettings",
     "SamplerAdapter",
     "ScoringAdapter",
     "TerminationAdapter",
@@ -48,6 +47,5 @@ __all__ = [
     "estimate_homography_py",
     "estimate_line_py",
     "estimate_rigid_transform_py",
-    "probe_estimator",
-    "run_python_ransac",
+    "run_metasac",
 ]

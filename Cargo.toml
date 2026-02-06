@@ -15,12 +15,20 @@ categories = ["algorithms", "computer-vision", "mathematics", "science"]
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["rayon", "p3p", "kornia-pnp"]
+default = [
+    # default to most common features
+    "rayon",
+    "kornia-pnp",
+    "graph-cut",
+    "p3p",
+]
 rayon = ["argmin/rayon", "petgraph/rayon"]
 kornia-pnp = ["dep:kornia-pnp"]
 graph-cut = ["dep:petgraph"]
 p3p = ["dep:p3p"]
-python = ["pyo3", "pyo3/extension-module", "pyo3/abi3-py39"]
+python = ["pyo3", "pyo3/extension-module", "pyo3/abi3-py39", "dep:numpy"]
+hotpath-prof = ["hotpath/hotpath"]
+hotpath-alloc = ["hotpath/hotpath-alloc"]
 
 examples = ["plotters"]
 
@@ -36,6 +44,8 @@ petgraph = { version = "0.8.3", optional = true }
 p3p = { version = "0.1.0", optional = true }
 pyo3 = { version = "0.22", optional = true }
 plotters = { version = "0.3", optional = true }
+hotpath = { version = "0.9", default-features = false }
+numpy = { version = "0.22", optional = true }
 
 [[example]]
 name = "plot_line_fitting"

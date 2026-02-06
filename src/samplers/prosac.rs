@@ -18,33 +18,25 @@ pub struct ProsacSampler {
 
 impl Default for ProsacSampler {
     fn default() -> Self {
-        Self::new()
+        Self::new(100_000, None)
     }
 }
 
 impl ProsacSampler {
     /// Construct with a default number of PROSAC iterations before falling back to RANSAC.
-    pub fn new() -> Self {
-        Self::with_ransac_convergence_iterations(100_000)
+    pub fn new(ransac_convergence_iterations: usize, seed: Option<u64>) -> Self {
+        Self::with_ransac_convergence_iterations(ransac_convergence_iterations, seed)
     }
 
-    pub fn with_ransac_convergence_iterations(ransac_convergence_iterations: usize) -> Self {
+    pub fn with_ransac_convergence_iterations(
+        ransac_convergence_iterations: usize,
+        seed: Option<u64>,
+    ) -> Self {
         Self {
-            rng: UniformRandomGenerator::new(),
-            growth_function: Vec::new(),
-            sample_size: None,
-            point_number: 0,
-            ransac_convergence_iterations,
-            kth_sample_number: 1,
-            largest_sample_size: 0,
-            subset_size: 0,
-        }
-    }
-
-    /// Construct from a fixed RNG seed (useful for tests).
-    pub fn from_seed(seed: u64, ransac_convergence_iterations: usize) -> Self {
-        Self {
-            rng: UniformRandomGenerator::from_seed(seed),
+            rng: match seed {
+                Some(seed) => UniformRandomGenerator::from_seed(seed),
+                None => UniformRandomGenerator::new(),
+            },
             growth_function: Vec::new(),
             sample_size: None,
             point_number: 0,

@@ -48,7 +48,7 @@ def test_python_pipeline_roundtrip():
     sampler = inlier.SamplerAdapter(DummySampler())
     scoring = inlier.ScoringAdapter(DummyScoring())
     termination = inlier.TerminationAdapter(DummyTermination())
-    settings = inlier.RansacSettings(
+    settings = inlier.MetasacSettings(
         min_iterations=1,
         max_iterations=2,
         inlier_threshold=1.0,
@@ -56,7 +56,7 @@ def test_python_pipeline_roundtrip():
         rng_seed=0,
     )
 
-    result = inlier.run_python_ransac(
+    result = inlier.run_metasac(
         estimator,
         sampler,
         scoring,
@@ -71,13 +71,7 @@ def test_python_pipeline_roundtrip():
     model, inliers, score = result
     assert inliers == [0, 1]
     assert score >= 0.0
-    assert model["points"][0] == [0.0, 0.0]
-
-
-def test_probe_estimator_smoke():
-    estimator = inlier.EstimatorAdapter(DummyEstimator())
-    size = inlier.probe_estimator(estimator, [0, 1], [[0.0, 0.0], [1.0, 1.0]])
-    assert size == 2
+    assert (model["points"][0] == [0.0, 0.0]).all()
 
 
 def test_homography_against_benchmark_pairs():
@@ -99,7 +93,7 @@ def test_homography_against_benchmark_pairs():
     s = max(s1, s2)
     a_norm, b_norm = a_centered / s, b_centered / s
 
-    settings = inlier.RansacSettings(
+    settings = inlier.MetasacSettings(
         min_iterations=4000,
         max_iterations=8000,
         inlier_threshold=2.0,

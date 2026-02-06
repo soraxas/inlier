@@ -5,7 +5,7 @@
 use crate::core::{InlierSelector, LocalOptimizer, Sampler, TerminationCriterion};
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::Score;
-use crate::settings::RansacSettings;
+use crate::settings::MetasacSettings;
 use crate::types::DataMatrix;
 
 /// Runtime sampler selection.
@@ -17,7 +17,7 @@ pub enum SamplerChoice {
 
 impl Default for SamplerChoice {
     fn default() -> Self {
-        SamplerChoice::Prosac(ProsacSampler::new())
+        SamplerChoice::Prosac(ProsacSampler::default())
     }
 }
 
@@ -105,7 +105,7 @@ impl<M> InlierSelector<M> for InlierSelectorChoice<M> {
 }
 
 /// Helper to build a `TerminationChoice` from settings.
-pub fn default_termination(settings: &RansacSettings) -> TerminationChoice {
+pub fn default_termination(settings: &MetasacSettings) -> TerminationChoice {
     TerminationChoice::Ransac(crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     })

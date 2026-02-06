@@ -188,7 +188,7 @@ where
         let current_score = best_score.clone();
 
         let non_minimal_sample_size = self.sample_size_multiplier * self.estimator.sample_size();
-        let mut sampler = UniformRandomSampler::new();
+        let mut sampler = UniformRandomSampler::default();
 
         for _iteration in 0..self.max_iterations {
             let mut current_sample_size = current_inliers.len().saturating_sub(1);

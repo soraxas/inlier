@@ -1,6 +1,6 @@
 # Pipeline components
 
-The pipeline exposed by `SuperRansac` is entirely driven by [RansacSettings](../../src/settings.rs)
+The pipeline exposed by `SuperRansac` is entirely driven by [MetasacSettings](../../src/settings.rs)
 and its enum members. Each stage maps to a concrete implementation defined in the Rust modules
 listed below.
 
@@ -36,7 +36,7 @@ listed below.
   The logic spans [src/samplers/importance.rs](../../src/samplers/importance.rs) and
   [src/samplers/adaptive_reordering.rs](../../src/samplers/adaptive_reordering.rs).
 
-Selecting a sampler is done via `SamplerType` in `RansacSettings`: each variant maps to the
+Selecting a sampler is done via `SamplerType` in `MetasacSettings`: each variant maps to the
 matching sampler implementation. Pass the `settings.sampler` enum to core or to the Python
 bindings so runtime configuration is easy.
 
@@ -48,7 +48,7 @@ neighbors. Both implement the same [NeighborhoodGraph](../../src/samplers/neighb
 trait, so you can swap or extend the graph implementation.
 
 Neighborhood graphs back samplers such as `NapsacSampler` and `ProgressiveNapsacSampler` and
-are exposed through the `NeighborhoodType` enum in `RansacSettings`. The `Grid` variant
+are exposed through the `NeighborhoodType` enum in `MetasacSettings`. The `Grid` variant
 connects to a lightweight uniform grid, while the `BruteForce` and `Flann*` variants rely on
 explicit neighbor lists (the latter currently use the `usearch` index as a stand-in for FLANN).
 
@@ -83,7 +83,7 @@ precomputed `sigma_lut` tables during `build.rs` to evaluate gamma functions che
 
 ## Configuration enums
 
-`RansacSettings` centralizes control of the pipeline:
+`MetasacSettings` centralizes control of the pipeline:
 
 - `scoring`: choose `ScoringType` (`Magsac`, `Minpran`, `Acransac`, etc.).
 - `sampler`: choose `SamplerType`.

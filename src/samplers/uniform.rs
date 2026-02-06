@@ -11,23 +11,18 @@ pub struct UniformRandomSampler {
 
 impl Default for UniformRandomSampler {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
 impl UniformRandomSampler {
     /// Construct a new sampler with a random seed.
-    pub fn new() -> Self {
-        Self {
-            rng: UniformRandomGenerator::new(),
-        }
-    }
-
-    /// Construct a sampler from a fixed seed (primarily for tests).
-    pub fn from_seed(seed: u64) -> Self {
-        Self {
-            rng: UniformRandomGenerator::from_seed(seed),
-        }
+    pub fn new(seed: Option<u64>) -> Self {
+        let rng = match seed {
+            Some(seed) => UniformRandomGenerator::from_seed(seed),
+            None => UniformRandomGenerator::new(),
+        };
+        Self { rng }
     }
 }
 

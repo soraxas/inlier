@@ -4,9 +4,9 @@
 //! similar to the Python API.
 
 use crate::choices::SamplerChoice;
+use crate::core::MetaSAC;
 use crate::core::Scoring as ScoringTrait;
-use crate::core::SuperRansac;
-use crate::core::{Estimator, NoopInlierSelector, Sampler};
+use crate::core::NoopInlierSelector;
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, RigidTransformEstimator,
@@ -15,9 +15,10 @@ use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
 };
 use crate::optimisers::{LeastSquaresOptimizer, LocalOptimizer};
+use crate::pipeline::{PipelineBuilder, Preconditioner};
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{MsacScoring, RansacInlierCountScoring, Score};
-use crate::settings::{RansacSettings, SamplerType};
+use crate::settings::{MetasacSettings, SamplerType};
 use crate::types::DataMatrix;
 use nalgebra::{DMatrix, Vector2, Vector3};
 
@@ -34,53 +35,19 @@ pub struct EstimationResult<M> {
     pub iterations: usize,
 }
 
-/// Generic helper to run a RANSAC pipeline with user-provided components.
-///
-/// This is useful when you want full control over the sampler, scoring, and
-/// local/final optimizers without relying on preset enums.
-pub fn run_ransac_with_components<E, Sa, Sc, LO>(
-    settings: RansacSettings,
-    data: &DataMatrix,
-    estimator: E,
-    sampler: Sa,
-    scoring: Sc,
-    local_optimizer: Option<LO>,
-    final_optimizer: Option<LO>,
-) -> Option<EstimationResult<E::Model>>
-where
-    E: Estimator,
-    E::Model: Clone,
-    Sa: Sampler,
-    Sc: ScoringTrait<E::Model, Score = Score>,
-    Sc::Score: Clone + PartialOrd,
-    LO: LocalOptimizer<E::Model, Score>,
-{
-    let termination = crate::core::RansacTerminationCriterion {
-        confidence: settings.confidence,
-    };
-    let inlier_selector = NoopInlierSelector;
+/// Identity preconditioner for rigid transforms; leaves data and model unchanged.
+#[derive(Clone)]
+struct IdentityRigidPreconditioner;
 
-    let mut ransac = SuperRansac::new(
-        settings,
-        estimator,
-        sampler,
-        scoring,
-        local_optimizer,
-        final_optimizer,
-        termination,
-        Some(inlier_selector),
-    );
+impl Preconditioner<RigidTransform> for IdentityRigidPreconditioner {
+    type Normalization = ();
 
-    ransac.run(data);
+    fn normalize(&self, data: &DataMatrix) -> (DataMatrix, Self::Normalization) {
+        (data.clone(), ())
+    }
 
-    match (&ransac.best_model, &ransac.best_score) {
-        (Some(model), Some(score)) => Some(EstimationResult {
-            model: model.clone(),
-            inliers: ransac.best_inliers.clone(),
-            score: *score,
-            iterations: ransac.iteration,
-        }),
-        _ => None,
+    fn denormalize(&self, model: &RigidTransform, _norm: &Self::Normalization) -> RigidTransform {
+        model.clone()
     }
 }
 
@@ -98,7 +65,7 @@ pub fn estimate_homography(
     points1: &DMatrix<f64>,
     points2: &DMatrix<f64>,
     threshold: f64,
-    settings_opt: Option<RansacSettings>,
+    settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<Homography>, String> {
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
@@ -120,15 +87,12 @@ pub fn estimate_homography(
     let settings = settings_opt.unwrap_or_default();
     let estimator = HomographyEstimator::new();
     let sampler = match settings.sampler {
-        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
-            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
-            None => ProsacSampler::new(),
-        }),
-        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
-            Some(seed) => UniformRandomSampler::from_seed(seed),
-            None => UniformRandomSampler::new(),
-        }),
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        SamplerType::Uniform | _ => {
+            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
+        }
     };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &Homography, idx| {
@@ -157,7 +121,7 @@ pub fn estimate_homography(
     };
     let inlier_selector = NoopInlierSelector;
 
-    let mut ransac = SuperRansac::new(
+    let mut ransac = MetaSAC::new(
         settings,
         estimator,
         sampler,
@@ -195,7 +159,7 @@ pub fn estimate_fundamental_matrix(
     points1: &DMatrix<f64>,
     points2: &DMatrix<f64>,
     threshold: f64,
-    settings_opt: Option<RansacSettings>,
+    settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<FundamentalMatrix>, String> {
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
@@ -217,15 +181,12 @@ pub fn estimate_fundamental_matrix(
     let settings = settings_opt.unwrap_or_default();
     let estimator = FundamentalEstimator::new();
     let sampler = match settings.sampler {
-        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
-            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
-            None => ProsacSampler::new(),
-        }),
-        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
-            Some(seed) => UniformRandomSampler::from_seed(seed),
-            None => UniformRandomSampler::new(),
-        }),
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        SamplerType::Uniform | _ => {
+            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
+        }
     };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &FundamentalMatrix, idx| {
@@ -245,7 +206,7 @@ pub fn estimate_fundamental_matrix(
     };
     let inlier_selector = NoopInlierSelector;
 
-    let mut ransac = SuperRansac::new(
+    let mut ransac = MetaSAC::new(
         settings,
         estimator,
         sampler,
@@ -283,7 +244,7 @@ pub fn estimate_essential_matrix(
     points1: &DMatrix<f64>,
     points2: &DMatrix<f64>,
     threshold: f64,
-    settings_opt: Option<RansacSettings>,
+    settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<EssentialMatrix>, String> {
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
@@ -305,15 +266,12 @@ pub fn estimate_essential_matrix(
     let settings = settings_opt.unwrap_or_default();
     let estimator = EssentialEstimator::new();
     let sampler = match settings.sampler {
-        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
-            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
-            None => ProsacSampler::new(),
-        }),
-        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
-            Some(seed) => UniformRandomSampler::from_seed(seed),
-            None => UniformRandomSampler::new(),
-        }),
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        SamplerType::Uniform | _ => {
+            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
+        }
     };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &EssentialMatrix, idx| {
@@ -333,7 +291,7 @@ pub fn estimate_essential_matrix(
     };
     let inlier_selector = NoopInlierSelector;
 
-    let mut ransac = SuperRansac::new(
+    let mut ransac = MetaSAC::new(
         settings,
         estimator,
         sampler,
@@ -371,7 +329,7 @@ pub fn estimate_absolute_pose(
     points_3d: &DMatrix<f64>,
     points_2d: &DMatrix<f64>,
     threshold: f64,
-    settings_opt: Option<RansacSettings>,
+    settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<AbsolutePose>, String> {
     if points_3d.nrows() != points_2d.nrows() {
         return Err("points_3d and points_2d must have the same number of rows".to_string());
@@ -394,15 +352,12 @@ pub fn estimate_absolute_pose(
     let settings = settings_opt.unwrap_or_default();
     let estimator = AbsolutePoseEstimator::new();
     let sampler = match settings.sampler {
-        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
-            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
-            None => ProsacSampler::new(),
-        }),
-        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
-            Some(seed) => UniformRandomSampler::from_seed(seed),
-            None => UniformRandomSampler::new(),
-        }),
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        SamplerType::Uniform | _ => {
+            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
+        }
     };
     let scoring_builder = MsacScoring::new(threshold, |data, model: &AbsolutePose, idx| {
         // Compute reprojection error
@@ -426,7 +381,7 @@ pub fn estimate_absolute_pose(
     };
     let inlier_selector = NoopInlierSelector;
 
-    let mut ransac = SuperRansac::new(
+    let mut ransac = MetaSAC::new(
         settings,
         estimator,
         sampler,
@@ -464,7 +419,7 @@ pub fn estimate_rigid_transform(
     points1: &DMatrix<f64>,
     points2: &DMatrix<f64>,
     threshold: f64,
-    settings_opt: Option<RansacSettings>,
+    settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<RigidTransform>, String> {
     if points1.nrows() != points2.nrows() {
         return Err("points1 and points2 must have the same number of rows".to_string());
@@ -486,17 +441,15 @@ pub fn estimate_rigid_transform(
     }
 
     let settings = settings_opt.unwrap_or_default();
+
     let estimator = RigidTransformEstimator::new();
     let sampler = match settings.sampler {
-        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
-            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
-            None => ProsacSampler::new(),
-        }),
-        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
-            Some(seed) => UniformRandomSampler::from_seed(seed),
-            None => UniformRandomSampler::new(),
-        }),
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        SamplerType::Uniform | _ => {
+            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
+        }
     };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &RigidTransform, idx| {
@@ -511,34 +464,26 @@ pub fn estimate_rigid_transform(
         Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
         _ => scoring_builder,
     };
-    let local_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
+    let local_optimizer = LeastSquaresOptimizer::new(RigidTransformEstimator::new());
+    let final_optimizer = LeastSquaresOptimizer::new(RigidTransformEstimator::new());
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
-    let inlier_selector = NoopInlierSelector;
 
-    let mut ransac = SuperRansac::new(
-        settings,
-        estimator,
-        sampler,
-        scoring,
-        local_optimizer,
-        final_optimizer,
-        termination,
-        Some(inlier_selector),
-    );
+    let pipeline = PipelineBuilder::new(settings, estimator, sampler, scoring, termination)
+        .with_local_optimizer(local_optimizer)
+        .with_final_optimizer(final_optimizer)
+        .with_inlier_selector(NoopInlierSelector)
+        .with_preconditioner(IdentityRigidPreconditioner);
 
-    ransac.run(&data);
-
-    match (&ransac.best_model, &ransac.best_score) {
-        (Some(model), Some(score)) => Ok(EstimationResult {
-            model: model.clone(),
-            inliers: ransac.best_inliers.clone(),
-            score: *score,
-            iterations: ransac.iteration,
+    match pipeline.run(&data) {
+        Some(result) => Ok(EstimationResult {
+            model: result.model,
+            inliers: result.inliers,
+            score: result.score,
+            iterations: result.iterations,
         }),
-        _ => Err("Failed to estimate rigid transform".to_string()),
+        None => Err("Failed to estimate rigid transform".to_string()),
     }
 }
 
@@ -555,7 +500,7 @@ pub fn estimate_rigid_transform(
 /// # Example
 /// ```
 /// use inlier::api::estimate_line;
-/// use inlier::settings::RansacSettings;
+/// use inlier::settings::MetasacSettings;
 /// use nalgebra::DMatrix;
 ///
 /// // Generate some 2D points
@@ -565,7 +510,7 @@ pub fn estimate_rigid_transform(
 /// // ... add more points
 ///
 /// let threshold = 0.5; // Distance threshold
-/// let settings = RansacSettings::default();
+/// let settings = MetasacSettings::default();
 ///
 /// match estimate_line(&points, threshold, Some(settings)) {
 ///     Ok(result) => {
@@ -578,7 +523,7 @@ pub fn estimate_rigid_transform(
 pub fn estimate_line(
     points: &DMatrix<f64>,
     threshold: f64,
-    settings_opt: Option<RansacSettings>,
+    settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<Line>, String> {
     if points.ncols() != 2 {
         return Err("points must be Nx2 matrix (each row is [x, y])".to_string());
@@ -595,15 +540,12 @@ pub fn estimate_line(
     let settings = settings_opt.unwrap_or_default();
     let estimator = LineEstimator::new();
     let sampler = match settings.sampler {
-        SamplerType::Prosac => SamplerChoice::Prosac(match settings.rng_seed {
-            Some(seed) => ProsacSampler::from_seed(seed, 100_000),
-            None => ProsacSampler::new(),
-        }),
-        SamplerType::Uniform => SamplerChoice::Uniform(match settings.rng_seed {
-            Some(seed) => UniformRandomSampler::from_seed(seed),
-            None => UniformRandomSampler::new(),
-        }),
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new()),
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        SamplerType::Uniform | _ => {
+            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
+        }
     };
     let scoring_builder = RansacInlierCountScoring::new(threshold, |data, model: &Line, idx| {
         // Compute distance from point to line
@@ -620,7 +562,7 @@ pub fn estimate_line(
     };
     let inlier_selector = NoopInlierSelector;
 
-    let mut ransac = SuperRansac::new(
+    let mut ransac = MetaSAC::new(
         settings,
         estimator,
         sampler,

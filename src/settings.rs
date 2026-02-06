@@ -1,6 +1,6 @@
-//! RANSAC configuration types for the SupeRANSAC Rust port.
+//! RANSAC configuration types for the MetaSAC Rust port.
 //!
-//! These mirror the semantics of the C++ `RANSACSettings` struct and the
+//! These mirror the semantics of the C++ `MetasacSettings` struct and the
 //! associated enum classes found in:
 //! - `include/settings.h`
 //! - `include/scoring/types.h`
@@ -123,12 +123,12 @@ impl Default for NeighborhoodSettings {
     }
 }
 
-/// Main configuration object for the SupeRANSAC pipeline.
+/// Main configuration object for the MetaSAC pipeline.
 ///
-/// This is a direct Rust analogue of the C++ `superansac::RANSACSettings`
+/// This is a direct Rust analogue of the C++ `superansac::MetasacSettings`
 /// with the same default values.
 #[derive(Debug, Clone, PartialEq)]
-pub struct RansacSettings {
+pub struct MetasacSettings {
     /// Minimum number of iterations.
     pub min_iterations: usize,
     /// Maximum number of iterations.
@@ -154,9 +154,11 @@ pub struct RansacSettings {
     pub neighborhood_settings: NeighborhoodSettings,
     /// Optional per-point priors (probability-like weights) aligned to input rows.
     pub point_priors: Option<Vec<f64>>,
+    /// Maximum attempts to draw/estimate a valid model per RANSAC iteration.
+    pub max_sampling_attempts: usize,
 }
 
-impl Default for RansacSettings {
+impl Default for MetasacSettings {
     fn default() -> Self {
         Self {
             min_iterations: 1000,
@@ -176,6 +178,7 @@ impl Default for RansacSettings {
             final_optimization_settings: LocalOptimizationSettings::default(),
             neighborhood_settings: NeighborhoodSettings::default(),
             point_priors: None,
+            max_sampling_attempts: 100,
         }
     }
 }
@@ -186,7 +189,7 @@ mod tests {
 
     #[test]
     fn default_ransac_settings_match_cpp_defaults() {
-        let cfg = RansacSettings::default();
+        let cfg = MetasacSettings::default();
         assert_eq!(cfg.min_iterations, 1000);
         assert_eq!(cfg.max_iterations, 5000);
         assert!((cfg.inlier_threshold - 1.5).abs() < 1e-12);
@@ -204,7 +207,7 @@ mod tests {
 
     #[test]
     fn default_nested_settings_match_cpp_defaults() {
-        let cfg = RansacSettings::default();
+        let cfg = MetasacSettings::default();
         assert_eq!(cfg.ar_sampler_settings, ArSamplerSettings::default());
         assert_eq!(
             cfg.local_optimization_settings,

@@ -38,7 +38,7 @@ def test_absolute_pose():
         [(inv_k @ np.array([u, v, 1.0]))[:2] for u, v in points_2d]
     )
 
-    settings = inlier.RansacSettings(
+    settings = inlier.MetasacSettings(
         min_iterations=100,
         max_iterations=900,
         inlier_threshold=0.5,

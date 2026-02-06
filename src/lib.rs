@@ -8,7 +8,7 @@
 //! The easiest way to use `inlier` is through the high-level API functions:
 //!
 //! ```rust
-//! use inlier::{estimate_homography, RansacSettings};
+//! use inlier::{estimate_homography, MetasacSettings};
 //! use nalgebra::DMatrix;
 //!
 //! // Create point correspondences
@@ -155,7 +155,7 @@
 //! ## Modules
 //!
 //! - **[`api`](api)**: High-level API functions for common estimation tasks
-//! - **[`core`](core)**: Core traits and the main `SuperRansac` pipeline
+//! - **[`core`](core)**: Core traits and the main `RansacPipeline` pipeline
 //! - **[`estimators`](estimators)**: Built-in estimators for geometric models
 //! - **[`samplers`](samplers)**: Built-in sampling strategies
 //! - **[`scoring`](scoring)**: Built-in scoring strategies
@@ -171,6 +171,7 @@ pub mod estimators;
 pub mod models;
 pub mod nister_stewenius;
 pub mod optimisers;
+pub mod presets;
 pub mod samplers;
 pub mod scoring;
 pub mod settings;
@@ -194,4 +195,4 @@ pub use core::{Estimator, InlierSelector, Sampler, Scoring, TerminationCriterion
 pub use optimisers::LocalOptimizer;
 
 // Re-export settings for convenience
-pub use settings::RansacSettings;
+pub use settings::MetasacSettings;

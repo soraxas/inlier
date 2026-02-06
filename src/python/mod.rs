@@ -11,14 +11,113 @@ use pyo3::{
 
 use crate::{
     core::{
-        Estimator, InlierSelector, LocalOptimizer, Sampler, Scoring, SuperRansac,
-        TerminationCriterion,
+        Estimator, InlierSelector, LocalOptimizer, MetaSAC, Sampler, Scoring, TerminationCriterion,
     },
-    settings::RansacSettings,
+    settings::MetasacSettings,
     types::DataMatrix,
 };
+use numpy::{PyArray2, PyReadonlyArray2, PyUntypedArrayMethods};
+use std::sync::Arc;
 
-fn matrix_from_python(obj: &Bound<'_, PyAny>) -> PyResult<DataMatrix> {
+/// Rust-owned data matrix that can be reused without copying each call.
+#[pyclass(name = "DataMatrix")]
+pub struct PyDataMatrix {
+    pub(crate) inner: Arc<DataMatrix>,
+}
+
+#[pymethods]
+impl PyDataMatrix {
+    #[new]
+    #[pyo3(signature = (data))]
+    pub fn new(data: Bound<PyAny>) -> PyResult<Self> {
+        let inner = matrix_from_python_owned(&data)?;
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.nrows()
+    }
+
+    fn __getitem__(&self, idx: usize) -> Option<Vec<f64>> {
+        if idx >= self.inner.nrows() {
+            return None;
+        }
+        let mut row = Vec::with_capacity(self.inner.ncols());
+        for c in 0..self.inner.ncols() {
+            row.push(self.inner[(idx, c)]);
+        }
+        Some(row)
+    }
+}
+
+/// Input matrix that either borrows from a PyDataMatrix or owns its own copy.
+enum MatrixInput<'py> {
+    Borrowed(PyRef<'py, PyDataMatrix>),
+    Owned {
+        data: Arc<DataMatrix>,
+        handle: Py<PyAny>,
+    },
+}
+
+impl<'py> MatrixInput<'py> {
+    fn as_matrix(&self) -> &DataMatrix {
+        match self {
+            MatrixInput::Borrowed(r) => &r.inner,
+            MatrixInput::Owned { data, .. } => data,
+        }
+    }
+
+    fn py_handle(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        match self {
+            MatrixInput::Borrowed(r) => {
+                let rows = r.inner.nrows();
+                let cols = r.inner.ncols();
+                let mut data = Vec::with_capacity(rows * cols);
+                for rr in 0..rows {
+                    let mut row = Vec::with_capacity(cols);
+                    for c in 0..cols {
+                        row.push(r.inner[(rr, c)]);
+                    }
+                    data.push(row);
+                }
+                PyArray2::from_vec2_bound(py, &data)
+                    .map(|arr| arr.into_py(py))
+                    .map_err(|e| PyValueError::new_err(format!("failed to create numpy view: {e}")))
+            }
+            MatrixInput::Owned { data, handle: _ } => {
+                let rows = data.nrows();
+                let cols = data.ncols();
+                let mut data_vec = Vec::with_capacity(rows);
+                for r in 0..rows {
+                    let mut row = Vec::with_capacity(cols);
+                    for c in 0..cols {
+                        row.push(data[(r, c)]);
+                    }
+                    data_vec.push(row);
+                }
+                PyArray2::from_vec2_bound(py, &data_vec)
+                    .map(|arr| arr.into_py(py))
+                    .map_err(|e| PyValueError::new_err(format!("failed to create numpy view: {e}")))
+            }
+        }
+    }
+}
+
+/// Convert Python input into a Rust-owned DataMatrix (one-time copy).
+fn matrix_from_python_owned(obj: &Bound<'_, PyAny>) -> PyResult<DataMatrix> {
+    {
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, f64>>() {
+            let shape = arr.shape();
+            let rows = shape[0];
+            let cols = shape[1];
+            let slice = arr.as_slice()?;
+            return Ok(DataMatrix::from_row_slice(rows, cols, slice));
+        }
+    }
+
+    // Simple path: list-of-lists (copies).
     let rows: Vec<Vec<f64>> = obj.extract()?;
     if rows.is_empty() {
         return Ok(DataMatrix::from_row_slice(0, 0, &[]));
@@ -33,6 +132,33 @@ fn matrix_from_python(obj: &Bound<'_, PyAny>) -> PyResult<DataMatrix> {
     Ok(DataMatrix::from_row_slice(flat.len() / width, width, &flat))
 }
 
+/// Convert Python input into a borrowed-or-owned matrix wrapper.
+fn matrix_input_from_pyany<'py>(obj: Bound<'py, PyAny>) -> PyResult<MatrixInput<'py>> {
+    if let Ok(dm) = obj.extract::<PyRef<PyDataMatrix>>() {
+        return Ok(MatrixInput::Borrowed(dm));
+    }
+    let data = Arc::new(matrix_from_python_owned(&obj)?);
+    Python::with_gil(|py| {
+        // Build a Python view once for callbacks.
+        let rows = data.nrows();
+        let cols = data.ncols();
+        let mut data_vec = Vec::with_capacity(rows);
+        for r in 0..rows {
+            let mut row = Vec::with_capacity(cols);
+            for c in 0..cols {
+                row.push(data[(r, c)]);
+            }
+            data_vec.push(row);
+        }
+        let arr = PyArray2::from_vec2_bound(py, &data_vec)
+            .map_err(|e| PyValueError::new_err(format!("failed to create numpy array: {e}")))?;
+        Ok(MatrixInput::Owned {
+            data,
+            handle: arr.into_py(py),
+        })
+    })
+}
+
 fn matrix_to_python<'py>(py: Python<'py>, matrix: &DataMatrix) -> PyResult<Bound<'py, PyList>> {
     let rows: Vec<Vec<f64>> = matrix
         .row_iter()
@@ -43,6 +169,31 @@ fn matrix_to_python<'py>(py: Python<'py>, matrix: &DataMatrix) -> PyResult<Bound
 
 fn indices_to_python<'py>(py: Python<'py>, indices: &[usize]) -> Bound<'py, PyList> {
     PyList::new_bound(py, indices)
+}
+
+fn data_to_pyobject<'py>(
+    py: Python<'py>,
+    matrix: &DataMatrix,
+    handle: Option<&Py<PyAny>>,
+) -> PyObject {
+    match handle {
+        Some(h) => h.clone_ref(py).into_py(py),
+        None => {
+            let rows = matrix.nrows();
+            let cols = matrix.ncols();
+            let mut data_vec = Vec::with_capacity(rows);
+            for r in 0..rows {
+                let mut row = Vec::with_capacity(cols);
+                for c in 0..cols {
+                    row.push(matrix[(r, c)]);
+                }
+                data_vec.push(row);
+            }
+            PyArray2::from_vec2_bound(py, &data_vec)
+                .map(|arr| arr.into_py(py))
+                .unwrap_or_else(|_| py.None())
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -70,14 +221,14 @@ impl ToPyObject for PyModel {
     }
 }
 
-#[pyclass(name = "RansacSettings")]
+#[pyclass(name = "MetasacSettings")]
 #[derive(Clone)]
-pub struct PyRansacSettings {
-    inner: RansacSettings,
+pub struct PyMetasacSettings {
+    inner: MetasacSettings,
 }
 
 #[pymethods]
-impl PyRansacSettings {
+impl PyMetasacSettings {
     #[new]
     #[pyo3(signature = (
         min_iterations=1000,
@@ -99,14 +250,14 @@ impl PyRansacSettings {
             "uniform" => crate::settings::SamplerType::Uniform,
             _ => crate::settings::SamplerType::Prosac,
         };
-        let settings = RansacSettings {
+        let settings = MetasacSettings {
             min_iterations,
             max_iterations,
             inlier_threshold,
             confidence,
             rng_seed,
             sampler,
-            ..RansacSettings::default()
+            ..MetasacSettings::default()
         };
         Self { inner: settings }
     }
@@ -149,7 +300,7 @@ pub struct PyPipeline {
     local_optimizer: Option<PyLocalOptimizerAdapter>,
     termination: Option<PyTerminationAdapter>,
     inlier_selector: Option<PyInlierSelectorAdapter>,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
 }
 
 #[pymethods]
@@ -172,7 +323,7 @@ impl PyPipeline {
         local_optimizer: Option<PyLocalOptimizerAdapter>,
         termination: Option<PyTerminationAdapter>,
         inlier_selector: Option<PyInlierSelectorAdapter>,
-        settings: Option<PyRansacSettings>,
+        settings: Option<PyMetasacSettings>,
     ) -> Self {
         Self {
             estimator,
@@ -185,6 +336,7 @@ impl PyPipeline {
         }
     }
 
+    // TODO: can we take ownership of the estimator, and avoid the clone?
     pub fn with_estimator(&self, estimator: PyEstimatorHandle) -> Self {
         Self {
             estimator,
@@ -231,7 +383,7 @@ impl PyPipeline {
     }
 
     #[pyo3(signature = (settings))]
-    pub fn with_settings(&self, settings: Option<PyRansacSettings>) -> Self {
+    pub fn with_settings(&self, settings: Option<PyMetasacSettings>) -> Self {
         Self {
             settings,
             ..self.clone()
@@ -241,7 +393,7 @@ impl PyPipeline {
     /// Run the configured pipeline on the given data matrix.
     #[pyo3(signature = (data))]
     pub fn run(&self, data: Bound<PyAny>) -> PyResult<Option<(PyObject, Vec<usize>, f64)>> {
-        run_python_ransac(
+        run_metasac(
             self.estimator.clone(),
             self.sampler.clone(),
             self.scoring.clone(),
@@ -257,12 +409,14 @@ impl PyPipeline {
 #[pyclass(name = "EstimatorAdapter")]
 pub struct PyEstimatorAdapter {
     inner: Py<PyAny>,
+    data_handle: Option<Py<PyAny>>,
 }
 
 impl Clone for PyEstimatorAdapter {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self {
             inner: self.inner.clone_ref(py),
+            data_handle: self.data_handle.as_ref().map(|h| h.clone_ref(py)),
         })
     }
 }
@@ -273,7 +427,16 @@ impl PyEstimatorAdapter {
     pub fn new(obj: Bound<PyAny>) -> Self {
         Self {
             inner: obj.unbind(),
+            data_handle: None,
         }
+    }
+}
+
+impl PyEstimatorAdapter {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        let mut cloned = self.clone();
+        cloned.data_handle = Some(handle);
+        cloned
     }
 }
 
@@ -281,73 +444,25 @@ impl PyEstimatorAdapter {
 #[derive(Clone)]
 pub struct PyHomographyEstimator;
 
-#[pymethods]
-impl PyHomographyEstimator {
-    #[new]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 #[pyclass(name = "FundamentalEstimator")]
 #[derive(Clone)]
 pub struct PyFundamentalEstimator;
-
-#[pymethods]
-impl PyFundamentalEstimator {
-    #[new]
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 #[pyclass(name = "EssentialEstimator")]
 #[derive(Clone)]
 pub struct PyEssentialEstimator;
 
-#[pymethods]
-impl PyEssentialEstimator {
-    #[new]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 #[pyclass(name = "AbsolutePoseEstimator")]
 #[derive(Clone)]
 pub struct PyAbsolutePoseEstimator;
-
-#[pymethods]
-impl PyAbsolutePoseEstimator {
-    #[new]
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 #[pyclass(name = "RigidTransformEstimator")]
 #[derive(Clone)]
 pub struct PyRigidTransformEstimator;
 
-#[pymethods]
-impl PyRigidTransformEstimator {
-    #[new]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 #[pyclass(name = "LineEstimatorNative")]
 #[derive(Clone)]
 pub struct PyLineEstimatorNative;
-
-#[pymethods]
-impl PyLineEstimatorNative {
-    #[new]
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 /// A single estimator handle that can be backed by a Python adapter or a native estimator.
 #[derive(Clone, FromPyObject)]
@@ -366,6 +481,15 @@ pub enum PyEstimatorHandle {
     RigidTransform(PyRigidTransformEstimator),
     #[pyo3(annotation = "LineEstimatorNative")]
     Line(PyLineEstimatorNative),
+}
+
+impl PyEstimatorHandle {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        match self {
+            PyEstimatorHandle::Py(e) => PyEstimatorHandle::Py(e.with_data_handle(handle)),
+            other => other.clone(),
+        }
+    }
 }
 
 impl Estimator for PyEstimatorHandle {
@@ -550,7 +674,7 @@ impl Estimator for PyEstimatorAdapter {
     fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
         Python::with_gil(|py| {
             let sample_py = indices_to_python(py, sample);
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             self.inner
                 .bind(py)
                 .call_method("is_valid_sample", (data_py, sample_py), None)
@@ -562,7 +686,7 @@ impl Estimator for PyEstimatorAdapter {
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         Python::with_gil(|py| {
             let sample_py = indices_to_python(py, sample);
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             self.inner
                 .bind(py)
                 .call_method("estimate_model", (data_py, sample_py), None)
@@ -583,7 +707,7 @@ impl Estimator for PyEstimatorAdapter {
     ) -> bool {
         Python::with_gil(|py| {
             let sample_py = indices_to_python(py, sample);
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             self.inner
                 .bind(py)
                 .call_method(
@@ -600,12 +724,14 @@ impl Estimator for PyEstimatorAdapter {
 #[pyclass(name = "ScoringAdapter")]
 pub struct PyScoringAdapter {
     inner: Py<PyAny>,
+    data_handle: Option<Py<PyAny>>,
 }
 
 impl Clone for PyScoringAdapter {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self {
             inner: self.inner.clone_ref(py),
+            data_handle: self.data_handle.as_ref().map(|h| h.clone_ref(py)),
         })
     }
 }
@@ -616,7 +742,16 @@ impl PyScoringAdapter {
     pub fn new(obj: Bound<PyAny>) -> Self {
         Self {
             inner: obj.unbind(),
+            data_handle: None,
         }
+    }
+}
+
+impl PyScoringAdapter {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        let mut cloned = self.clone();
+        cloned.data_handle = Some(handle);
+        cloned
     }
 }
 
@@ -640,7 +775,7 @@ impl Scoring<PyModel> for PyScoringAdapter {
         inliers_out: &mut Vec<usize>,
     ) -> Self::Score {
         Python::with_gil(|py| {
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             let result = self.inner.bind(py).call_method(
                 "score",
                 (data_py, model.inner.clone_ref(py)),
@@ -665,12 +800,14 @@ impl Scoring<PyModel> for PyScoringAdapter {
 #[pyclass(name = "SamplerAdapter")]
 pub struct PySamplerAdapter {
     inner: Py<PyAny>,
+    data_handle: Option<Py<PyAny>>,
 }
 
 impl Clone for PySamplerAdapter {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self {
             inner: self.inner.clone_ref(py),
+            data_handle: self.data_handle.as_ref().map(|h| h.clone_ref(py)),
         })
     }
 }
@@ -681,14 +818,24 @@ impl PySamplerAdapter {
     pub fn new(obj: Bound<PyAny>) -> Self {
         Self {
             inner: obj.unbind(),
+            data_handle: None,
         }
     }
 }
 
+impl PySamplerAdapter {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        let mut cloned = self.clone();
+        cloned.data_handle = Some(handle);
+        cloned
+    }
+}
+
+// #[hotpath::measure_all]
 impl Sampler for PySamplerAdapter {
     fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         Python::with_gil(|py| {
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             let res = self
                 .inner
                 .bind(py)
@@ -752,21 +899,29 @@ pub enum PySamplerEither {
     Native(PyNativeSampler),
 }
 
+impl PySamplerEither {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        match self {
+            PySamplerEither::Py(s) => PySamplerEither::Py(s.with_data_handle(handle)),
+            PySamplerEither::Native(n) => PySamplerEither::Native(n.clone()),
+        }
+    }
+}
+
 impl Sampler for PySamplerEither {
     fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
         match self {
             PySamplerEither::Py(s) => s.sample(data, sample_size, out_indices),
-            PySamplerEither::Native(n) => match n.kind {
-                NativeSampler::Uniform => crate::samplers::UniformRandomSampler::new().sample(
-                    data,
-                    sample_size,
-                    out_indices,
-                ),
-                NativeSampler::Prosac => {
-                    let mut s = crate::samplers::ProsacSampler::new();
-                    s.sample(data, sample_size, out_indices)
+            PySamplerEither::Native(n) => {
+                match n.kind {
+                    NativeSampler::Uniform => crate::samplers::UniformRandomSampler::default()
+                        .sample(data, sample_size, out_indices),
+                    NativeSampler::Prosac => {
+                        let mut s = crate::samplers::ProsacSampler::default();
+                        s.sample(data, sample_size, out_indices)
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -785,12 +940,14 @@ impl Sampler for PySamplerEither {
 #[pyclass(name = "LocalOptimizerAdapter")]
 pub struct PyLocalOptimizerAdapter {
     inner: Py<PyAny>,
+    data_handle: Option<Py<PyAny>>,
 }
 
 impl Clone for PyLocalOptimizerAdapter {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self {
             inner: self.inner.clone_ref(py),
+            data_handle: self.data_handle.as_ref().map(|h| h.clone_ref(py)),
         })
     }
 }
@@ -801,7 +958,16 @@ impl PyLocalOptimizerAdapter {
     pub fn new(obj: Bound<PyAny>) -> Self {
         Self {
             inner: obj.unbind(),
+            data_handle: None,
         }
+    }
+}
+
+impl PyLocalOptimizerAdapter {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        let mut cloned = self.clone();
+        cloned.data_handle = Some(handle);
+        cloned
     }
 }
 
@@ -814,7 +980,7 @@ impl LocalOptimizer<PyModel, f64> for PyLocalOptimizerAdapter {
         best_score: &f64,
     ) -> (PyModel, f64, Vec<usize>) {
         Python::with_gil(|py| {
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             let inliers_py = indices_to_python(py, inliers);
             let res = self.inner.bind(py).call_method(
                 "run",
@@ -831,12 +997,14 @@ impl LocalOptimizer<PyModel, f64> for PyLocalOptimizerAdapter {
 #[pyclass(name = "TerminationAdapter")]
 pub struct PyTerminationAdapter {
     inner: Py<PyAny>,
+    data_handle: Option<Py<PyAny>>,
 }
 
 impl Clone for PyTerminationAdapter {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self {
             inner: self.inner.clone_ref(py),
+            data_handle: self.data_handle.as_ref().map(|h| h.clone_ref(py)),
         })
     }
 }
@@ -847,7 +1015,16 @@ impl PyTerminationAdapter {
     pub fn new(obj: Bound<PyAny>) -> Self {
         Self {
             inner: obj.unbind(),
+            data_handle: None,
         }
+    }
+}
+
+impl PyTerminationAdapter {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        let mut cloned = self.clone();
+        cloned.data_handle = Some(handle);
+        cloned
     }
 }
 
@@ -860,7 +1037,7 @@ impl TerminationCriterion<f64> for PyTerminationAdapter {
         max_iterations: &mut usize,
     ) -> bool {
         Python::with_gil(|py| {
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             let result = self.inner.bind(py).call_method(
                 "check",
                 (data_py, *best_score, sample_size, *max_iterations),
@@ -882,12 +1059,14 @@ impl TerminationCriterion<f64> for PyTerminationAdapter {
 #[pyclass(name = "InlierSelectorAdapter")]
 pub struct PyInlierSelectorAdapter {
     inner: Py<PyAny>,
+    data_handle: Option<Py<PyAny>>,
 }
 
 impl Clone for PyInlierSelectorAdapter {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self {
             inner: self.inner.clone_ref(py),
+            data_handle: self.data_handle.as_ref().map(|h| h.clone_ref(py)),
         })
     }
 }
@@ -898,14 +1077,23 @@ impl PyInlierSelectorAdapter {
     pub fn new(obj: Bound<PyAny>) -> Self {
         Self {
             inner: obj.unbind(),
+            data_handle: None,
         }
+    }
+}
+
+impl PyInlierSelectorAdapter {
+    fn with_data_handle(&self, handle: Py<PyAny>) -> Self {
+        let mut cloned = self.clone();
+        cloned.data_handle = Some(handle);
+        cloned
     }
 }
 
 impl InlierSelector<PyModel> for PyInlierSelectorAdapter {
     fn select(&mut self, data: &DataMatrix, model: &PyModel) -> Vec<usize> {
         Python::with_gil(|py| {
-            let data_py = matrix_to_python(py, data).unwrap();
+            let data_py = data_to_pyobject(py, data, self.data_handle.as_ref());
             self.inner
                 .bind(py)
                 .call_method("select", (data_py, model.inner.clone_ref(py)), None)
@@ -939,13 +1127,19 @@ pub fn estimate_homography_py(
     points1: Bound<PyAny>,
     points2: Bound<PyAny>,
     threshold: f64,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
+    // ensure_hotpath_guard(None);
     let py = points1.py();
-    let data1 = matrix_from_python(&points1)?;
-    let data2 = matrix_from_python(&points2)?;
-    let result = crate::estimate_homography(&data1, &data2, threshold, settings.map(|s| s.inner))
-        .map_err(|e| PyValueError::new_err(e))?;
+    let data1 = matrix_input_from_pyany(points1)?;
+    let data2 = matrix_input_from_pyany(points2)?;
+    let result = crate::estimate_homography(
+        data1.as_matrix(),
+        data2.as_matrix(),
+        threshold,
+        settings.map(|s| s.inner),
+    )
+    .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", matrix3_to_python(py, result.model.h)?)?;
     out.set_item("inliers", result.inliers)?;
@@ -958,14 +1152,19 @@ pub fn estimate_fundamental_matrix_py(
     points1: Bound<PyAny>,
     points2: Bound<PyAny>,
     threshold: f64,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
+    // ensure_hotpath_guard(None);
     let py = points1.py();
-    let data1 = matrix_from_python(&points1)?;
-    let data2 = matrix_from_python(&points2)?;
-    let result =
-        crate::estimate_fundamental_matrix(&data1, &data2, threshold, settings.map(|s| s.inner))
-            .map_err(|e| PyValueError::new_err(e))?;
+    let data1 = matrix_input_from_pyany(points1)?;
+    let data2 = matrix_input_from_pyany(points2)?;
+    let result = crate::estimate_fundamental_matrix(
+        data1.as_matrix(),
+        data2.as_matrix(),
+        threshold,
+        settings.map(|s| s.inner),
+    )
+    .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", matrix3_to_python(py, result.model.f)?)?;
     out.set_item("inliers", result.inliers)?;
@@ -978,14 +1177,19 @@ pub fn estimate_essential_matrix_py(
     points1: Bound<PyAny>,
     points2: Bound<PyAny>,
     threshold: f64,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
+    // ensure_hotpath_guard(None);
     let py = points1.py();
-    let data1 = matrix_from_python(&points1)?;
-    let data2 = matrix_from_python(&points2)?;
-    let result =
-        crate::estimate_essential_matrix(&data1, &data2, threshold, settings.map(|s| s.inner))
-            .map_err(|e| PyValueError::new_err(e))?;
+    let data1 = matrix_input_from_pyany(points1)?;
+    let data2 = matrix_input_from_pyany(points2)?;
+    let result = crate::estimate_essential_matrix(
+        data1.as_matrix(),
+        data2.as_matrix(),
+        threshold,
+        settings.map(|s| s.inner),
+    )
+    .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", matrix3_to_python(py, result.model.e)?)?;
     out.set_item("inliers", result.inliers)?;
@@ -998,14 +1202,19 @@ pub fn estimate_absolute_pose_py(
     points_3d: Bound<PyAny>,
     points_2d: Bound<PyAny>,
     threshold: f64,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
+    // ensure_hotpath_guard(None);
     let py = points_3d.py();
-    let data_3d = matrix_from_python(&points_3d)?;
-    let data_2d = matrix_from_python(&points_2d)?;
-    let result =
-        crate::estimate_absolute_pose(&data_3d, &data_2d, threshold, settings.map(|s| s.inner))
-            .map_err(|e| PyValueError::new_err(e))?;
+    let data_3d = matrix_input_from_pyany(points_3d)?;
+    let data_2d = matrix_input_from_pyany(points_2d)?;
+    let result = crate::estimate_absolute_pose(
+        data_3d.as_matrix(),
+        data_2d.as_matrix(),
+        threshold,
+        settings.map(|s| s.inner),
+    )
+    .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item(
         "rotation",
@@ -1025,14 +1234,19 @@ pub fn estimate_rigid_transform_py(
     points1: Bound<PyAny>,
     points2: Bound<PyAny>,
     threshold: f64,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
+    // ensure_hotpath_guard(None);
     let py = points1.py();
-    let data1 = matrix_from_python(&points1)?;
-    let data2 = matrix_from_python(&points2)?;
-    let result =
-        crate::estimate_rigid_transform(&data1, &data2, threshold, settings.map(|s| s.inner))
-            .map_err(|e| PyValueError::new_err(e))?;
+    let data1 = matrix_input_from_pyany(points1)?;
+    let data2 = matrix_input_from_pyany(points2)?;
+    let result = crate::estimate_rigid_transform(
+        data1.as_matrix(),
+        data2.as_matrix(),
+        threshold,
+        settings.map(|s| s.inner),
+    )
+    .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item(
         "rotation",
@@ -1051,28 +1265,18 @@ pub fn estimate_rigid_transform_py(
 pub fn estimate_line_py(
     points: Bound<PyAny>,
     threshold: f64,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
+    // ensure_hotpath_guard(None);
     let py = points.py();
-    let data = matrix_from_python(&points)?;
-    let result = crate::estimate_line(&data, threshold, settings.map(|s| s.inner))
+    let data = matrix_input_from_pyany(points)?;
+    let result = crate::estimate_line(data.as_matrix(), threshold, settings.map(|s| s.inner))
         .map_err(|e| PyValueError::new_err(e))?;
     let out = PyDict::new_bound(py);
     out.set_item("model", vec3_to_python(py, result.model.params())?)?;
     out.set_item("inliers", result.inliers)?;
     out.set_item("score", result.score.value)?;
     Ok(out.unbind())
-}
-
-#[pyfunction]
-pub fn probe_estimator(
-    estimator: PyEstimatorAdapter,
-    sample: Vec<usize>,
-    data: Bound<PyAny>,
-) -> PyResult<usize> {
-    let matrix = matrix_from_python(&data)?;
-    let valid = estimator.is_valid_sample(&matrix, &sample);
-    Ok(if valid { estimator.sample_size() } else { 0 })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1086,42 +1290,61 @@ pub fn probe_estimator(
     settings=None,
     data=None,
 ))]
-pub fn run_python_ransac(
+pub fn run_metasac(
     estimator: PyEstimatorHandle,
     sampler: PySamplerEither,
     scoring: PyScoringAdapter,
     local_optimizer: Option<PyLocalOptimizerAdapter>,
     termination: Option<PyTerminationAdapter>,
     mut inlier_selector: Option<PyInlierSelectorAdapter>,
-    settings: Option<PyRansacSettings>,
+    settings: Option<PyMetasacSettings>,
     data: Option<Bound<PyAny>>,
 ) -> PyResult<Option<(PyObject, Vec<usize>, f64)>> {
     let data = data.ok_or_else(|| PyValueError::new_err("data is required"))?;
-    let matrix = matrix_from_python(&data)?;
+    let matrix = matrix_input_from_pyany(data)?;
+    let data_handle = Python::with_gil(|py| matrix.py_handle(py))?;
     let settings = settings.map(|s| s.inner).unwrap_or_default();
-    let mut pipeline = SuperRansac::new(
-        settings,
-        estimator,
-        sampler,
-        scoring,
-        local_optimizer,
-        None,
-        termination.unwrap_or_else(|| PyTerminationAdapter {
-            inner: Python::with_gil(|py| py.None()),
-        }),
-        inlier_selector.take(),
-    );
-    pipeline.run(&matrix);
+    let estimator = estimator.with_data_handle(Python::with_gil(|py| data_handle.clone_ref(py)));
+    let sampler = sampler.with_data_handle(Python::with_gil(|py| data_handle.clone_ref(py)));
+    let scoring = scoring.with_data_handle(Python::with_gil(|py| data_handle.clone_ref(py)));
+    let local_optimizer = local_optimizer
+        .map(|lo| lo.with_data_handle(Python::with_gil(|py| data_handle.clone_ref(py))));
+    let termination =
+        termination.map(|t| t.with_data_handle(Python::with_gil(|py| data_handle.clone_ref(py))));
+    let inlier_selector = inlier_selector
+        .take()
+        .map(|sel| sel.with_data_handle(Python::with_gil(|py| data_handle.clone_ref(py))));
 
-    Python::with_gil(|py| {
-        Ok(pipeline.best_model.map(|model| {
-            (
-                model.to_object(py),
-                pipeline.best_inliers,
-                pipeline.best_score.unwrap_or(0.0),
-            )
-        }))
-    })
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut pipeline = MetaSAC::new(
+            settings,
+            estimator,
+            sampler,
+            scoring,
+            local_optimizer,
+            None,
+            termination.unwrap_or_else(|| PyTerminationAdapter {
+                inner: Python::with_gil(|py| py.None()),
+                data_handle: None,
+            }),
+            inlier_selector,
+        );
+        pipeline.run(matrix.as_matrix());
+        Python::with_gil(|py| {
+            pipeline.best_model.map(|model| {
+                (
+                    model.to_object(py),
+                    pipeline.best_inliers,
+                    pipeline.best_score.unwrap_or(0.0),
+                )
+            })
+        })
+    }));
+
+    match result {
+        Ok(res) => Ok(res),
+        Err(_) => Err(PyValueError::new_err("RANSAC run panicked")),
+    }
 }
 
 #[pymodule]
@@ -1139,8 +1362,9 @@ fn _inlier_rs(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLocalOptimizerAdapter>()?;
     m.add_class::<PyTerminationAdapter>()?;
     m.add_class::<PyInlierSelectorAdapter>()?;
-    m.add_class::<PyRansacSettings>()?;
+    m.add_class::<PyMetasacSettings>()?;
     m.add_class::<PyPipeline>()?;
+    m.add_class::<PyDataMatrix>()?;
 
     m.add_function(wrap_pyfunction!(estimate_homography_py, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_fundamental_matrix_py, m)?)?;
@@ -1148,8 +1372,7 @@ fn _inlier_rs(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(estimate_absolute_pose_py, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_rigid_transform_py, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_line_py, m)?)?;
-    m.add_function(wrap_pyfunction!(probe_estimator, m)?)?;
-    m.add_function(wrap_pyfunction!(run_python_ransac, m)?)?;
+    m.add_function(wrap_pyfunction!(run_metasac, m)?)?;
 
     let _ = py;
     Ok(())

@@ -32,7 +32,7 @@ def test_point_cloud_registration_synthetic():
         pts_src.tolist(),
         pts_tgt.tolist(),
         threshold=0.05,
-        settings=inlier.RansacSettings(min_iterations=64, max_iterations=256),
+        settings=inlier.MetasacSettings(min_iterations=64, max_iterations=256),
     )
 
     r_est = np.array(res["rotation"], dtype=float)

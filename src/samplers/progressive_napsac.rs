@@ -25,7 +25,7 @@ pub struct ProgressiveNapsacSampler<N: NeighborhoodGraph> {
 impl<N: NeighborhoodGraph> ProgressiveNapsacSampler<N> {
     pub fn new(neighborhood: N, sampler_length: f64) -> Self {
         Self {
-            one_point_prosac: ProsacSampler::from_seed(0, 1),
+            one_point_prosac: ProsacSampler::new(1, Some(0)),
             napsac: NapsacSampler::new(neighborhood),
             kth_sample_number: 0,
             max_progressive_iterations: 0,
@@ -37,7 +37,7 @@ impl<N: NeighborhoodGraph> ProgressiveNapsacSampler<N> {
 
     pub fn from_seed(seed: u64, neighborhood: N, sampler_length: f64) -> Self {
         Self {
-            one_point_prosac: ProsacSampler::from_seed(seed, 1),
+            one_point_prosac: ProsacSampler::new(1, Some(seed)),
             napsac: NapsacSampler::from_seed(seed, neighborhood),
             kth_sample_number: 0,
             max_progressive_iterations: 0,
@@ -70,7 +70,7 @@ impl<N: NeighborhoodGraph> Sampler for ProgressiveNapsacSampler<N> {
 
         // After max iterations, fall back to pure PROSAC
         if self.kth_sample_number > self.max_progressive_iterations {
-            let mut prosac = ProsacSampler::from_seed(0, sample_size);
+            let mut prosac = ProsacSampler::new(sample_size, Some(0));
             prosac.initialize(n, sample_size);
             // Set the sample number by updating kth_sample_number internally
             // (simplified - a full implementation would expose this)

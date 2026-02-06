@@ -15,7 +15,7 @@ pluggable estimators, samplers, scoring functions, and optimizers.
 - Optional `p3p` feature to enable Lambda-Twist minimal absolute pose solver.
 - Optional `kornia-pnp` feature to enable EPnP/OnP absolute pose solving via `kornia-pnp`.
 - Optional `graph-cut` feature enables a petgraph-backed k-NN Potts smoother local optimizer.
-- Optional per-point priors (e.g., from a learned detector) via `RansacSettings::point_priors` for weighted scoring.
+- Optional per-point priors (e.g., from a learned detector) via `MetasacSettings::point_priors` for weighted scoring.
 
 ### Run Examples
 
@@ -32,14 +32,14 @@ See [`examples/README.md`](examples/README.md) for the full catalog.
 ## Usage
 
 ```rust
-use inlier::{estimate_homography, RansacSettings};
+use inlier::{estimate_homography, MetasacSettings};
 use nalgebra::DMatrix;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let points1 = DMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]);
     let points2 = DMatrix::from_row_slice(4, 2, &[1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 2.0]);
 
-    let result = estimate_homography(&points1, &points2, 1.0, Some(RansacSettings::default()))?;
+    let result = estimate_homography(&points1, &points2, 1.0, Some(MetasacSettings::default()))?;
     println!("Inliers: {}", result.inliers.len());
     Ok(())
 }
