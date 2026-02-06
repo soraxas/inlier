@@ -6,6 +6,7 @@ use crate::types::DataMatrix;
 use nalgebra::{DMatrix, Matrix3, SVD};
 
 /// Rigid transform estimator using Procrustes analysis.
+#[derive(Clone)]
 pub struct RigidTransformEstimator;
 
 impl Default for RigidTransformEstimator {

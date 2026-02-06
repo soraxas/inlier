@@ -4,7 +4,7 @@ Goal: allow users to build pipelines from scratch (even with Python-defined comp
 
 ## Plan
 
-1) **PipelineBuilder in Rust (non-breaking)**
+1) **CorePipeline in Rust (non-breaking)**
    - Struct holds: `estimator`, `sampler`, `scoring`, `local_opt`, `final_opt`, `termination`, optional `preconditioner`.
    - `run(data)` executes the current linear RANSAC loop.
    - `with_*` methods to swap components.

@@ -3,7 +3,7 @@
 //! These tests verify that the estimation functions work correctly with
 //! synthetic data and produce reasonable results.
 
-use inlier::*;
+use inlier::{presets::rigid_registration_pipeline, utils::combine_input_points_33, *};
 use nalgebra::DMatrix;
 
 #[test]
@@ -144,9 +144,14 @@ fn test_estimate_rigid_transform_synthetic() {
     }
 
     let threshold = 0.1;
-    let result = estimate_rigid_transform(&points1, &points2, threshold, None);
+    let pipeline = rigid_registration_pipeline(threshold, false, None, MetasacSettings::default());
+    let input = combine_input_points_33(&points1, &points2).unwrap();
+    let result = pipeline.run(&input);
 
-    assert!(result.is_ok(), "Rigid transform estimation should succeed");
+    assert!(
+        result.is_some(),
+        "Rigid transform estimation should succeed"
+    );
     let result = result.unwrap();
     assert!(!result.inliers.is_empty(), "Should find some inliers");
     assert!(

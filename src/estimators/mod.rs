@@ -14,6 +14,7 @@ pub mod fundamental;
 pub mod homography;
 pub mod line;
 pub mod rigid_transform;
+pub mod similarity_transform;
 
 // Re-export all estimators for convenience
 pub use absolute_pose::AbsolutePoseEstimator;
@@ -22,6 +23,7 @@ pub use fundamental::FundamentalEstimator;
 pub use homography::HomographyEstimator;
 pub use line::LineEstimator;
 pub use rigid_transform::RigidTransformEstimator;
+pub use similarity_transform::SimilarityTransformEstimator;
 
 #[cfg(test)]
 mod tests {

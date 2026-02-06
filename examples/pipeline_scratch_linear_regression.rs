@@ -1,11 +1,12 @@
 //! Example: Build a RANSAC pipeline from scratch with custom Rust components.
 //!
 //! Mirrors the Python example at `examples/python/pipeline_scratch_linear_regression.py`,
-//! but implemented directly against the Rust `core` traits and `PipelineBuilder`.
+//! but implemented directly against the Rust `core` traits and `CorePipeline`.
 
 use inlier::core::{Estimator, NoopInlierSelector, RansacTerminationCriterion, Sampler, Scoring};
 use inlier::optimisers::NoopLocalOptimizer;
-use inlier::pipeline::{PipelineBuilder, Preconditioner};
+use inlier::pipeline::CorePipeline;
+use inlier::preconditioner::{IdentityPreconditioner, Preconditioner};
 use inlier::scoring::Score;
 use inlier::settings::MetasacSettings;
 use inlier::types::DataMatrix;
@@ -145,21 +146,6 @@ impl Scoring<LineModel> for LineScoring {
     }
 }
 
-/// Identity preconditioner for the example; leaves data and model unchanged.
-struct IdentityPreconditioner;
-
-impl Preconditioner<LineModel> for IdentityPreconditioner {
-    type Normalization = ();
-
-    fn normalize(&self, data: &DataMatrix) -> (DataMatrix, Self::Normalization) {
-        (data.clone(), ())
-    }
-
-    fn denormalize(&self, model: &LineModel, _norm: &Self::Normalization) -> LineModel {
-        model.clone()
-    }
-}
-
 #[hotpath::main]
 #[cfg_attr(feature = "hotpath-prof", hotpath::measure)]
 fn main() {
@@ -206,7 +192,7 @@ fn main() {
         confidence: settings.confidence,
     };
 
-    let pipeline = PipelineBuilder::<
+    let pipeline = CorePipeline::<
         LineEstimator,
         RandomSampler,
         LineScoring,

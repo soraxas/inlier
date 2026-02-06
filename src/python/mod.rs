@@ -1129,7 +1129,6 @@ pub fn estimate_homography_py(
     threshold: f64,
     settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
-    // ensure_hotpath_guard(None);
     let py = points1.py();
     let data1 = matrix_input_from_pyany(points1)?;
     let data2 = matrix_input_from_pyany(points2)?;
@@ -1154,7 +1153,6 @@ pub fn estimate_fundamental_matrix_py(
     threshold: f64,
     settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
-    // ensure_hotpath_guard(None);
     let py = points1.py();
     let data1 = matrix_input_from_pyany(points1)?;
     let data2 = matrix_input_from_pyany(points2)?;
@@ -1179,7 +1177,6 @@ pub fn estimate_essential_matrix_py(
     threshold: f64,
     settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
-    // ensure_hotpath_guard(None);
     let py = points1.py();
     let data1 = matrix_input_from_pyany(points1)?;
     let data2 = matrix_input_from_pyany(points2)?;
@@ -1204,7 +1201,6 @@ pub fn estimate_absolute_pose_py(
     threshold: f64,
     settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
-    // ensure_hotpath_guard(None);
     let py = points_3d.py();
     let data_3d = matrix_input_from_pyany(points_3d)?;
     let data_2d = matrix_input_from_pyany(points_2d)?;
@@ -1236,7 +1232,6 @@ pub fn estimate_rigid_transform_py(
     threshold: f64,
     settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
-    // ensure_hotpath_guard(None);
     let py = points1.py();
     let data1 = matrix_input_from_pyany(points1)?;
     let data2 = matrix_input_from_pyany(points2)?;
@@ -1267,7 +1262,6 @@ pub fn estimate_line_py(
     threshold: f64,
     settings: Option<PyMetasacSettings>,
 ) -> PyResult<Py<PyDict>> {
-    // ensure_hotpath_guard(None);
     let py = points.py();
     let data = matrix_input_from_pyany(points)?;
     let result = crate::estimate_line(data.as_matrix(), threshold, settings.map(|s| s.inner))

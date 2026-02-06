@@ -4,6 +4,38 @@
 //! behavior of the C++ `UniformRandomGenerator` in
 //! `include/utils/uniform_random_generator.h`.
 
+use crate::types::DataMatrix;
+use nalgebra::{DMatrix, Matrix2, Matrix3};
+
+use anyhow::Result;
+
+pub fn combine_input_points_33(
+    points_3d_a: &DMatrix<f64>,
+    points_3d_b: &DMatrix<f64>,
+) -> Result<DataMatrix> {
+    let n = points_3d_a.nrows();
+    if points_3d_a.nrows() != points_3d_b.nrows() {
+        return Err(anyhow::anyhow!(
+            "points_3d_a and points_3d_b must have the same number of rows"
+        ));
+    }
+    if points_3d_a.ncols() != 3 || points_3d_b.ncols() != 3 {
+        return Err(anyhow::anyhow!(
+            "points_3d_a and points_3d_b must have 3 columns"
+        ));
+    }
+    let mut data = DataMatrix::zeros(n, 6);
+    for i in 0..n {
+        data[(i, 0)] = points_3d_a[(i, 0)];
+        data[(i, 1)] = points_3d_a[(i, 1)];
+        data[(i, 2)] = points_3d_a[(i, 2)];
+        data[(i, 3)] = points_3d_b[(i, 0)];
+        data[(i, 4)] = points_3d_b[(i, 1)];
+        data[(i, 5)] = points_3d_b[(i, 2)];
+    }
+    Ok(data)
+}
+
 use rand::distr::{Uniform, uniform};
 use rand::prelude::*;
 

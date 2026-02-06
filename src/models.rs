@@ -87,6 +87,34 @@ impl RigidTransform {
     }
 }
 
+/// Similarity transform in 3D (scale + rotation + translation).
+#[derive(Clone, Debug)]
+pub struct SimilarityTransform {
+    pub scale: f64,
+    pub rotation: UnitQuaternion<f64>,
+    pub translation: Translation3<f64>,
+}
+
+impl SimilarityTransform {
+    pub fn new(scale: f64, rotation: UnitQuaternion<f64>, translation: Translation3<f64>) -> Self {
+        Self {
+            scale,
+            rotation,
+            translation,
+        }
+    }
+
+    pub fn to_matrix4(&self) -> Matrix4<f64> {
+        let r = self.rotation.to_homogeneous();
+        let t = self.translation.to_homogeneous();
+        // Apply uniform scale.
+        let mut m = r * t;
+        m.fixed_view_mut::<3, 3>(0, 0)
+            .apply(|val| *val *= self.scale);
+        m
+    }
+}
+
 /// Line in 2D represented as ax + by + c = 0, normalized so that a² + b² = 1.
 ///
 /// The line parameters are stored as [a, b, c] where:

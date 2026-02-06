@@ -6,20 +6,10 @@
 
 use crate::core::TerminationCriterion;
 use crate::core::{Estimator, InlierSelector, LocalOptimizer, MetaSAC, Sampler, Scoring};
+use crate::preconditioner::IdentityPreconditioner;
+use crate::preconditioner::Preconditioner;
 use crate::settings::MetasacSettings;
 use crate::types::DataMatrix;
-
-/// Optional normalization step applied before running RANSAC.
-pub trait Preconditioner<M> {
-    type Normalization;
-
-    /// Normalize the input data, returning the normalized data and any state
-    /// needed to reverse the transformation.
-    fn normalize(&self, data: &DataMatrix) -> (DataMatrix, Self::Normalization);
-
-    /// Map the model back to the original coordinate system using the stored normalization.
-    fn denormalize(&self, model: &M, norm: &Self::Normalization) -> M;
-}
 
 /// Generic pipeline result (model + inliers + score + iterations).
 #[derive(Debug, Clone)]
@@ -35,11 +25,19 @@ pub trait Pipeline {
     type Model;
     type Score;
 
+    /// Run the pipeline on the given data.
+    ///
+    /// # Arguments
+    /// * `data` - The data to run the pipeline on.
+    ///
+    /// # Returns
+    /// * `Some(PipelineResult)` if the pipeline succeeded, containing the model, inliers, score, and iterations.
+    /// * `None` if the pipeline failed.
     fn run(self, data: &DataMatrix) -> Option<PipelineResult<Self::Model, Self::Score>>;
 }
 
 /// Builder for a linear RANSAC pipeline over generic components.
-pub struct PipelineBuilder<E, Sa, Sc, LO, T, IS, P>
+pub struct CorePipeline<E, Sa, Sc, LO, T, IS, P>
 where
     E: Estimator,
     Sa: Sampler,
@@ -50,18 +48,18 @@ where
     IS: InlierSelector<E::Model>,
     P: Preconditioner<E::Model>,
 {
-    settings: MetasacSettings,
-    estimator: E,
-    sampler: Sa,
-    scoring: Sc,
-    local_optimizer: Option<LO>,
-    final_optimizer: Option<LO>,
-    termination: T,
-    inlier_selector: Option<IS>,
-    preconditioner: Option<P>,
+    pub settings: MetasacSettings,
+    pub estimator: E,
+    pub sampler: Sa,
+    pub scoring: Sc,
+    pub termination: T,
+    pub local_optimizer: Option<LO>,
+    pub final_optimizer: Option<LO>,
+    pub inlier_selector: Option<IS>,
+    pub preconditioner: Option<P>,
 }
 
-impl<E, Sa, Sc, LO, T, IS, P> PipelineBuilder<E, Sa, Sc, LO, T, IS, P>
+impl<E, Sa, Sc, LO, T, IS, P> CorePipeline<E, Sa, Sc, LO, T, IS, P>
 where
     E: Estimator,
     Sa: Sampler,
@@ -84,9 +82,9 @@ where
             estimator,
             sampler,
             scoring,
+            termination,
             local_optimizer: None,
             final_optimizer: None,
-            termination,
             inlier_selector: None,
             preconditioner: None,
         }
@@ -153,7 +151,7 @@ where
     }
 }
 
-impl<E, Sa, Sc, LO, T, IS, P> Pipeline for PipelineBuilder<E, Sa, Sc, LO, T, IS, P>
+impl<E, Sa, Sc, LO, T, IS, P> Pipeline for CorePipeline<E, Sa, Sc, LO, T, IS, P>
 where
     E: Estimator,
     Sa: Sampler,

@@ -5,8 +5,8 @@
 
 use crate::choices::SamplerChoice;
 use crate::core::MetaSAC;
-use crate::core::Scoring as ScoringTrait;
 use crate::core::NoopInlierSelector;
+use crate::core::Scoring as ScoringTrait;
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, RigidTransformEstimator,
@@ -15,7 +15,8 @@ use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
 };
 use crate::optimisers::{LeastSquaresOptimizer, LocalOptimizer};
-use crate::pipeline::{PipelineBuilder, Preconditioner};
+use crate::pipeline::CorePipeline;
+use crate::preconditioner::{IdentityPreconditioner, Preconditioner};
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{MsacScoring, RansacInlierCountScoring, Score};
 use crate::settings::{MetasacSettings, SamplerType};
@@ -33,22 +34,6 @@ pub struct EstimationResult<M> {
     pub score: Score,
     /// Number of iterations performed.
     pub iterations: usize,
-}
-
-/// Identity preconditioner for rigid transforms; leaves data and model unchanged.
-#[derive(Clone)]
-struct IdentityRigidPreconditioner;
-
-impl Preconditioner<RigidTransform> for IdentityRigidPreconditioner {
-    type Normalization = ();
-
-    fn normalize(&self, data: &DataMatrix) -> (DataMatrix, Self::Normalization) {
-        (data.clone(), ())
-    }
-
-    fn denormalize(&self, model: &RigidTransform, _norm: &Self::Normalization) -> RigidTransform {
-        model.clone()
-    }
 }
 
 /// Estimate a homography matrix from 2D point correspondences.
@@ -402,88 +387,6 @@ pub fn estimate_absolute_pose(
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate absolute pose".to_string()),
-    }
-}
-
-/// Estimate rigid transform from 3D-3D point correspondences.
-///
-/// # Arguments
-/// * `points1` - First set of 3D points (Nx3 matrix)
-/// * `points2` - Second set of 3D points (Nx3 matrix)
-/// * `threshold` - Inlier threshold
-/// * `settings` - Optional RANSAC settings (uses defaults if None)
-///
-/// # Returns
-/// `EstimationResult` containing the rigid transform (rotation + translation), inliers, score, and iterations.
-pub fn estimate_rigid_transform(
-    points1: &DMatrix<f64>,
-    points2: &DMatrix<f64>,
-    threshold: f64,
-    settings_opt: Option<MetasacSettings>,
-) -> Result<EstimationResult<RigidTransform>, String> {
-    if points1.nrows() != points2.nrows() {
-        return Err("points1 and points2 must have the same number of rows".to_string());
-    }
-    if points1.ncols() != 3 || points2.ncols() != 3 {
-        return Err("points must be Nx3 matrices".to_string());
-    }
-
-    // Combine into data matrix: [x1, y1, z1, x2, y2, z2]
-    let n = points1.nrows();
-    let mut data = DataMatrix::zeros(n, 6);
-    for i in 0..n {
-        data[(i, 0)] = points1[(i, 0)];
-        data[(i, 1)] = points1[(i, 1)];
-        data[(i, 2)] = points1[(i, 2)];
-        data[(i, 3)] = points2[(i, 0)];
-        data[(i, 4)] = points2[(i, 1)];
-        data[(i, 5)] = points2[(i, 2)];
-    }
-
-    let settings = settings_opt.unwrap_or_default();
-
-    let estimator = RigidTransformEstimator::new();
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        SamplerType::Uniform | _ => {
-            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
-        }
-    };
-    let scoring_builder =
-        RansacInlierCountScoring::new(threshold, |data, model: &RigidTransform, idx| {
-            // Compute point-to-point distance
-            let p1 = nalgebra::Point3::new(data[(idx, 0)], data[(idx, 1)], data[(idx, 2)]);
-            let p2 = Vector3::new(data[(idx, 3)], data[(idx, 4)], data[(idx, 5)]);
-            let p1_rotated = model.rotation.transform_point(&p1);
-            let p1_final_vec = p1_rotated.coords + model.translation.vector;
-            (p2 - p1_final_vec).norm()
-        });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
-    let local_optimizer = LeastSquaresOptimizer::new(RigidTransformEstimator::new());
-    let final_optimizer = LeastSquaresOptimizer::new(RigidTransformEstimator::new());
-    let termination = crate::core::RansacTerminationCriterion {
-        confidence: settings.confidence,
-    };
-
-    let pipeline = PipelineBuilder::new(settings, estimator, sampler, scoring, termination)
-        .with_local_optimizer(local_optimizer)
-        .with_final_optimizer(final_optimizer)
-        .with_inlier_selector(NoopInlierSelector)
-        .with_preconditioner(IdentityRigidPreconditioner);
-
-    match pipeline.run(&data) {
-        Some(result) => Ok(EstimationResult {
-            model: result.model,
-            inliers: result.inliers,
-            score: result.score,
-            iterations: result.iterations,
-        }),
-        None => Err("Failed to estimate rigid transform".to_string()),
     }
 }
 

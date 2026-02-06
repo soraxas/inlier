@@ -171,6 +171,7 @@ pub mod estimators;
 pub mod models;
 pub mod nister_stewenius;
 pub mod optimisers;
+pub mod preconditioner;
 pub mod presets;
 pub mod samplers;
 pub mod scoring;
@@ -184,15 +185,16 @@ pub mod python;
 // Re-export high-level API
 pub use api::{
     EstimationResult, estimate_absolute_pose, estimate_essential_matrix,
-    estimate_fundamental_matrix, estimate_homography, estimate_line, estimate_rigid_transform,
+    estimate_fundamental_matrix, estimate_homography, estimate_line,
 };
 
 pub mod pipeline;
-pub use pipeline::{PipelineBuilder, PipelineResult, Preconditioner};
+pub use pipeline::{CorePipeline, Pipeline, PipelineResult};
 
 // Re-export core traits for easy access
 pub use core::{Estimator, InlierSelector, Sampler, Scoring, TerminationCriterion};
 pub use optimisers::LocalOptimizer;
+pub use preconditioner::Preconditioner;
 
 // Re-export settings for convenience
 pub use settings::MetasacSettings;

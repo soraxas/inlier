@@ -4,33 +4,19 @@
 //! a truncated-loss style scoring (MSAC) to better mirror TEASER’s maximum-consensus view.
 //! It keeps the code simple while making the sampling/optimization choices explicit.
 
-use crate::choices::{default_termination, InlierSelectorChoice, LocalOptimizerChoice, SamplerChoice};
-use crate::core::{Estimator, InlierSelector, LocalOptimizer, NoopInlierSelector, Sampler, Scoring};
+use crate::Estimator;
+use crate::choices::{LocalOptimizerChoice, SamplerChoice, default_termination};
+use crate::core::NoopInlierSelector;
 use crate::estimators::RigidTransformEstimator;
 use crate::models::RigidTransform;
 use crate::optimisers::LeastSquaresOptimizer;
-use crate::pipeline::{Pipeline, PipelineBuilder, Preconditioner};
+use crate::pipeline::{CorePipeline, Pipeline};
+use crate::preconditioner::IdentityPreconditioner;
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{MsacScoring, Score};
 use crate::settings::MetasacSettings;
 use crate::types::DataMatrix;
 use nalgebra::Vector3;
-
-/// Identity preconditioner; leaves data and model unchanged.
-#[derive(Clone)]
-struct IdentityRigidPreconditioner;
-
-impl Preconditioner<RigidTransform> for IdentityRigidPreconditioner {
-    type Normalization = ();
-
-    fn normalize(&self, data: &DataMatrix) -> (DataMatrix, Self::Normalization) {
-        (data.clone(), ())
-    }
-
-    fn denormalize(&self, model: &RigidTransform, _norm: &Self::Normalization) -> RigidTransform {
-        model.clone()
-    }
-}
 
 /// Thin wrapper around the native estimator so we can hang future graph-pruning/decoupling tweaks here.
 #[derive(Clone, Default)]
@@ -71,8 +57,7 @@ impl Estimator for TeaserLikeRigidEstimator {
         sample: &[usize],
         weights: Option<&[f64]>,
     ) -> Vec<Self::Model> {
-        self.inner
-            .estimate_model_nonminimal(data, sample, weights)
+        self.inner.estimate_model_nonminimal(data, sample, weights)
     }
 
     fn is_valid_model(
@@ -82,8 +67,7 @@ impl Estimator for TeaserLikeRigidEstimator {
         sample: &[usize],
         threshold: f64,
     ) -> bool {
-        self.inner
-            .is_valid_model(model, data, sample, threshold)
+        self.inner.is_valid_model(model, data, sample, threshold)
     }
 }
 
@@ -120,9 +104,13 @@ pub fn rigid_registration_pipeline(
 
     let termination = default_termination(&settings);
 
-    PipelineBuilder::new(settings, estimator, sampler, scoring, termination)
-        .with_local_optimizer(local_optimizer)
-        .with_final_optimizer(final_optimizer)
-        .with_inlier_selector(InlierSelectorChoice::Dyn(Box::new(NoopInlierSelector)))
-        .with_preconditioner(IdentityRigidPreconditioner)
+    CorePipeline::<_, _, _, _, _, NoopInlierSelector, IdentityPreconditioner>::new(
+        settings,
+        estimator,
+        sampler,
+        scoring,
+        termination,
+    )
+    .with_local_optimizer(local_optimizer)
+    .with_final_optimizer(final_optimizer)
 }
