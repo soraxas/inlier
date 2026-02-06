@@ -37,5 +37,5 @@ dev = [
     "maturin>=1.11.5",
 ]
 
-[tool.uv]
-dev-dependencies = ["pytest>=8", "numpy>=1.26"]
+[tool.uv.sources]
+inlier-data = { path = "../inlier-data", editable = true }

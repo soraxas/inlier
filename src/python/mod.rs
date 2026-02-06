@@ -138,6 +138,134 @@ impl PyRansacSettings {
     }
 }
 
+/// Simple Python-side pipeline builder that wires the components and runs RANSAC.
+#[pyclass(name = "Pipeline")]
+#[derive(Clone)]
+pub struct PyPipeline {
+    estimator: PyEstimatorAdapter,
+    sampler: PySamplerAdapter,
+    scoring: PyScoringAdapter,
+    local_optimizer: Option<PyLocalOptimizerAdapter>,
+    final_optimizer: Option<PyLocalOptimizerAdapter>,
+    termination: Option<PyTerminationAdapter>,
+    inlier_selector: Option<PyInlierSelectorAdapter>,
+    settings: Option<PyRansacSettings>,
+}
+
+#[pymethods]
+impl PyPipeline {
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        estimator,
+        sampler,
+        scoring,
+        local_optimizer=None,
+        final_optimizer=None,
+        termination=None,
+        inlier_selector=None,
+        settings=None,
+    ))]
+    pub fn new(
+        estimator: PyEstimatorAdapter,
+        sampler: PySamplerAdapter,
+        scoring: PyScoringAdapter,
+        local_optimizer: Option<PyLocalOptimizerAdapter>,
+        final_optimizer: Option<PyLocalOptimizerAdapter>,
+        termination: Option<PyTerminationAdapter>,
+        inlier_selector: Option<PyInlierSelectorAdapter>,
+        settings: Option<PyRansacSettings>,
+    ) -> Self {
+        Self {
+            estimator,
+            sampler,
+            scoring,
+            local_optimizer,
+            final_optimizer,
+            termination,
+            inlier_selector,
+            settings,
+        }
+    }
+
+    pub fn with_estimator(&self, estimator: PyEstimatorAdapter) -> Self {
+        Self {
+            estimator,
+            ..self.clone()
+        }
+    }
+
+    pub fn with_sampler(&self, sampler: PySamplerAdapter) -> Self {
+        Self {
+            sampler,
+            ..self.clone()
+        }
+    }
+
+    pub fn with_scoring(&self, scoring: PyScoringAdapter) -> Self {
+        Self {
+            scoring,
+            ..self.clone()
+        }
+    }
+
+    #[pyo3(signature = (local_optimizer))]
+    pub fn with_local_optimizer(&self, local_optimizer: Option<PyLocalOptimizerAdapter>) -> Self {
+        Self {
+            local_optimizer,
+            ..self.clone()
+        }
+    }
+
+    #[pyo3(signature = (final_optimizer))]
+    pub fn with_final_optimizer(&self, final_optimizer: Option<PyLocalOptimizerAdapter>) -> Self {
+        Self {
+            final_optimizer,
+            ..self.clone()
+        }
+    }
+
+    #[pyo3(signature = (termination))]
+    pub fn with_termination(&self, termination: Option<PyTerminationAdapter>) -> Self {
+        Self {
+            termination,
+            ..self.clone()
+        }
+    }
+
+    #[pyo3(signature = (inlier_selector))]
+    pub fn with_inlier_selector(&self, inlier_selector: Option<PyInlierSelectorAdapter>) -> Self {
+        Self {
+            inlier_selector,
+            ..self.clone()
+        }
+    }
+
+    #[pyo3(signature = (settings))]
+    pub fn with_settings(&self, settings: Option<PyRansacSettings>) -> Self {
+        Self {
+            settings,
+            ..self.clone()
+        }
+    }
+
+    /// Run the configured pipeline on the given data matrix.
+    #[pyo3(signature = (data))]
+    pub fn run(&self, data: Bound<PyAny>) -> PyResult<Option<(PyObject, Vec<usize>, f64)>> {
+        run_python_ransac(
+            self.estimator.clone(),
+            self.sampler.clone(),
+            self.scoring.clone(),
+            self.local_optimizer.clone(),
+            self.final_optimizer.clone(),
+            self.termination.clone(),
+            self.inlier_selector.clone(),
+            self.settings.clone(),
+            Some(data),
+        )
+    }
+}
+
 #[pyclass(name = "EstimatorAdapter")]
 pub struct PyEstimatorAdapter {
     inner: Py<PyAny>,
@@ -652,6 +780,7 @@ pub fn probe_estimator(
     sampler,
     scoring,
     local_optimizer=None,
+    final_optimizer=None,
     termination=None,
     inlier_selector=None,
     settings=None,
@@ -662,6 +791,7 @@ pub fn run_python_ransac(
     sampler: PySamplerAdapter,
     scoring: PyScoringAdapter,
     local_optimizer: Option<PyLocalOptimizerAdapter>,
+    final_optimizer: Option<PyLocalOptimizerAdapter>,
     termination: Option<PyTerminationAdapter>,
     mut inlier_selector: Option<PyInlierSelectorAdapter>,
     settings: Option<PyRansacSettings>,
@@ -676,7 +806,7 @@ pub fn run_python_ransac(
         sampler,
         scoring,
         local_optimizer,
-        None,
+        final_optimizer,
         termination.unwrap_or_else(|| PyTerminationAdapter {
             inner: Python::with_gil(|py| py.None()),
         }),
@@ -704,6 +834,7 @@ fn _inlier_rs(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTerminationAdapter>()?;
     m.add_class::<PyInlierSelectorAdapter>()?;
     m.add_class::<PyRansacSettings>()?;
+    m.add_class::<PyPipeline>()?;
 
     m.add_function(wrap_pyfunction!(estimate_homography_py, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_fundamental_matrix_py, m)?)?;

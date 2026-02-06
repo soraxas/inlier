@@ -1,7 +1,9 @@
 
 @default:
-  just --help
+  just --list
 
+maturin-dev:
+  uv run maturin develop --release --locked --all-features
 
 [parallel]
 test: test-rust test-python
