@@ -2,8 +2,8 @@
 @default:
   just --list
 
-maturin-dev:
-  uv run maturin develop --release --locked --all-features
+maturin-dev profile='--release':
+  uv run maturin develop {{profile}} --locked --all-features
 
 [parallel]
 test: test-rust test-python

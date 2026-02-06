@@ -186,6 +186,9 @@ pub use api::{
     estimate_fundamental_matrix, estimate_homography, estimate_line, estimate_rigid_transform,
 };
 
+pub mod pipeline;
+pub use pipeline::{PipelineBuilder, PipelineResult, Preconditioner};
+
 // Re-export core traits for easy access
 pub use core::{Estimator, InlierSelector, Sampler, Scoring, TerminationCriterion};
 pub use optimisers::LocalOptimizer;

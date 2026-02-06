@@ -2,6 +2,7 @@
 #![allow(clippy::useless_conversion, clippy::redundant_closure)]
 
 use pyo3::{
+    FromPyObject,
     exceptions::PyValueError,
     prelude::*,
     types::{PyDict, PyList},
@@ -142,11 +143,10 @@ impl PyRansacSettings {
 #[pyclass(name = "Pipeline")]
 #[derive(Clone)]
 pub struct PyPipeline {
-    estimator: PyEstimatorAdapter,
-    sampler: PySamplerAdapter,
+    estimator: PyEstimatorHandle,
+    sampler: PySamplerEither,
     scoring: PyScoringAdapter,
     local_optimizer: Option<PyLocalOptimizerAdapter>,
-    final_optimizer: Option<PyLocalOptimizerAdapter>,
     termination: Option<PyTerminationAdapter>,
     inlier_selector: Option<PyInlierSelectorAdapter>,
     settings: Option<PyRansacSettings>,
@@ -161,17 +161,15 @@ impl PyPipeline {
         sampler,
         scoring,
         local_optimizer=None,
-        final_optimizer=None,
         termination=None,
         inlier_selector=None,
         settings=None,
     ))]
     pub fn new(
-        estimator: PyEstimatorAdapter,
-        sampler: PySamplerAdapter,
+        estimator: PyEstimatorHandle,
+        sampler: PySamplerEither,
         scoring: PyScoringAdapter,
         local_optimizer: Option<PyLocalOptimizerAdapter>,
-        final_optimizer: Option<PyLocalOptimizerAdapter>,
         termination: Option<PyTerminationAdapter>,
         inlier_selector: Option<PyInlierSelectorAdapter>,
         settings: Option<PyRansacSettings>,
@@ -181,21 +179,20 @@ impl PyPipeline {
             sampler,
             scoring,
             local_optimizer,
-            final_optimizer,
             termination,
             inlier_selector,
             settings,
         }
     }
 
-    pub fn with_estimator(&self, estimator: PyEstimatorAdapter) -> Self {
+    pub fn with_estimator(&self, estimator: PyEstimatorHandle) -> Self {
         Self {
             estimator,
             ..self.clone()
         }
     }
 
-    pub fn with_sampler(&self, sampler: PySamplerAdapter) -> Self {
+    pub fn with_sampler(&self, sampler: PySamplerEither) -> Self {
         Self {
             sampler,
             ..self.clone()
@@ -213,14 +210,6 @@ impl PyPipeline {
     pub fn with_local_optimizer(&self, local_optimizer: Option<PyLocalOptimizerAdapter>) -> Self {
         Self {
             local_optimizer,
-            ..self.clone()
-        }
-    }
-
-    #[pyo3(signature = (final_optimizer))]
-    pub fn with_final_optimizer(&self, final_optimizer: Option<PyLocalOptimizerAdapter>) -> Self {
-        Self {
-            final_optimizer,
             ..self.clone()
         }
     }
@@ -257,7 +246,6 @@ impl PyPipeline {
             self.sampler.clone(),
             self.scoring.clone(),
             self.local_optimizer.clone(),
-            self.final_optimizer.clone(),
             self.termination.clone(),
             self.inlier_selector.clone(),
             self.settings.clone(),
@@ -289,6 +277,253 @@ impl PyEstimatorAdapter {
     }
 }
 
+#[pyclass(name = "HomographyEstimator")]
+#[derive(Clone)]
+pub struct PyHomographyEstimator;
+
+#[pymethods]
+impl PyHomographyEstimator {
+    #[new]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[pyclass(name = "FundamentalEstimator")]
+#[derive(Clone)]
+pub struct PyFundamentalEstimator;
+
+#[pymethods]
+impl PyFundamentalEstimator {
+    #[new]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[pyclass(name = "EssentialEstimator")]
+#[derive(Clone)]
+pub struct PyEssentialEstimator;
+
+#[pymethods]
+impl PyEssentialEstimator {
+    #[new]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[pyclass(name = "AbsolutePoseEstimator")]
+#[derive(Clone)]
+pub struct PyAbsolutePoseEstimator;
+
+#[pymethods]
+impl PyAbsolutePoseEstimator {
+    #[new]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[pyclass(name = "RigidTransformEstimator")]
+#[derive(Clone)]
+pub struct PyRigidTransformEstimator;
+
+#[pymethods]
+impl PyRigidTransformEstimator {
+    #[new]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[pyclass(name = "LineEstimatorNative")]
+#[derive(Clone)]
+pub struct PyLineEstimatorNative;
+
+#[pymethods]
+impl PyLineEstimatorNative {
+    #[new]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+/// A single estimator handle that can be backed by a Python adapter or a native estimator.
+#[derive(Clone, FromPyObject)]
+pub enum PyEstimatorHandle {
+    #[pyo3(annotation = "EstimatorAdapter")]
+    Py(PyEstimatorAdapter),
+    #[pyo3(annotation = "HomographyEstimator")]
+    Homography(PyHomographyEstimator),
+    #[pyo3(annotation = "FundamentalEstimator")]
+    Fundamental(PyFundamentalEstimator),
+    #[pyo3(annotation = "EssentialEstimator")]
+    Essential(PyEssentialEstimator),
+    #[pyo3(annotation = "AbsolutePoseEstimator")]
+    AbsolutePose(PyAbsolutePoseEstimator),
+    #[pyo3(annotation = "RigidTransformEstimator")]
+    RigidTransform(PyRigidTransformEstimator),
+    #[pyo3(annotation = "LineEstimatorNative")]
+    Line(PyLineEstimatorNative),
+}
+
+impl Estimator for PyEstimatorHandle {
+    type Model = PyModel;
+
+    fn sample_size(&self) -> usize {
+        match self {
+            PyEstimatorHandle::Py(e) => e.sample_size(),
+            PyEstimatorHandle::Homography(_) => {
+                crate::estimators::HomographyEstimator::new().sample_size()
+            }
+            PyEstimatorHandle::Fundamental(_) => {
+                crate::estimators::FundamentalEstimator::new().sample_size()
+            }
+            PyEstimatorHandle::Essential(_) => {
+                crate::estimators::EssentialEstimator::new().sample_size()
+            }
+            PyEstimatorHandle::AbsolutePose(_) => {
+                crate::estimators::AbsolutePoseEstimator::new().sample_size()
+            }
+            PyEstimatorHandle::RigidTransform(_) => {
+                crate::estimators::RigidTransformEstimator::new().sample_size()
+            }
+            PyEstimatorHandle::Line(_) => crate::estimators::LineEstimator::new().sample_size(),
+        }
+    }
+
+    fn non_minimal_sample_size(&self) -> usize {
+        match self {
+            PyEstimatorHandle::Py(e) => e.non_minimal_sample_size(),
+            _ => self.sample_size(),
+        }
+    }
+
+    fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
+        match self {
+            PyEstimatorHandle::Py(e) => e.is_valid_sample(data, sample),
+            PyEstimatorHandle::Homography(_) => {
+                crate::estimators::HomographyEstimator::new().is_valid_sample(data, sample)
+            }
+            PyEstimatorHandle::Fundamental(_) => {
+                crate::estimators::FundamentalEstimator::new().is_valid_sample(data, sample)
+            }
+            PyEstimatorHandle::Essential(_) => {
+                crate::estimators::EssentialEstimator::new().is_valid_sample(data, sample)
+            }
+            PyEstimatorHandle::AbsolutePose(_) => {
+                crate::estimators::AbsolutePoseEstimator::new().is_valid_sample(data, sample)
+            }
+            PyEstimatorHandle::RigidTransform(_) => {
+                crate::estimators::RigidTransformEstimator::new().is_valid_sample(data, sample)
+            }
+            PyEstimatorHandle::Line(_) => {
+                crate::estimators::LineEstimator::new().is_valid_sample(data, sample)
+            }
+        }
+    }
+
+    fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
+        match self {
+            PyEstimatorHandle::Py(e) => e.estimate_model(data, sample),
+            PyEstimatorHandle::Homography(_) => {
+                let models =
+                    crate::estimators::HomographyEstimator::new().estimate_model(data, sample);
+                Python::with_gil(|py| {
+                    models
+                        .into_iter()
+                        .filter_map(|m| matrix3_to_python(py, m.h).ok())
+                        .map(|v| PyModel::from(v.into_py(py)))
+                        .collect()
+                })
+            }
+            PyEstimatorHandle::Fundamental(_) => {
+                let models =
+                    crate::estimators::FundamentalEstimator::new().estimate_model(data, sample);
+                Python::with_gil(|py| {
+                    models
+                        .into_iter()
+                        .filter_map(|m| matrix3_to_python(py, m.f).ok())
+                        .map(|v| PyModel::from(v.into_py(py)))
+                        .collect()
+                })
+            }
+            PyEstimatorHandle::Essential(_) => {
+                let models =
+                    crate::estimators::EssentialEstimator::new().estimate_model(data, sample);
+                Python::with_gil(|py| {
+                    models
+                        .into_iter()
+                        .filter_map(|m| matrix3_to_python(py, m.e).ok())
+                        .map(|v| PyModel::from(v.into_py(py)))
+                        .collect()
+                })
+            }
+            PyEstimatorHandle::AbsolutePose(_) => {
+                let models =
+                    crate::estimators::AbsolutePoseEstimator::new().estimate_model(data, sample);
+                Python::with_gil(|py| {
+                    models
+                        .into_iter()
+                        .filter_map(|m| {
+                            let dict = PyDict::new_bound(py);
+                            let rot =
+                                matrix3_to_python(py, *m.rotation.to_rotation_matrix().matrix())
+                                    .ok()?;
+                            let t = vec3_to_python(py, &m.translation.vector).ok()?;
+                            dict.set_item("rotation", rot).ok()?;
+                            dict.set_item("translation", t).ok()?;
+                            Some(PyModel::from(dict.into_py(py)))
+                        })
+                        .collect()
+                })
+            }
+            PyEstimatorHandle::RigidTransform(_) => {
+                let models =
+                    crate::estimators::RigidTransformEstimator::new().estimate_model(data, sample);
+                Python::with_gil(|py| {
+                    models
+                        .into_iter()
+                        .filter_map(|m| {
+                            let dict = PyDict::new_bound(py);
+                            let rot =
+                                matrix3_to_python(py, *m.rotation.to_rotation_matrix().matrix())
+                                    .ok()?;
+                            let t = vec3_to_python(py, &m.translation.vector).ok()?;
+                            dict.set_item("rotation", rot).ok()?;
+                            dict.set_item("translation", t).ok()?;
+                            Some(PyModel::from(dict.into_py(py)))
+                        })
+                        .collect()
+                })
+            }
+            PyEstimatorHandle::Line(_) => {
+                let models = crate::estimators::LineEstimator::new().estimate_model(data, sample);
+                Python::with_gil(|py| {
+                    models
+                        .into_iter()
+                        .filter_map(|m| vec3_to_python(py, m.params()).ok())
+                        .map(|v| PyModel::from(v.into_py(py)))
+                        .collect()
+                })
+            }
+        }
+    }
+
+    fn is_valid_model(
+        &self,
+        model: &Self::Model,
+        data: &DataMatrix,
+        sample: &[usize],
+        threshold: f64,
+    ) -> bool {
+        match self {
+            PyEstimatorHandle::Py(e) => e.is_valid_model(model, data, sample, threshold),
+            _ => true,
+        }
+    }
+}
 impl Estimator for PyEstimatorAdapter {
     type Model = PyModel;
 
@@ -424,6 +659,9 @@ impl Scoring<PyModel> for PyScoringAdapter {
     }
 }
 
+/// Simple native scoring: inlier count with a fixed threshold.
+// Simplify scoring: use Python-defined scoring adapter.
+
 #[pyclass(name = "SamplerAdapter")]
 pub struct PySamplerAdapter {
     inner: Py<PyAny>,
@@ -478,6 +716,69 @@ impl Sampler for PySamplerAdapter {
                 None,
             );
         });
+    }
+}
+
+#[derive(Clone)]
+pub enum NativeSampler {
+    Uniform,
+    Prosac,
+}
+
+#[pyclass(name = "NativeSampler")]
+#[derive(Clone)]
+pub struct PyNativeSampler {
+    kind: NativeSampler,
+}
+
+#[pymethods]
+impl PyNativeSampler {
+    #[new]
+    pub fn new(kind: &str) -> PyResult<Self> {
+        let kind = match kind.to_ascii_lowercase().as_str() {
+            "uniform" => NativeSampler::Uniform,
+            "prosac" => NativeSampler::Prosac,
+            other => return Err(PyValueError::new_err(format!("unknown sampler '{other}'"))),
+        };
+        Ok(Self { kind })
+    }
+}
+
+#[derive(Clone, FromPyObject)]
+pub enum PySamplerEither {
+    #[pyo3(annotation = "SamplerAdapter")]
+    Py(PySamplerAdapter),
+    #[pyo3(annotation = "NativeSampler")]
+    Native(PyNativeSampler),
+}
+
+impl Sampler for PySamplerEither {
+    fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
+        match self {
+            PySamplerEither::Py(s) => s.sample(data, sample_size, out_indices),
+            PySamplerEither::Native(n) => match n.kind {
+                NativeSampler::Uniform => crate::samplers::UniformRandomSampler::new().sample(
+                    data,
+                    sample_size,
+                    out_indices,
+                ),
+                NativeSampler::Prosac => {
+                    let mut s = crate::samplers::ProsacSampler::new();
+                    s.sample(data, sample_size, out_indices)
+                }
+            },
+        }
+    }
+
+    fn update(&mut self, sample: &[usize], sample_size: usize, iteration: usize, score_hint: f64) {
+        match self {
+            PySamplerEither::Py(s) => s.update(sample, sample_size, iteration, score_hint),
+            PySamplerEither::Native(_) => {
+                let _ = sample_size;
+                let _ = iteration;
+                let _ = score_hint;
+            }
+        }
     }
 }
 
@@ -780,18 +1081,16 @@ pub fn probe_estimator(
     sampler,
     scoring,
     local_optimizer=None,
-    final_optimizer=None,
     termination=None,
     inlier_selector=None,
     settings=None,
     data=None,
 ))]
 pub fn run_python_ransac(
-    estimator: PyEstimatorAdapter,
-    sampler: PySamplerAdapter,
+    estimator: PyEstimatorHandle,
+    sampler: PySamplerEither,
     scoring: PyScoringAdapter,
     local_optimizer: Option<PyLocalOptimizerAdapter>,
-    final_optimizer: Option<PyLocalOptimizerAdapter>,
     termination: Option<PyTerminationAdapter>,
     mut inlier_selector: Option<PyInlierSelectorAdapter>,
     settings: Option<PyRansacSettings>,
@@ -806,7 +1105,7 @@ pub fn run_python_ransac(
         sampler,
         scoring,
         local_optimizer,
-        final_optimizer,
+        None,
         termination.unwrap_or_else(|| PyTerminationAdapter {
             inner: Python::with_gil(|py| py.None()),
         }),
@@ -828,7 +1127,14 @@ pub fn run_python_ransac(
 #[pymodule]
 fn _inlier_rs(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEstimatorAdapter>()?;
+    m.add_class::<PyHomographyEstimator>()?;
+    m.add_class::<PyFundamentalEstimator>()?;
+    m.add_class::<PyEssentialEstimator>()?;
+    m.add_class::<PyAbsolutePoseEstimator>()?;
+    m.add_class::<PyRigidTransformEstimator>()?;
+    m.add_class::<PyLineEstimatorNative>()?;
     m.add_class::<PyScoringAdapter>()?;
+    m.add_class::<PyNativeSampler>()?;
     m.add_class::<PySamplerAdapter>()?;
     m.add_class::<PyLocalOptimizerAdapter>()?;
     m.add_class::<PyTerminationAdapter>()?;
