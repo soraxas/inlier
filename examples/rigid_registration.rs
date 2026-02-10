@@ -26,14 +26,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let p_rot = rot_gt.transform_point(&p.into());
         let p_t = scale_gt * p_rot.coords + trans_gt.vector;
 
-        data[(i, 0)] = p.x;
-        data[(i, 1)] = p.y;
-        data[(i, 2)] = p.z;
+        data.set(i, 0, p.x);
+        data.set(i, 1, p.y);
+        data.set(i, 2, p.z);
 
         // Add mild noise
-        data[(i, 3)] = p_t.x + rng.random_range(-0.01..0.01);
-        data[(i, 4)] = p_t.y + rng.random_range(-0.01..0.01);
-        data[(i, 5)] = p_t.z + rng.random_range(-0.01..0.01);
+        data.set(i, 3, p_t.x + rng.random_range(-0.01..0.01));
+        data.set(i, 4, p_t.y + rng.random_range(-0.01..0.01));
+        data.set(i, 5, p_t.z + rng.random_range(-0.01..0.01));
     }
 
     let settings = MetasacSettings {

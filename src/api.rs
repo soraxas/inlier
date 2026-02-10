@@ -61,10 +61,10 @@ pub fn estimate_homography(
     let n = points1.nrows();
     let mut data = DataMatrix::zeros(n, 4);
     for i in 0..n {
-        data[(i, 0)] = points1[(i, 0)];
-        data[(i, 1)] = points1[(i, 1)];
-        data[(i, 2)] = points2[(i, 0)];
-        data[(i, 3)] = points2[(i, 1)];
+        data.set(i, 0, points1[(i, 0)]);
+        data.set(i, 1, points1[(i, 1)]);
+        data.set(i, 2, points2[(i, 0)]);
+        data.set(i, 3, points2[(i, 1)]);
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -80,8 +80,8 @@ pub fn estimate_homography(
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &Homography, idx| {
             // Compute symmetric transfer error
-            let p1 = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
-            let p2 = Vector2::new(data[(idx, 2)], data[(idx, 3)]);
+            let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+            let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
             let p1_home = Vector3::new(p1.x, p1.y, 1.0);
             let p2_home = Vector3::new(p2.x, p2.y, 1.0);
 
@@ -155,10 +155,10 @@ pub fn estimate_fundamental_matrix(
     let n = points1.nrows();
     let mut data = DataMatrix::zeros(n, 4);
     for i in 0..n {
-        data[(i, 0)] = points1[(i, 0)];
-        data[(i, 1)] = points1[(i, 1)];
-        data[(i, 2)] = points2[(i, 0)];
-        data[(i, 3)] = points2[(i, 1)];
+        data.set(i, 0, points1[(i, 0)]);
+        data.set(i, 1, points1[(i, 1)]);
+        data.set(i, 2, points2[(i, 0)]);
+        data.set(i, 3, points2[(i, 1)]);
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -174,8 +174,8 @@ pub fn estimate_fundamental_matrix(
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &FundamentalMatrix, idx| {
             // Compute Sampson error
-            let p1 = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
-            let p2 = Vector2::new(data[(idx, 2)], data[(idx, 3)]);
+            let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+            let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
             crate::bundle_adjustment::sampson_error(&model.f, &p1, &p2)
         });
     let scoring = match settings.point_priors.as_ref() {
@@ -240,10 +240,10 @@ pub fn estimate_essential_matrix(
     let n = points1.nrows();
     let mut data = DataMatrix::zeros(n, 4);
     for i in 0..n {
-        data[(i, 0)] = points1[(i, 0)];
-        data[(i, 1)] = points1[(i, 1)];
-        data[(i, 2)] = points2[(i, 0)];
-        data[(i, 3)] = points2[(i, 1)];
+        data.set(i, 0, points1[(i, 0)]);
+        data.set(i, 1, points1[(i, 1)]);
+        data.set(i, 2, points2[(i, 0)]);
+        data.set(i, 3, points2[(i, 1)]);
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -259,8 +259,8 @@ pub fn estimate_essential_matrix(
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &EssentialMatrix, idx| {
             // Compute Sampson error
-            let p1 = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
-            let p2 = Vector2::new(data[(idx, 2)], data[(idx, 3)]);
+            let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+            let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
             crate::bundle_adjustment::sampson_error(&model.e, &p1, &p2)
         });
     let scoring = match settings.point_priors.as_ref() {
@@ -325,11 +325,11 @@ pub fn estimate_absolute_pose(
     let n = points_3d.nrows();
     let mut data = DataMatrix::zeros(n, 5);
     for i in 0..n {
-        data[(i, 0)] = points_2d[(i, 0)];
-        data[(i, 1)] = points_2d[(i, 1)];
-        data[(i, 2)] = points_3d[(i, 0)];
-        data[(i, 3)] = points_3d[(i, 1)];
-        data[(i, 4)] = points_3d[(i, 2)];
+        data.set(i, 0, points_2d[(i, 0)]);
+        data.set(i, 1, points_2d[(i, 1)]);
+        data.set(i, 2, points_3d[(i, 0)]);
+        data.set(i, 3, points_3d[(i, 1)]);
+        data.set(i, 4, points_3d[(i, 2)]);
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -344,8 +344,8 @@ pub fn estimate_absolute_pose(
     };
     let scoring_builder = MsacScoring::new(threshold, |data, model: &AbsolutePose, idx| {
         // Compute reprojection error
-        let p_2d = Vector2::new(data[(idx, 0)], data[(idx, 1)]);
-        let p_3d = Vector3::new(data[(idx, 2)], data[(idx, 3)], data[(idx, 4)]);
+        let p_2d = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+        let p_3d = Vector3::new(data.get(idx, 2), data.get(idx, 3), data.get(idx, 4));
         crate::bundle_adjustment::reprojection_error(
             model.rotation.to_rotation_matrix().matrix(),
             &model.translation.vector,
@@ -434,8 +434,8 @@ pub fn estimate_line(
     let n = points.nrows();
     let mut data = DataMatrix::zeros(n, 2);
     for i in 0..n {
-        data[(i, 0)] = points[(i, 0)];
-        data[(i, 1)] = points[(i, 1)];
+        data.set(i, 0, points[(i, 0)]);
+        data.set(i, 1, points[(i, 1)]);
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -450,7 +450,7 @@ pub fn estimate_line(
     };
     let scoring_builder = RansacInlierCountScoring::new(threshold, |data, model: &Line, idx| {
         // Compute distance from point to line
-        model.distance_to_point(data[(idx, 0)], data[(idx, 1)])
+        model.distance_to_point(data.get(idx, 0), data.get(idx, 1))
     });
     let scoring = match settings.point_priors.as_ref() {
         Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
@@ -506,12 +506,12 @@ pub fn estimate_rigid_transform(
     let n = points_src.nrows();
     let mut data = DataMatrix::zeros(n, 6);
     for i in 0..n {
-        data[(i, 0)] = points_src[(i, 0)];
-        data[(i, 1)] = points_src[(i, 1)];
-        data[(i, 2)] = points_src[(i, 2)];
-        data[(i, 3)] = points_tgt[(i, 0)];
-        data[(i, 4)] = points_tgt[(i, 1)];
-        data[(i, 5)] = points_tgt[(i, 2)];
+        data.set(i, 0, points_src[(i, 0)]);
+        data.set(i, 1, points_src[(i, 1)]);
+        data.set(i, 2, points_src[(i, 2)]);
+        data.set(i, 3, points_tgt[(i, 0)]);
+        data.set(i, 4, points_tgt[(i, 1)]);
+        data.set(i, 5, points_tgt[(i, 2)]);
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -527,8 +527,8 @@ pub fn estimate_rigid_transform(
 
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &RigidTransform, idx| {
-            let p1 = nalgebra::Point3::new(data[(idx, 0)], data[(idx, 1)], data[(idx, 2)]);
-            let p2 = Vector3::new(data[(idx, 3)], data[(idx, 4)], data[(idx, 5)]);
+            let p1 = nalgebra::Point3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2));
+            let p2 = Vector3::new(data.get(idx, 3), data.get(idx, 4), data.get(idx, 5));
             let p1_rot = model.rotation.transform_point(&p1);
             (p2 - (p1_rot.coords + model.translation.vector)).norm()
         });

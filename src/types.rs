@@ -6,51 +6,54 @@
 //! be extended or optimized later.
 
 use nalgebra::{DMatrix as NaDMatrix, DVector, Vector2, Vector3};
-use std::ops::{Deref, DerefMut};
 
 /// Opaque wrapper around a dynamic `f64` matrix representing data points.
 ///
-/// Internally stores data where each row is a point. All access should go through
-/// wrapper methods to allow future layout changes without breaking API.
+/// Internally stores data in COLUMN-MAJOR layout where each column is a point.
+/// This provides better cache locality when iterating over points with nalgebra.
+/// All access goes through wrapper methods to keep this internal detail hidden.
 #[derive(Clone, Debug)]
 pub struct DataMatrix(NaDMatrix<f64>);
 
 impl DataMatrix {
     /// Create a zero-initialized matrix with the given dimensions.
+    /// Note: internally stored as (dims × points) for column-major layout.
     pub fn zeros(rows: usize, cols: usize) -> Self {
-        Self(NaDMatrix::<f64>::zeros(rows, cols))
+        Self(NaDMatrix::<f64>::zeros(cols, rows))
     }
 
-    /// Number of data points (rows).
+    /// Number of data points (columns in internal storage).
     pub fn n_points(&self) -> usize {
-        self.0.nrows()
-    }
-
-    /// Number of dimensions per point (columns).
-    pub fn n_dims(&self) -> usize {
         self.0.ncols()
     }
 
+    /// Number of dimensions per point (rows in internal storage).
+    pub fn n_dims(&self) -> usize {
+        self.0.nrows()
+    }
+
     /// Create from row-major slice: [point0_data..., point1_data..., ...].
+    /// Internally transposes to column-major for better cache locality.
     pub fn from_row_slice(rows: usize, cols: usize, data: &[f64]) -> Self {
-        Self(NaDMatrix::from_row_slice(rows, cols, data))
+        Self(NaDMatrix::from_row_slice(rows, cols, data).transpose())
     }
 
     /// Get a single element at (point_idx, dim_idx).
     #[inline]
     pub fn get(&self, point_idx: usize, dim_idx: usize) -> f64 {
-        self.0[(point_idx, dim_idx)]
+        self.0[(dim_idx, point_idx)]
     }
 
     /// Set a single element at (point_idx, dim_idx).
     #[inline]
     pub fn set(&mut self, point_idx: usize, dim_idx: usize, value: f64) {
-        self.0[(point_idx, dim_idx)] = value;
+        self.0[(dim_idx, point_idx)] = value;
     }
 
     /// Get a point as a dynamically-sized vector.
+    /// Efficient in column-major layout - returns a column directly.
     pub fn get_point(&self, point_idx: usize) -> DVector<f64> {
-        self.0.row(point_idx).transpose()
+        self.0.column(point_idx).into()
     }
 
     /// Get a specific dimension (column) for a point.
@@ -78,11 +81,12 @@ impl DataMatrix {
     }
 
     /// Iterate over all points as dynamic vectors.
+    /// Very efficient in column-major layout.
     pub fn iter_points(&self) -> impl Iterator<Item = DVector<f64>> + '_ {
-        (0..self.n_points()).map(move |i| self.get_point(i))
+        self.0.column_iter().map(|col| col.into())
     }
 
-    /// Filter rows based on a boolean mask.
+    /// Filter points based on a boolean mask.
     pub fn filter_points(&self, mask: &[bool]) -> Self {
         assert_eq!(
             mask.len(),
@@ -90,19 +94,19 @@ impl DataMatrix {
             "Mask length must match number of points"
         );
 
-        let cols = self.n_dims();
+        let n_dims = self.n_dims();
         let mut flat = Vec::new();
 
         for (i, &keep) in mask.iter().enumerate() {
             if keep {
-                for c in 0..cols {
-                    flat.push(self.get(i, c));
+                for d in 0..n_dims {
+                    flat.push(self.get(i, d));
                 }
             }
         }
 
-        let rows = flat.len() / cols;
-        Self::from_row_slice(rows, cols, &flat)
+        let n_kept = flat.len() / n_dims;
+        Self::from_row_slice(n_kept, n_dims, &flat)
     }
 
     /// Convert to owned nalgebra matrix (for interop with existing code).
@@ -124,21 +128,6 @@ impl DataMatrix {
     /// Borrow this matrix as a point view.
     pub fn as_points(&self) -> DataPoints<'_> {
         DataPoints { mat: &self.0 }
-    }
-}
-
-// Keep Deref/DerefMut temporarily for gradual migration
-// TODO: Remove these once all direct access is replaced
-impl Deref for DataMatrix {
-    type Target = NaDMatrix<f64>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for DataMatrix {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

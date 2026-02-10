@@ -124,11 +124,11 @@ fn generate_nonlinear_drift_dataset(
 #[test]
 fn linear_drift_dataset_has_points() {
     let data = generate_linear_drift_dataset(200, 0.2, 0.2, 0.01, 1.2, 0.1);
-    assert!(data.nrows() >= 3);
+    assert!(data.n_points() >= 3);
 }
 
 #[test]
 fn nonlinear_drift_dataset_has_points() {
     let data = generate_nonlinear_drift_dataset(200, 0.2, 0.2, 0.01, 1.1, 0.2);
-    assert!(data.nrows() >= 3);
+    assert!(data.n_points() >= 3);
 }

@@ -28,8 +28,8 @@ pub fn similarity_registration_pipeline(
     };
 
     let scoring = MsacScoring::new(threshold, |data, model: &SimilarityTransform, idx| {
-        let p1 = nalgebra::Point3::new(data[(idx, 0)], data[(idx, 1)], data[(idx, 2)]);
-        let p2 = Vector3::new(data[(idx, 3)], data[(idx, 4)], data[(idx, 5)]);
+        let p1 = nalgebra::Point3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2));
+        let p2 = Vector3::new(data.get(idx, 3), data.get(idx, 4), data.get(idx, 5));
         let p1_rotated = model.rotation.transform_point(&p1);
         let p1_final_vec = model.scale * p1_rotated.coords + model.translation.vector;
         (p2 - p1_final_vec).norm()

@@ -57,7 +57,7 @@ impl<N: NeighborhoodGraph> ProgressiveNapsacSampler<N> {
 
 impl<N: NeighborhoodGraph> Sampler for ProgressiveNapsacSampler<N> {
     fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
-        let n = data.nrows();
+        let n = data.n_points();
         if sample_size == 0 || n == 0 || sample_size > n || out_indices.len() < sample_size {
             return false;
         }

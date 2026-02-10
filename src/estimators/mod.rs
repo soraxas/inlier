@@ -42,10 +42,10 @@ mod tests {
 
         let mut data = DataMatrix::zeros(4, 4);
         for (i, (x, y)) in correspondences.iter().enumerate() {
-            data[(i, 0)] = *x;
-            data[(i, 1)] = *y;
-            data[(i, 2)] = x + tx;
-            data[(i, 3)] = y + ty;
+            data.set(i, 0, *x);
+            data.set(i, 1, *y);
+            data.set(i, 2, x + tx);
+            data.set(i, 3, y + ty);
         }
 
         let estimator = HomographyEstimator::new();
@@ -80,10 +80,10 @@ mod tests {
         ];
 
         for (i, (x1, y1, x2, y2)) in points.iter().enumerate() {
-            data[(i, 0)] = *x1;
-            data[(i, 1)] = *y1;
-            data[(i, 2)] = *x2;
-            data[(i, 3)] = *y2;
+            data.set(i, 0, *x1);
+            data.set(i, 1, *y1);
+            data.set(i, 2, *x2);
+            data.set(i, 3, *y2);
         }
 
         let estimator = FundamentalEstimator::new();
@@ -111,26 +111,26 @@ mod tests {
         // Create 3D-3D correspondences for rigid transform
         let mut data = DataMatrix::zeros(3, 6);
         // Three points forming a triangle
-        data[(0, 0)] = 0.0;
-        data[(0, 1)] = 0.0;
-        data[(0, 2)] = 0.0;
-        data[(0, 3)] = 1.0;
-        data[(0, 4)] = 0.0;
-        data[(0, 5)] = 0.0;
+        data.set(0, 0, 0.0);
+        data.set(0, 1, 0.0);
+        data.set(0, 2, 0.0);
+        data.set(0, 3, 1.0);
+        data.set(0, 4, 0.0);
+        data.set(0, 5, 0.0);
 
-        data[(1, 0)] = 1.0;
-        data[(1, 1)] = 0.0;
-        data[(1, 2)] = 0.0;
-        data[(1, 3)] = 1.0;
-        data[(1, 4)] = 1.0;
-        data[(1, 5)] = 0.0;
+        data.set(1, 0, 1.0);
+        data.set(1, 1, 0.0);
+        data.set(1, 2, 0.0);
+        data.set(1, 3, 1.0);
+        data.set(1, 4, 1.0);
+        data.set(1, 5, 0.0);
 
-        data[(2, 0)] = 0.0;
-        data[(2, 1)] = 1.0;
-        data[(2, 2)] = 0.0;
-        data[(2, 3)] = 0.0;
-        data[(2, 4)] = 1.0;
-        data[(2, 5)] = 0.0;
+        data.set(2, 0, 0.0);
+        data.set(2, 1, 1.0);
+        data.set(2, 2, 0.0);
+        data.set(2, 3, 0.0);
+        data.set(2, 4, 1.0);
+        data.set(2, 5, 0.0);
 
         let estimator = RigidTransformEstimator::new();
         let sample = [0usize, 1, 2];

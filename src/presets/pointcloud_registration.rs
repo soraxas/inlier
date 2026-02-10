@@ -254,7 +254,7 @@ pub fn teaser_pointcloud_registration_pipeline(
                 self.suppression_linearity,
             );
             let filtered_geo = filter_rows(data, &mask_geo);
-            if filtered_geo.nrows() >= 3 {
+            if filtered_geo.n_points() >= 3 {
                 working = filtered_geo;
             }
 
@@ -262,7 +262,7 @@ pub fn teaser_pointcloud_registration_pipeline(
             let mask_core =
                 compatibility_k_core(&working, self.noise_bound, self.k_core_min_degree, 50_000);
             let filtered = filter_rows(&working, &mask_core);
-            let working = if filtered.nrows() >= 3 {
+            let working = if filtered.n_points() >= 3 {
                 filtered
             } else {
                 working

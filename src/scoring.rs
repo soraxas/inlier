@@ -472,8 +472,8 @@ where
                 inlier_count += 1;
                 weighted += w;
 
-                let x = (data[(i, 0)] / self.cell_size).floor() as i64;
-                let y = (data[(i, 1)] / self.cell_size).floor() as i64;
+                let x = (data.get(i, 0) / self.cell_size).floor() as i64;
+                let y = (data.get(i, 1) / self.cell_size).floor() as i64;
                 *grid.entry((x, y)).or_insert(0.0) += w;
             }
         }
@@ -1016,15 +1016,15 @@ mod tests {
     fn ransac_inlier_count_scoring_counts_correctly() {
         // Data matrix where each row contains a single scalar we treat as a residual.
         let mut data = DataMatrix::zeros(5, 1);
-        data[(0, 0)] = 0.1;
-        data[(1, 0)] = 0.4;
-        data[(2, 0)] = 0.6;
-        data[(3, 0)] = 1.0;
-        data[(4, 0)] = 0.3;
+        data.set(0, 0, 0.1);
+        data.set(1, 0, 0.4);
+        data.set(2, 0, 0.6);
+        data.set(3, 0, 1.0);
+        data.set(4, 0, 0.3);
 
         let model = UnitModel;
 
-        let scoring = RansacInlierCountScoring::new(0.5, |d, _m, row| d[(row, 0)]);
+        let scoring = RansacInlierCountScoring::new(0.5, |d, _m, row| d.get(row, 0));
         let mut inliers = Vec::new();
         let s: Score = scoring.score(&data, &model, &mut inliers);
 
@@ -1037,15 +1037,15 @@ mod tests {
     fn msac_scoring_penalizes_large_residuals() {
         // Same residual layout as the RANSAC test.
         let mut data = DataMatrix::zeros(5, 1);
-        data[(0, 0)] = 0.1;
-        data[(1, 0)] = 0.4;
-        data[(2, 0)] = 0.6;
-        data[(3, 0)] = 1.0;
-        data[(4, 0)] = 0.3;
+        data.set(0, 0, 0.1);
+        data.set(1, 0, 0.4);
+        data.set(2, 0, 0.6);
+        data.set(3, 0, 1.0);
+        data.set(4, 0, 0.3);
 
         let model = UnitModel;
 
-        let scoring = MsacScoring::new(0.5, |d, _m, row| d[(row, 0)]);
+        let scoring = MsacScoring::new(0.5, |d, _m, row| d.get(row, 0));
         let mut inliers = Vec::new();
         let s: Score = scoring.score(&data, &model, &mut inliers);
 

@@ -33,11 +33,11 @@ impl RandomSampler {
 #[cfg_attr(feature = "hotpath-prof", hotpath::measure_all)]
 impl Sampler for RandomSampler {
     fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
-        if data.nrows() < sample_size || out_indices.len() < sample_size {
+        if data.n_points() < sample_size || out_indices.len() < sample_size {
             return false;
         }
 
-        let mut indices: Vec<usize> = (0..data.nrows()).collect();
+        let mut indices: Vec<usize> = (0..data.n_points()).collect();
         indices.shuffle(&mut self.rng);
         out_indices[..sample_size].copy_from_slice(&indices[..sample_size]);
         true
@@ -81,8 +81,8 @@ impl Estimator for LineEstimator {
         if sample.len() < 2 {
             return false;
         }
-        let (x1, _y1) = (data[(sample[0], 0)], data[(sample[0], 1)]);
-        let (x2, _y2) = (data[(sample[1], 0)], data[(sample[1], 1)]);
+        let (x1, _y1) = (data.get(sample[0], 0), data.get(sample[0], 1));
+        let (x2, _y2) = (data.get(sample[1], 0), data.get(sample[1], 1));
         (x2 - x1).abs() > 1e-9
     }
 
@@ -91,8 +91,8 @@ impl Estimator for LineEstimator {
             return Vec::new();
         }
 
-        let (x1, y1) = (data[(sample[0], 0)], data[(sample[0], 1)]);
-        let (x2, y2) = (data[(sample[1], 0)], data[(sample[1], 1)]);
+        let (x1, y1) = (data.get(sample[0], 0), data.get(sample[0], 1));
+        let (x2, y2) = (data.get(sample[1], 0), data.get(sample[1], 1));
         let m = (y2 - y1) / (x2 - x1);
         let b = y1 - m * x1;
         vec![LineModel { m, b }]
@@ -130,9 +130,9 @@ impl Scoring<LineModel> for LineScoring {
     ) -> Self::Score {
         inliers_out.clear();
 
-        for i in 0..data.nrows() {
-            let x = data[(i, 0)];
-            let y = data[(i, 1)];
+        for i in 0..data.n_points() {
+            let x = data.get(i, 0);
+            let y = data.get(i, 1);
             let residual = (y - (model.m * x + model.b)).abs();
             if residual <= self.tau {
                 inliers_out.push(i);

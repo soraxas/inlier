@@ -59,7 +59,8 @@ fn test_estimate_fundamental_matrix_synthetic() {
 
     assert!(
         result.is_ok(),
-        "Fundamental matrix estimation should succeed"
+        "Fundamental matrix estimation should succeed, got error: {:?}",
+        result.err()
     );
     let result = result.unwrap();
     assert!(!result.inliers.is_empty(), "Should find some inliers");

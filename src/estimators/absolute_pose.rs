@@ -143,11 +143,11 @@ impl Estimator for AbsolutePoseEstimator {
 
         let mut a = DMatrix::<f64>::zeros(2 * n, 12);
         for (i, &idx) in sample.iter().enumerate() {
-            let u = data[(idx, 0)];
-            let v = data[(idx, 1)];
-            let x = data[(idx, 2)];
-            let y = data[(idx, 3)];
-            let z = data[(idx, 4)];
+            let u = data.get(idx, 0);
+            let v = data.get(idx, 1);
+            let x = data.get(idx, 2);
+            let y = data.get(idx, 3);
+            let z = data.get(idx, 4);
 
             // Row 2*i: u constraint
             a[(2 * i, 0)] = x;

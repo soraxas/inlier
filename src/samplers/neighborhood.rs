@@ -117,16 +117,16 @@ impl GridNeighborhoodGraph {
     ///
     /// Assumes data has at least 2 columns (x, y coordinates).
     pub fn initialize(&mut self, data: &DataMatrix) -> bool {
-        if data.ncols() < 2 {
+        if data.n_dims() < 2 {
             return false;
         }
 
         self.grid.clear();
-        self.point_to_cell = vec![0; data.nrows()];
+        self.point_to_cell = vec![0; data.n_points()];
 
-        for row in 0..data.nrows() {
-            let x = data[(row, 0)];
-            let y = data[(row, 1)];
+        for row in 0..data.n_points() {
+            let x = data.get(row, 0);
+            let y = data.get(row, 1);
 
             if x < 0.0 || y < 0.0 {
                 continue; // Skip negative coordinates
@@ -218,11 +218,11 @@ impl UsearchNeighborhoodGraph {
 
     /// Build the neighborhood graph from data points.
     fn build_neighbors(&mut self, data: &DataMatrix) -> bool {
-        let n = data.nrows();
+        let n = data.n_points();
         let dims = if self.dimensions > 0 {
             self.dimensions
         } else {
-            data.ncols()
+            data.n_dims()
         };
 
         if n == 0 || dims == 0 {
@@ -252,7 +252,7 @@ impl UsearchNeighborhoodGraph {
         for i in 0..n {
             let mut vector = Vec::<f32>::with_capacity(dims);
             for j in 0..dims {
-                vector.push(data[(i, j)] as f32);
+                vector.push(data.get(i, j) as f32);
             }
             if index.add(i as u64, &vector).is_err() {
                 return false;
@@ -266,7 +266,7 @@ impl UsearchNeighborhoodGraph {
         for i in 0..n {
             let mut query = Vec::<f32>::with_capacity(dims);
             for j in 0..dims {
-                query.push(data[(i, j)] as f32);
+                query.push(data.get(i, j) as f32);
             }
 
             // Search for k+1 neighbors (including the point itself)
@@ -305,7 +305,7 @@ impl NeighborhoodGraph for UsearchNeighborhoodGraph {
 
     fn initialize(&mut self, data: &DataMatrix) {
         if self.dimensions == 0 {
-            self.dimensions = data.ncols();
+            self.dimensions = data.n_dims();
         }
         let _ = self.build_neighbors(data);
     }

@@ -95,12 +95,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (row, (i, j)) in pairs.into_iter().enumerate() {
         let s = src_pts[i];
         let t = tgt_pts[j];
-        data[(row, 0)] = s[0];
-        data[(row, 1)] = s[1];
-        data[(row, 2)] = s[2];
-        data[(row, 3)] = t[0];
-        data[(row, 4)] = t[1];
-        data[(row, 5)] = t[2];
+        data.set(row, 0, s[0]);
+        data.set(row, 1, s[1]);
+        data.set(row, 2, s[2]);
+        data.set(row, 3, t[0]);
+        data.set(row, 4, t[1]);
+        data.set(row, 5, t[2]);
     }
 
     let settings = MetasacSettings {

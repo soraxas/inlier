@@ -98,7 +98,7 @@ pub enum InlierSelectorChoice<M> {
 impl<M> InlierSelector<M> for InlierSelectorChoice<M> {
     fn select(&mut self, data: &DataMatrix, model: &M) -> Vec<usize> {
         match self {
-            InlierSelectorChoice::None => (0..data.nrows()).collect(),
+            InlierSelectorChoice::None => (0..data.n_points()).collect(),
             InlierSelectorChoice::Dyn(sel) => sel.select(data, model),
         }
     }

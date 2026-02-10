@@ -26,12 +26,12 @@ pub fn combine_input_points_33(
     }
     let mut data = DataMatrix::zeros(n, 6);
     for i in 0..n {
-        data[(i, 0)] = points_3d_a[(i, 0)];
-        data[(i, 1)] = points_3d_a[(i, 1)];
-        data[(i, 2)] = points_3d_a[(i, 2)];
-        data[(i, 3)] = points_3d_b[(i, 0)];
-        data[(i, 4)] = points_3d_b[(i, 1)];
-        data[(i, 5)] = points_3d_b[(i, 2)];
+        data.set(i, 0, points_3d_a[(i, 0)]);
+        data.set(i, 1, points_3d_a[(i, 1)]);
+        data.set(i, 2, points_3d_a[(i, 2)]);
+        data.set(i, 3, points_3d_b[(i, 0)]);
+        data.set(i, 4, points_3d_b[(i, 1)]);
+        data.set(i, 5, points_3d_b[(i, 2)]);
     }
     Ok(data)
 }

@@ -205,7 +205,7 @@ where
                 sample.copy_from_slice(&current_inliers[..current_sample_size]);
             } else {
                 let mut temp_indices = vec![0usize; current_sample_size];
-                let dummy_data = DataMatrix::zeros(current_inliers.len(), data.ncols());
+                let dummy_data = DataMatrix::zeros(current_inliers.len(), data.n_dims());
                 if !sampler.sample(&dummy_data, current_sample_size, &mut temp_indices) {
                     continue;
                 }
@@ -367,7 +367,7 @@ where
     }
 
     fn build_graph(&self, data: &DataMatrix) -> UnGraph<(), f64> {
-        let n = data.nrows();
+        let n = data.n_points();
         let mut graph: UnGraph<(), f64> = UnGraph::default();
         let nodes: Vec<_> = (0..n).map(|_| graph.add_node(())).collect();
 
@@ -375,7 +375,7 @@ where
             let mut dists: Vec<(usize, f64)> = (0..n)
                 .filter(|&j| j != i)
                 .map(|j| {
-                    let diff = data.row(i) - data.row(j);
+                    let diff = data.get_point(i) - data.get_point(j);
                     let dist = diff.norm();
                     (j, dist)
                 })
@@ -405,7 +405,7 @@ where
         model: &E::Model,
         best_score: &S,
     ) -> (E::Model, S, Vec<usize>) {
-        let n = data.nrows();
+        let n = data.n_points();
         if n == 0 || inliers.len() < self.estimator.sample_size() {
             return (model.clone(), best_score.clone(), inliers.to_vec());
         }

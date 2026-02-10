@@ -39,7 +39,7 @@ impl ImportanceSampler {
 
 impl Sampler for ImportanceSampler {
     fn sample(&mut self, data: &DataMatrix, sample_size: usize, out_indices: &mut [usize]) -> bool {
-        let n = data.nrows();
+        let n = data.n_points();
         if sample_size == 0 || n == 0 || out_indices.len() < sample_size {
             return false;
         }

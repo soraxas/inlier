@@ -73,13 +73,13 @@ impl<'py> MatrixInput<'py> {
     fn py_handle(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
         match self {
             MatrixInput::Borrowed(r) => {
-                let rows = r.inner.nrows();
-                let cols = r.inner.ncols();
-                let mut data = Vec::with_capacity(rows * cols);
+                let rows = r.inner.n_points();
+                let cols = r.inner.n_dims();
+                let mut data = Vec::with_capacity(rows);
                 for rr in 0..rows {
                     let mut row = Vec::with_capacity(cols);
                     for c in 0..cols {
-                        row.push(r.inner[(rr, c)]);
+                        row.push(r.inner.get(rr, c));
                     }
                     data.push(row);
                 }
@@ -88,13 +88,13 @@ impl<'py> MatrixInput<'py> {
                     .map_err(|e| PyValueError::new_err(format!("failed to create numpy view: {e}")))
             }
             MatrixInput::Owned { data, handle: _ } => {
-                let rows = data.nrows();
-                let cols = data.ncols();
+                let rows = data.n_points();
+                let cols = data.n_dims();
                 let mut data_vec = Vec::with_capacity(rows);
                 for r in 0..rows {
                     let mut row = Vec::with_capacity(cols);
                     for c in 0..cols {
-                        row.push(data[(r, c)]);
+                        row.push(data.get(r, c));
                     }
                     data_vec.push(row);
                 }
