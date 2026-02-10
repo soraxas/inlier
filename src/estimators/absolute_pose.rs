@@ -34,7 +34,7 @@ impl AbsolutePoseEstimator {
 
     #[cfg(feature = "p3p")]
     fn solve_p3p(&self, data: &DataMatrix, sample: &[usize]) -> Vec<AbsolutePose> {
-        if sample.len() != 3 || data.ncols() < 5 {
+        if sample.len() != 3 || data.n_dims() < 5 {
             return Vec::new();
         }
 
@@ -42,11 +42,11 @@ impl AbsolutePoseEstimator {
         let mut bearings = [[0f32; 3]; 3];
 
         for (i, &idx) in sample.iter().enumerate() {
-            let u = data[(idx, 0)] as f32;
-            let v = data[(idx, 1)] as f32;
-            let x = data[(idx, 2)] as f32;
-            let y = data[(idx, 3)] as f32;
-            let z = data[(idx, 4)] as f32;
+            let u = data.get(idx, 0) as f32;
+            let v = data.get(idx, 1) as f32;
+            let x = data.get(idx, 2) as f32;
+            let y = data.get(idx, 3) as f32;
+            let z = data.get(idx, 4) as f32;
 
             world[i] = [x, y, z];
 
@@ -104,7 +104,7 @@ impl Estimator for AbsolutePoseEstimator {
             }
         }
         // Data should have at least 5 columns: (u, v, x, y, z)
-        if data.ncols() < 5 {
+        if data.n_dims() < 5 {
             return false;
         }
         true
@@ -112,7 +112,7 @@ impl Estimator for AbsolutePoseEstimator {
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         let n = sample.len();
-        if n < self.sample_size() || data.ncols() < 5 {
+        if n < self.sample_size() || data.n_dims() < 5 {
             return Vec::new();
         }
 
@@ -234,11 +234,11 @@ impl Estimator for AbsolutePoseEstimator {
         let mut points_3d = Vec::new();
 
         for &idx in sample {
-            if idx >= data.nrows() || data.ncols() < 5 {
+            if idx >= data.n_points() || data.n_dims() < 5 {
                 continue;
             }
-            points_2d.push([data[(idx, 0)], data[(idx, 1)]]);
-            points_3d.push([data[(idx, 2)], data[(idx, 3)], data[(idx, 4)]]);
+            points_2d.push([data.get(idx, 0), data.get(idx, 1)]);
+            points_3d.push([data.get(idx, 2), data.get(idx, 3), data.get(idx, 4)]);
         }
 
         if points_2d.len() < 4 {
@@ -298,8 +298,12 @@ impl Estimator for AbsolutePoseEstimator {
             let mut weights_vec = Vec::new();
 
             for &idx in sample {
-                points_2d_vec.push(Vector2::new(data[(idx, 0)], data[(idx, 1)]));
-                points_3d_vec.push(Vector3::new(data[(idx, 2)], data[(idx, 3)], data[(idx, 4)]));
+                points_2d_vec.push(Vector2::new(data.get(idx, 0), data.get(idx, 1)));
+                points_3d_vec.push(Vector3::new(
+                    data.get(idx, 2),
+                    data.get(idx, 3),
+                    data.get(idx, 4),
+                ));
                 if let Some(w) = weights {
                     weights_vec.push(w[idx]);
                 }

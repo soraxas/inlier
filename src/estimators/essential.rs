@@ -42,15 +42,15 @@ impl EssentialEstimator {
         let mut b = [UnitVector3::new_unchecked(Vector3::new(0.0, 1.0, 0.0)); 5];
 
         for (i, &idx) in sample.iter().enumerate() {
-            if idx >= data.nrows() || data.ncols() < 4 {
+            if idx >= data.n_points() || data.n_dims() < 4 {
                 return Vec::new();
             }
 
             // Extract 2D points
-            let x1 = data[(idx, 0)];
-            let y1 = data[(idx, 1)];
-            let x2 = data[(idx, 2)];
-            let y2 = data[(idx, 3)];
+            let x1 = data.get(idx, 0);
+            let y1 = data.get(idx, 1);
+            let x2 = data.get(idx, 2);
+            let y2 = data.get(idx, 3);
 
             // Convert to normalized 3D homogeneous coordinates (calibrated camera)
             // For essential matrix, we assume normalized image coordinates

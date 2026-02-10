@@ -24,9 +24,8 @@ pub fn adaptive_scale_voting(
     c_bar: f64,
     max_pairs: usize,
 ) -> Option<f64> {
-    let view = data.as_points();
-    let n = view.len();
-    if n < 2 {
+    let n = data.n_points();
+    if n < 2 || data.n_dims() < 6 {
         return None;
     }
 
@@ -34,19 +33,14 @@ pub fn adaptive_scale_voting(
     let mut pairs_used = 0usize;
 
     for i in 0..n {
-        let [ax, ay, az, bx, by, bz] = view.point(i)?;
-        let ai = Vector3::new(ax, ay, az);
-        let bi = Vector3::new(bx, by, bz);
+        let ai = Vector3::new(data.get(i, 0), data.get(i, 1), data.get(i, 2));
+        let bi = Vector3::new(data.get(i, 3), data.get(i, 4), data.get(i, 5));
         for j in (i + 1)..n {
             if pairs_used >= max_pairs {
                 break;
             }
-            let [ajx, ajy, ajz, bjx, bjy, bjz] = match view.point(j) {
-                Some(p) => p,
-                None => continue,
-            };
-            let aj = Vector3::new(ajx, ajy, ajz);
-            let bj = Vector3::new(bjx, bjy, bjz);
+            let aj = Vector3::new(data.get(j, 0), data.get(j, 1), data.get(j, 2));
+            let bj = Vector3::new(data.get(j, 3), data.get(j, 4), data.get(j, 5));
             let da = (aj - ai).norm();
             let db = (bj - bi).norm();
             if da <= 1e-9 {
@@ -101,16 +95,16 @@ pub fn geometric_suppression(
     min_neighbors: usize,
     linearity_thresh: f64,
 ) -> Vec<bool> {
-    let n = data.nrows();
+    let n = data.n_points();
     let mut keep = vec![true; n];
     let r2 = radius * radius;
 
     for idx in 0..n {
-        let p = Vector3::new(data[(idx, 0)], data[(idx, 1)], data[(idx, 2)]);
+        let p = Vector3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2));
 
         let mut neigh_src = Vec::new();
         for j in 0..n {
-            let pj = Vector3::new(data[(j, 0)], data[(j, 1)], data[(j, 2)]);
+            let pj = Vector3::new(data.get(j, 0), data.get(j, 1), data.get(j, 2));
             if (pj - p).norm_squared() <= r2 {
                 neigh_src.push(pj);
             }
@@ -125,10 +119,10 @@ pub fn geometric_suppression(
             continue;
         }
 
-        let p_t = Vector3::new(data[(idx, 3)], data[(idx, 4)], data[(idx, 5)]);
+        let p_t = Vector3::new(data.get(idx, 3), data.get(idx, 4), data.get(idx, 5));
         let mut neigh_tgt = Vec::new();
         for j in 0..n {
-            let pj = Vector3::new(data[(j, 3)], data[(j, 4)], data[(j, 5)]);
+            let pj = Vector3::new(data.get(j, 3), data.get(j, 4), data.get(j, 5));
             if (pj - p_t).norm_squared() <= r2 {
                 neigh_tgt.push(pj);
             }
@@ -174,27 +168,21 @@ pub fn compatibility_k_core(
     k_min: usize,
     max_pairs: usize,
 ) -> Vec<bool> {
-    let view = data.as_points();
-    let n = view.len();
+    let n = data.n_points();
     let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut pairs = 0usize;
     for i in 0..n {
-        let row_i = match view.point(i) {
-            Some(r) => r,
-            None => continue,
-        };
-        let ai = Vector3::new(row_i[0], row_i[1], row_i[2]);
-        let bi = Vector3::new(row_i[3], row_i[4], row_i[5]);
+        if data.n_dims() < 6 {
+            continue;
+        }
+        let ai = Vector3::new(data.get(i, 0), data.get(i, 1), data.get(i, 2));
+        let bi = Vector3::new(data.get(i, 3), data.get(i, 4), data.get(i, 5));
         for j in (i + 1)..n {
             if pairs >= max_pairs {
                 break;
             }
-            let row_j = match view.point(j) {
-                Some(r) => r,
-                None => continue,
-            };
-            let aj = Vector3::new(row_j[0], row_j[1], row_j[2]);
-            let bj = Vector3::new(row_j[3], row_j[4], row_j[5]);
+            let aj = Vector3::new(data.get(j, 0), data.get(j, 1), data.get(j, 2));
+            let bj = Vector3::new(data.get(j, 3), data.get(j, 4), data.get(j, 5));
             let da = (aj - ai).norm();
             let db = (bj - bi).norm();
             if (db - da).abs() <= 2.0 * beta {
@@ -305,15 +293,5 @@ pub fn teaser_pointcloud_registration_pipeline(
 }
 
 fn filter_rows(data: &DataMatrix, mask: &[bool]) -> DataMatrix {
-    let cols = data.ncols();
-    let mut flat = Vec::new();
-    for (i, &keep) in mask.iter().enumerate() {
-        if keep {
-            for c in 0..cols {
-                flat.push(data[(i, c)]);
-            }
-        }
-    }
-    let rows = flat.len() / cols;
-    DataMatrix::from_row_slice(rows, cols, &flat)
+    data.filter_points(mask)
 }

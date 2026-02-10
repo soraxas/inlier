@@ -86,7 +86,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         let thresh_sq = self.threshold * self.threshold;
         inliers_out.clear();
 
@@ -158,7 +158,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         let thresh_sq = self.threshold * self.threshold;
         inliers_out.clear();
 
@@ -229,7 +229,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         let thresh_sq = self.threshold * self.threshold;
         inliers_out.clear();
 
@@ -296,7 +296,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         inliers_out.clear();
 
         let var2 = 2.0 * self.sigma * self.sigma;
@@ -375,7 +375,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         inliers_out.clear();
 
         let var2 = 2.0 * self.sigma * self.sigma;
@@ -449,9 +449,9 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         inliers_out.clear();
-        if data.ncols() < 2 || self.cell_size <= 0.0 {
+        if data.n_dims() < 2 || self.cell_size <= 0.0 {
             return Score::new(0, f64::NEG_INFINITY);
         }
 
@@ -662,7 +662,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         let thresh_sq = self.threshold * self.threshold;
         inliers_out.clear();
 
@@ -798,7 +798,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         inliers_out.clear();
 
         let mut inlier_count = 0usize;
@@ -904,7 +904,7 @@ where
     }
 
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
-        let n = data.nrows();
+        let n = data.n_points();
         inliers_out.clear();
 
         if n < self.minimal_sample_size {

@@ -42,18 +42,18 @@ impl Estimator for LineEstimator {
             }
         }
         // Data should have at least 2 columns (x, y)
-        if data.ncols() < 2 {
+        if data.n_dims() < 2 {
             return false;
         }
         // Check that points are not too close together (avoid degenerate case)
         if sample.len() >= 2 {
             let idx1 = sample[0];
             let idx2 = sample[1];
-            if idx1 >= data.nrows() || idx2 >= data.nrows() {
+            if idx1 >= data.n_points() || idx2 >= data.n_points() {
                 return false;
             }
-            let dx = data[(idx1, 0)] - data[(idx2, 0)];
-            let dy = data[(idx1, 1)] - data[(idx2, 1)];
+            let dx = data.get(idx1, 0) - data.get(idx2, 0);
+            let dy = data.get(idx1, 1) - data.get(idx2, 1);
             let dist_sq = dx * dx + dy * dy;
             if dist_sq < 1e-10 {
                 return false; // Points are too close
@@ -71,14 +71,14 @@ impl Estimator for LineEstimator {
         if sample.len() == self.sample_size() {
             let idx1 = sample[0];
             let idx2 = sample[1];
-            if idx1 >= data.nrows() || idx2 >= data.nrows() || data.ncols() < 2 {
+            if idx1 >= data.n_points() || idx2 >= data.n_points() || data.n_dims() < 2 {
                 return Vec::new();
             }
 
-            let x1 = data[(idx1, 0)];
-            let y1 = data[(idx1, 1)];
-            let x2 = data[(idx2, 0)];
-            let y2 = data[(idx2, 1)];
+            let x1 = data.get(idx1, 0);
+            let y1 = data.get(idx1, 1);
+            let x2 = data.get(idx2, 0);
+            let y2 = data.get(idx2, 1);
 
             // Compute line parameters using cross product of homogeneous points
             // Line through (x1, y1) and (x2, y2) is given by cross product:
@@ -122,13 +122,13 @@ impl Estimator for LineEstimator {
         let mut cy = 0.0;
 
         for &idx in sample {
-            if idx >= data.nrows() || data.ncols() < 2 {
+            if idx >= data.n_points() || data.n_dims() < 2 {
                 continue;
             }
             let w = weights.map(|w| w[idx]).unwrap_or(1.0);
             sum_w += w;
-            cx += w * data[(idx, 0)];
-            cy += w * data[(idx, 1)];
+            cx += w * data.get(idx, 0);
+            cy += w * data.get(idx, 1);
         }
 
         if sum_w < 1e-10 {
@@ -144,12 +144,12 @@ impl Estimator for LineEstimator {
         let mut cov_yy = 0.0;
 
         for &idx in sample {
-            if idx >= data.nrows() || data.ncols() < 2 {
+            if idx >= data.n_points() || data.n_dims() < 2 {
                 continue;
             }
             let w = weights.map(|w| w[idx]).unwrap_or(1.0);
-            let dx = data[(idx, 0)] - cx;
-            let dy = data[(idx, 1)] - cy;
+            let dx = data.get(idx, 0) - cx;
+            let dy = data.get(idx, 1) - cy;
             cov_xx += w * dx * dx;
             cov_xy += w * dx * dy;
             cov_yy += w * dy * dy;

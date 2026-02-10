@@ -27,10 +27,10 @@ impl HomographyEstimator {
         let mut augmented = DMatrix::<f64>::zeros(8, 9);
 
         for (i, &idx) in sample.iter().enumerate() {
-            let x1 = data[(idx, 0)];
-            let y1 = data[(idx, 1)];
-            let x2 = data[(idx, 2)];
-            let y2 = data[(idx, 3)];
+            let x1 = data.get(idx, 0);
+            let y1 = data.get(idx, 1);
+            let x2 = data.get(idx, 2);
+            let y2 = data.get(idx, 3);
 
             // Row 2*i
             augmented[(2 * i, 0)] = -x1;
@@ -136,10 +136,10 @@ impl Estimator for HomographyEstimator {
         let mut inhomogeneous = DVector::<f64>::zeros(2 * n);
 
         for (i, &idx) in sample.iter().enumerate() {
-            let x1 = data[(idx, 0)];
-            let y1 = data[(idx, 1)];
-            let x2 = data[(idx, 2)];
-            let y2 = data[(idx, 3)];
+            let x1 = data.get(idx, 0);
+            let y1 = data.get(idx, 1);
+            let x2 = data.get(idx, 2);
+            let y2 = data.get(idx, 3);
 
             let weight = weights.map(|w| w[idx]).unwrap_or(1.0);
             let minus_weight_x1 = -weight * x1;

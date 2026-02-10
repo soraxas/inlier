@@ -41,10 +41,10 @@ impl FundamentalEstimator {
         let mut cy2 = 0.0;
 
         for &idx in sample {
-            cx1 += data[(idx, 0)];
-            cy1 += data[(idx, 1)];
-            cx2 += data[(idx, 2)];
-            cy2 += data[(idx, 3)];
+            cx1 += data.get(idx, 0);
+            cy1 += data.get(idx, 1);
+            cx2 += data.get(idx, 2);
+            cy2 += data.get(idx, 3);
         }
 
         cx1 /= n as f64;
@@ -57,10 +57,10 @@ impl FundamentalEstimator {
         let mut d2 = 0.0;
 
         for &idx in sample {
-            let dx1 = data[(idx, 0)] - cx1;
-            let dy1 = data[(idx, 1)] - cy1;
-            let dx2 = data[(idx, 2)] - cx2;
-            let dy2 = data[(idx, 3)] - cy2;
+            let dx1 = data.get(idx, 0) - cx1;
+            let dy1 = data.get(idx, 1) - cy1;
+            let dx2 = data.get(idx, 2) - cx2;
+            let dy2 = data.get(idx, 3) - cy2;
             d1 += (dx1 * dx1 + dy1 * dy1).sqrt();
             d2 += (dx2 * dx2 + dy2 * dy2).sqrt();
         }
@@ -82,10 +82,10 @@ impl FundamentalEstimator {
         // Normalize points
         normalized.resize_mut(n, 4, 0.0);
         for (i, &idx) in sample.iter().enumerate() {
-            normalized[(i, 0)] = (data[(idx, 0)] - cx1) * s1;
-            normalized[(i, 1)] = (data[(idx, 1)] - cy1) * s1;
-            normalized[(i, 2)] = (data[(idx, 2)] - cx2) * s2;
-            normalized[(i, 3)] = (data[(idx, 3)] - cy2) * s2;
+            normalized[(i, 0)] = (data.get(idx, 0) - cx1) * s1;
+            normalized[(i, 1)] = (data.get(idx, 1) - cy1) * s1;
+            normalized[(i, 2)] = (data.get(idx, 2) - cx2) * s2;
+            normalized[(i, 3)] = (data.get(idx, 3) - cy2) * s2;
         }
 
         true
@@ -97,10 +97,10 @@ impl FundamentalEstimator {
         // Build 7x9 coefficient matrix
         let mut coefficients = DMatrix::<f64>::zeros(7, 9);
         for (i, &idx) in sample.iter().enumerate() {
-            let x0 = data[(idx, 0)];
-            let y0 = data[(idx, 1)];
-            let x1 = data[(idx, 2)];
-            let y1 = data[(idx, 3)];
+            let x0 = data.get(idx, 0);
+            let y0 = data.get(idx, 1);
+            let x1 = data.get(idx, 2);
+            let y1 = data.get(idx, 3);
 
             coefficients[(i, 0)] = x1 * x0;
             coefficients[(i, 1)] = x1 * y0;

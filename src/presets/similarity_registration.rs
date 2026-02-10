@@ -1,19 +1,15 @@
 //! Similarity (scale + rotation + translation) registration preset inspired by TEASER.
 
-use crate::choices::{
-    InlierSelectorChoice, LocalOptimizerChoice, SamplerChoice, default_termination,
-};
+use crate::choices::{LocalOptimizerChoice, SamplerChoice, default_termination};
 use crate::core::NoopInlierSelector;
 use crate::estimators::SimilarityTransformEstimator;
 use crate::models::SimilarityTransform;
 use crate::optimisers::LeastSquaresOptimizer;
 use crate::pipeline::{CorePipeline, Pipeline};
 use crate::preconditioner::IdentityPreconditioner;
-use crate::preconditioner::Preconditioner;
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{MsacScoring, Score};
 use crate::settings::MetasacSettings;
-use crate::types::DataMatrix;
 use nalgebra::Vector3;
 
 /// Build a preset pipeline for similarity registration (scale + rotation + translation).

@@ -6,11 +6,10 @@
 use inlier::core::{Estimator, NoopInlierSelector, RansacTerminationCriterion, Sampler, Scoring};
 use inlier::optimisers::NoopLocalOptimizer;
 use inlier::pipeline::CorePipeline;
-use inlier::preconditioner::{IdentityPreconditioner, Preconditioner};
+use inlier::preconditioner::IdentityPreconditioner;
 use inlier::scoring::Score;
 use inlier::settings::MetasacSettings;
 use inlier::types::DataMatrix;
-use nalgebra::DMatrix;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 

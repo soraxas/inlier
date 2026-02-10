@@ -45,7 +45,7 @@ impl Estimator for RigidTransformEstimator {
             return false;
         }
         // Basic check: ensure data has 6 columns (x1,y1,z1,x2,y2,z2)
-        if data.ncols() < 6 {
+        if data.n_dims() < 6 {
             return false;
         }
         true
@@ -53,7 +53,7 @@ impl Estimator for RigidTransformEstimator {
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         let n = sample.len();
-        if n < self.sample_size() || data.ncols() < 6 {
+        if n < self.sample_size() || data.n_dims() < 6 {
             return Vec::new();
         }
 
@@ -64,12 +64,12 @@ impl Estimator for RigidTransformEstimator {
         let mut c1 = Vector3::<f64>::zeros();
 
         for &idx in sample {
-            c0[0] += data[(idx, 0)];
-            c0[1] += data[(idx, 1)];
-            c0[2] += data[(idx, 2)];
-            c1[0] += data[(idx, 3)];
-            c1[1] += data[(idx, 4)];
-            c1[2] += data[(idx, 5)];
+            c0[0] += data.get(idx, 0);
+            c0[1] += data.get(idx, 1);
+            c0[2] += data.get(idx, 2);
+            c1[0] += data.get(idx, 3);
+            c1[1] += data.get(idx, 4);
+            c1[2] += data.get(idx, 5);
         }
 
         c0 /= n as f64;
@@ -83,13 +83,13 @@ impl Estimator for RigidTransformEstimator {
         let mut avg_dist1 = 0.0;
 
         for (col, &idx) in sample.iter().enumerate() {
-            p0[(0, col)] = data[(idx, 0)] - c0[0];
-            p0[(1, col)] = data[(idx, 1)] - c0[1];
-            p0[(2, col)] = data[(idx, 2)] - c0[2];
+            p0[(0, col)] = data.get(idx, 0) - c0[0];
+            p0[(1, col)] = data.get(idx, 1) - c0[1];
+            p0[(2, col)] = data.get(idx, 2) - c0[2];
 
-            p1[(0, col)] = data[(idx, 3)] - c1[0];
-            p1[(1, col)] = data[(idx, 4)] - c1[1];
-            p1[(2, col)] = data[(idx, 5)] - c1[2];
+            p1[(0, col)] = data.get(idx, 3) - c1[0];
+            p1[(1, col)] = data.get(idx, 4) - c1[1];
+            p1[(2, col)] = data.get(idx, 5) - c1[2];
 
             avg_dist0 += p0.column(col).norm();
             avg_dist1 += p1.column(col).norm();

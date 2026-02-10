@@ -451,11 +451,11 @@ pub trait Scoring<M> {
         }
 
         // Build a temporary matrix with only the selected rows.
-        let cols = data.ncols();
+        let cols = data.n_dims();
         let mut tmp = Vec::with_capacity(subset.len() * cols);
         for &idx in subset {
             for c in 0..cols {
-                tmp.push(data[(idx, c)]);
+                tmp.push(data.get(idx, c));
             }
         }
         let submat = DataMatrix::from_row_slice(subset.len(), cols, &tmp);
@@ -564,7 +564,7 @@ impl crate::core::TerminationCriterion<crate::scoring::Score> for RansacTerminat
         sample_size: usize,
         max_iterations: &mut usize,
     ) -> bool {
-        let n = data.nrows() as f64;
+        let n = data.n_points() as f64;
         if n <= 0.0 {
             return false;
         }
@@ -699,7 +699,7 @@ where
     F: Fn(&DataMatrix, usize) -> f64,
 {
     fn select(&mut self, data: &DataMatrix, _model: &M) -> Vec<usize> {
-        let n = data.nrows();
+        let n = data.n_points();
         if n == 0 {
             return Vec::new();
         }
@@ -1033,7 +1033,7 @@ mod tests {
             self.sample_calls += 1;
             // Always return the first `sample_size` indices.
             for (i, v) in out_indices.iter_mut().enumerate().take(sample_size) {
-                *v = i.min(data.nrows().saturating_sub(1));
+                *v = i.min(data.n_points().saturating_sub(1));
             }
             true
         }

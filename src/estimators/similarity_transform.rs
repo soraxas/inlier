@@ -8,6 +8,12 @@ use nalgebra::{DMatrix, Matrix3, SVD};
 #[derive(Clone)]
 pub struct SimilarityTransformEstimator;
 
+impl Default for SimilarityTransformEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimilarityTransformEstimator {
     pub fn new() -> Self {
         Self
@@ -22,7 +28,7 @@ impl Estimator for SimilarityTransformEstimator {
     }
 
     fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
-        if sample.len() < self.sample_size() || data.ncols() < 6 {
+        if sample.len() < self.sample_size() || data.n_dims() < 6 {
             return false;
         }
         // Distinct indices
@@ -38,7 +44,7 @@ impl Estimator for SimilarityTransformEstimator {
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         let n = sample.len();
-        if n < self.sample_size() || data.ncols() < 6 {
+        if n < self.sample_size() || data.n_dims() < 6 {
             return Vec::new();
         }
 
@@ -46,13 +52,13 @@ impl Estimator for SimilarityTransformEstimator {
         let mut c0 = nalgebra::Vector3::<f64>::zeros();
         let mut c1 = nalgebra::Vector3::<f64>::zeros();
         for &idx in sample {
-            c0[0] += data[(idx, 0)];
-            c0[1] += data[(idx, 1)];
-            c0[2] += data[(idx, 2)];
+            c0[0] += data.get(idx, 0);
+            c0[1] += data.get(idx, 1);
+            c0[2] += data.get(idx, 2);
 
-            c1[0] += data[(idx, 3)];
-            c1[1] += data[(idx, 4)];
-            c1[2] += data[(idx, 5)];
+            c1[0] += data.get(idx, 3);
+            c1[1] += data.get(idx, 4);
+            c1[2] += data.get(idx, 5);
         }
         c0 /= n as f64;
         c1 /= n as f64;
@@ -62,13 +68,13 @@ impl Estimator for SimilarityTransformEstimator {
         let mut p1 = DMatrix::<f64>::zeros(3, n);
 
         for (col, &idx) in sample.iter().enumerate() {
-            p0[(0, col)] = data[(idx, 0)] - c0[0];
-            p0[(1, col)] = data[(idx, 1)] - c0[1];
-            p0[(2, col)] = data[(idx, 2)] - c0[2];
+            p0[(0, col)] = data.get(idx, 0) - c0[0];
+            p0[(1, col)] = data.get(idx, 1) - c0[1];
+            p0[(2, col)] = data.get(idx, 2) - c0[2];
 
-            p1[(0, col)] = data[(idx, 3)] - c1[0];
-            p1[(1, col)] = data[(idx, 4)] - c1[1];
-            p1[(2, col)] = data[(idx, 5)] - c1[2];
+            p1[(0, col)] = data.get(idx, 3) - c1[0];
+            p1[(1, col)] = data.get(idx, 4) - c1[1];
+            p1[(2, col)] = data.get(idx, 5) - c1[2];
         }
 
         let var0 = p0.column_iter().map(|c| c.norm_squared()).sum::<f64>() / n as f64;

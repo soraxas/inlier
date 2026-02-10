@@ -5,7 +5,7 @@
 //! `include/utils/uniform_random_generator.h`.
 
 use crate::types::DataMatrix;
-use nalgebra::{DMatrix, Matrix2, Matrix3};
+use nalgebra::DMatrix;
 
 use anyhow::Result;
 

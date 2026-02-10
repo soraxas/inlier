@@ -15,8 +15,6 @@ use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
 };
 use crate::optimisers::{LeastSquaresOptimizer, LocalOptimizer};
-use crate::pipeline::CorePipeline;
-use crate::preconditioner::{IdentityPreconditioner, Preconditioner};
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{MsacScoring, RansacInlierCountScoring, Score};
 use crate::settings::{MetasacSettings, SamplerType};

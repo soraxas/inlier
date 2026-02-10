@@ -6,7 +6,6 @@
 
 use crate::core::TerminationCriterion;
 use crate::core::{Estimator, InlierSelector, LocalOptimizer, MetaSAC, Sampler, Scoring};
-use crate::preconditioner::IdentityPreconditioner;
 use crate::preconditioner::Preconditioner;
 use crate::settings::MetasacSettings;
 use crate::types::DataMatrix;
