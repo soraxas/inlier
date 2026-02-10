@@ -19,7 +19,11 @@ pub fn create_progress_bar(total: u64, message: &str) -> ProgressBar {
 
 /// Create a progress bar only if count is large enough to be useful
 #[cfg(feature = "progress")]
-pub fn create_progress_bar_if_large(total: u64, message: &str, threshold: u64) -> Option<ProgressBar> {
+pub fn create_progress_bar_if_large(
+    total: u64,
+    message: &str,
+    threshold: u64,
+) -> Option<ProgressBar> {
     if total > threshold {
         Some(create_progress_bar(total, message))
     } else {

@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use inlier::kiss_matcher::gnc::GNCSolver;
+//! use inlier::matcher::gnc::GNCSolver;
 //! use inlier::types::DataMatrix;
 //!
 //! // Correspondences: N x 6 matrix [src_x, src_y, src_z, tgt_x, tgt_y, tgt_z]

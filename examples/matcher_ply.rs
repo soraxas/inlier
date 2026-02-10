@@ -3,7 +3,7 @@
 //! Usage: cargo run --example kiss_matcher_ply --features io
 
 use inlier::io::load_ply;
-use inlier::kiss_matcher::{KISSMatcherConfig, kiss_matcher_full_pipeline};
+use inlier::matcher::{KISSMatcherConfig, kiss_matcher_full_pipeline};
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

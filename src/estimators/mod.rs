@@ -13,6 +13,7 @@ pub mod essential;
 pub mod fundamental;
 pub mod homography;
 pub mod line;
+pub mod rbf_scale_field;
 pub mod rigid_transform;
 pub mod similarity_transform;
 pub mod tls;
@@ -23,6 +24,9 @@ pub use essential::EssentialEstimator;
 pub use fundamental::FundamentalEstimator;
 pub use homography::HomographyEstimator;
 pub use line::LineEstimator;
+pub use rbf_scale_field::{
+    NonRigidTransform, RBFKernel, RBFScaleConfig, RBFScaleEstimator, ScaleField,
+};
 pub use rigid_transform::RigidTransformEstimator;
 pub use similarity_transform::SimilarityTransformEstimator;
 pub use tls::ScalarTLSEstimator;

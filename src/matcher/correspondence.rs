@@ -14,8 +14,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use inlier::kiss_matcher::correspondence::FeatureMatcher;
-//! use inlier::kiss_matcher::features::FasterPFH;
+//! use inlier::matcher::correspondence::FeatureMatcher;
+//! use inlier::matcher::features::FasterPFH;
 //!
 //! // Extract features from source and target
 //! let fpfh = FasterPFH::new(0.2, 0.35, 0.9, 11);
@@ -96,7 +96,8 @@ impl FeatureMatcher {
         search_features: &[FeaturePoint],
     ) -> Vec<Correspondence> {
         #[cfg(feature = "progress")]
-        let pb = crate::progress::create_progress_bar(query_features.len() as u64, "Matching features");
+        let pb =
+            crate::progress::create_progress_bar(query_features.len() as u64, "Matching features");
 
         #[cfg(feature = "rayon")]
         let iter = query_features.par_iter().enumerate();
@@ -122,7 +123,7 @@ impl FeatureMatcher {
                 if second_best_dist > 0.0 {
                     let ratio = best_dist / second_best_dist;
                     if ratio > self.ratio_threshold {
-                        ; // Ambiguous match, reject
+                        // Ambiguous match, reject
                         return None; // Ambiguous match, reject
                     }
                 }

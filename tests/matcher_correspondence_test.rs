@@ -1,5 +1,5 @@
-use inlier::kiss_matcher::correspondence::FeatureMatcher;
-use inlier::kiss_matcher::features::FasterPFH;
+use inlier::matcher::correspondence::FeatureMatcher;
+use inlier::matcher::features::FasterPFH;
 use inlier::types::DataMatrix;
 
 #[test]

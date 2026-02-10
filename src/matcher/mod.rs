@@ -15,8 +15,14 @@ pub mod gnc;
 pub mod matching;
 //pub mod pipeline; // Old simple pipeline - temporarily disabled
 pub mod pipeline_full;
+pub mod pipeline_nonrigid;
+pub mod sipfh;
 
 pub use config::KISSMatcherConfig;
 pub use correspondence::{Correspondence, FeatureMatcher};
 pub use gnc::{GNCResult, GNCSolver};
 pub use pipeline_full::{KISSMatcherFullResult, kiss_matcher_full_pipeline};
+pub use pipeline_nonrigid::{
+    NonRigidKISSConfig, NonRigidKISSResult, nonrigid_kiss_matcher_pipeline,
+};
+pub use sipfh::{SIPFH, SIPFHConfig, SIPFHFeaturePoint, ScaleKeypoint};

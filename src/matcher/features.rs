@@ -23,7 +23,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use inlier::kiss_matcher::features::FasterPFH;
+//! use inlier::matcher::features::FasterPFH;
 //! use inlier::types::DataMatrix;
 //!
 //! // Create point cloud (N points × 3 dimensions)

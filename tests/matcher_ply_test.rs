@@ -3,7 +3,7 @@
 #[cfg(feature = "io")]
 use inlier::io::load_ply;
 #[cfg(feature = "io")]
-use inlier::kiss_matcher::{KISSMatcherConfig, kiss_matcher_full_pipeline};
+use inlier::matcher::{KISSMatcherConfig, kiss_matcher_full_pipeline};
 
 #[test]
 #[cfg(feature = "io")]

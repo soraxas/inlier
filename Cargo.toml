@@ -72,7 +72,11 @@ name = "linear_regression"
 required-features = ["examples"]
 
 [[example]]
-name = "kiss_matcher_ply"
+name = "matcher_ply"
+required-features = ["io"]
+
+[[example]]
+name = "nonrigid_registration"
 required-features = ["io"]
 
 

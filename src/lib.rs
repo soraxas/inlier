@@ -168,7 +168,7 @@ pub mod bundle_adjustment;
 pub mod choices;
 pub mod core;
 pub mod estimators;
-pub mod kiss_matcher;
+pub mod matcher;
 pub mod models;
 pub mod nister_stewenius;
 pub mod optimisers;

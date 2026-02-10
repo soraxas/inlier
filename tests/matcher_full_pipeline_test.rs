@@ -1,5 +1,5 @@
-use inlier::kiss_matcher::config::KISSMatcherConfig;
-use inlier::kiss_matcher::pipeline_full::kiss_matcher_full_pipeline;
+use inlier::matcher::config::KISSMatcherConfig;
+use inlier::matcher::pipeline_full::kiss_matcher_full_pipeline;
 use inlier::types::DataMatrix;
 
 #[test]

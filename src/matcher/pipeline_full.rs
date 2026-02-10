@@ -1,10 +1,10 @@
 //! KISS-Matcher pipeline integrating all components
 
-use crate::kiss_matcher::config::KISSMatcherConfig;
-use crate::kiss_matcher::correspondence::FeatureMatcher;
-use crate::kiss_matcher::features::FasterPFH;
-use crate::kiss_matcher::gnc::GNCSolver;
-use crate::kiss_matcher::matching::ROBINMatching;
+use crate::matcher::config::KISSMatcherConfig;
+use crate::matcher::correspondence::FeatureMatcher;
+use crate::matcher::features::FasterPFH;
+use crate::matcher::gnc::GNCSolver;
+use crate::matcher::matching::ROBINMatching;
 use crate::types::DataMatrix;
 use nalgebra::{Matrix3, Vector3};
 
