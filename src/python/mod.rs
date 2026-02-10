@@ -10,6 +10,7 @@ use pyo3::{
 };
 
 use crate::{
+    api::estimate_rigid_transform,
     core::{
         Estimator, InlierSelector, LocalOptimizer, MetaSAC, Sampler, Scoring, TerminationCriterion,
     },
@@ -1235,7 +1236,7 @@ pub fn estimate_rigid_transform_py(
     let py = points1.py();
     let data1 = matrix_input_from_pyany(points1)?;
     let data2 = matrix_input_from_pyany(points2)?;
-    let result = crate::estimate_rigid_transform(
+    let result = estimate_rigid_transform(
         data1.as_matrix(),
         data2.as_matrix(),
         threshold,

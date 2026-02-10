@@ -488,3 +488,83 @@ pub fn estimate_line(
         _ => Err("Failed to estimate line".to_string()),
     }
 }
+
+/// Estimate a rigid transform (rotation + translation) from 3D-3D correspondences.
+///
+/// Expects an Nx3 source matrix and an Nx3 target matrix.
+pub fn estimate_rigid_transform(
+    points_src: &DMatrix<f64>,
+    points_tgt: &DMatrix<f64>,
+    threshold: f64,
+    settings_opt: Option<MetasacSettings>,
+) -> Result<EstimationResult<RigidTransform>, String> {
+    if points_src.nrows() != points_tgt.nrows() {
+        return Err("points_src and points_tgt must have the same number of rows".to_string());
+    }
+    if points_src.ncols() != 3 || points_tgt.ncols() != 3 {
+        return Err("points must be Nx3 matrices".to_string());
+    }
+
+    let n = points_src.nrows();
+    let mut data = DataMatrix::zeros(n, 6);
+    for i in 0..n {
+        data[(i, 0)] = points_src[(i, 0)];
+        data[(i, 1)] = points_src[(i, 1)];
+        data[(i, 2)] = points_src[(i, 2)];
+        data[(i, 3)] = points_tgt[(i, 0)];
+        data[(i, 4)] = points_tgt[(i, 1)];
+        data[(i, 5)] = points_tgt[(i, 2)];
+    }
+
+    let settings = settings_opt.unwrap_or_default();
+    let estimator = RigidTransformEstimator::new();
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        SamplerType::Uniform | _ => {
+            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
+        }
+    };
+
+    let scoring_builder =
+        RansacInlierCountScoring::new(threshold, |data, model: &RigidTransform, idx| {
+            let p1 = nalgebra::Point3::new(data[(idx, 0)], data[(idx, 1)], data[(idx, 2)]);
+            let p2 = Vector3::new(data[(idx, 3)], data[(idx, 4)], data[(idx, 5)]);
+            let p1_rot = model.rotation.transform_point(&p1);
+            (p2 - (p1_rot.coords + model.translation.vector)).norm()
+        });
+    let scoring = match settings.point_priors.as_ref() {
+        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
+        _ => scoring_builder,
+    };
+
+    let local_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
+    let final_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
+
+    let mut ransac = MetaSAC::new(
+        settings,
+        estimator,
+        sampler,
+        scoring,
+        local_optimizer,
+        final_optimizer,
+        termination,
+        Some(NoopInlierSelector),
+    );
+
+    ransac.run(&data);
+
+    match (&ransac.best_model, &ransac.best_score) {
+        (Some(model), Some(score)) => Ok(EstimationResult {
+            model: model.clone(),
+            inliers: ransac.best_inliers.clone(),
+            score: *score,
+            iterations: ransac.iteration,
+        }),
+        _ => Err("Failed to estimate rigid transform".to_string()),
+    }
+}

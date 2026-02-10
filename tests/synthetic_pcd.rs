@@ -1,5 +1,5 @@
 use inlier::types::DataMatrix;
-use nalgebra::{DMatrix, UnitQuaternion, Vector3};
+use nalgebra::{UnitQuaternion, Vector3};
 use rand::Rng;
 /// Generate a synthetic pair of point clouds with a linear scale drift along z.
 ///
@@ -60,7 +60,7 @@ fn generate_linear_drift_dataset(
     }
 
     let n = rows.len() / 6;
-    DMatrix::from_row_slice(n, 6, &rows)
+    inlier::types::DataMatrix::from_row_slice(n, 6, &rows)
 }
 
 /// Generate a synthetic pair with a sinusoidal scale drift along z.
@@ -118,7 +118,7 @@ fn generate_nonlinear_drift_dataset(
     }
 
     let n = rows.len() / 6;
-    DMatrix::from_row_slice(n, 6, &rows)
+    inlier::types::DataMatrix::from_row_slice(n, 6, &rows)
 }
 
 #[test]

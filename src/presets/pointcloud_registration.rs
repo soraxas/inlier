@@ -24,7 +24,8 @@ pub fn adaptive_scale_voting(
     c_bar: f64,
     max_pairs: usize,
 ) -> Option<f64> {
-    let n = data.nrows();
+    let view = data.as_points();
+    let n = view.len();
     if n < 2 {
         return None;
     }
@@ -33,14 +34,19 @@ pub fn adaptive_scale_voting(
     let mut pairs_used = 0usize;
 
     for i in 0..n {
-        let ai = Vector3::new(data[(i, 0)], data[(i, 1)], data[(i, 2)]);
-        let bi = Vector3::new(data[(i, 3)], data[(i, 4)], data[(i, 5)]);
+        let [ax, ay, az, bx, by, bz] = view.point(i)?;
+        let ai = Vector3::new(ax, ay, az);
+        let bi = Vector3::new(bx, by, bz);
         for j in (i + 1)..n {
             if pairs_used >= max_pairs {
                 break;
             }
-            let aj = Vector3::new(data[(j, 0)], data[(j, 1)], data[(j, 2)]);
-            let bj = Vector3::new(data[(j, 3)], data[(j, 4)], data[(j, 5)]);
+            let [ajx, ajy, ajz, bjx, bjy, bjz] = match view.point(j) {
+                Some(p) => p,
+                None => continue,
+            };
+            let aj = Vector3::new(ajx, ajy, ajz);
+            let bj = Vector3::new(bjx, bjy, bjz);
             let da = (aj - ai).norm();
             let db = (bj - bi).norm();
             if da <= 1e-9 {
@@ -100,8 +106,8 @@ pub fn geometric_suppression(
     let r2 = radius * radius;
 
     for idx in 0..n {
-        // Source neighborhood
         let p = Vector3::new(data[(idx, 0)], data[(idx, 1)], data[(idx, 2)]);
+
         let mut neigh_src = Vec::new();
         for j in 0..n {
             let pj = Vector3::new(data[(j, 0)], data[(j, 1)], data[(j, 2)]);
@@ -119,7 +125,6 @@ pub fn geometric_suppression(
             continue;
         }
 
-        // Target neighborhood
         let p_t = Vector3::new(data[(idx, 3)], data[(idx, 4)], data[(idx, 5)]);
         let mut neigh_tgt = Vec::new();
         for j in 0..n {
@@ -169,18 +174,27 @@ pub fn compatibility_k_core(
     k_min: usize,
     max_pairs: usize,
 ) -> Vec<bool> {
-    let n = data.nrows();
+    let view = data.as_points();
+    let n = view.len();
     let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut pairs = 0usize;
     for i in 0..n {
-        let ai = Vector3::new(data[(i, 0)], data[(i, 1)], data[(i, 2)]);
-        let bi = Vector3::new(data[(i, 3)], data[(i, 4)], data[(i, 5)]);
+        let row_i = match view.point(i) {
+            Some(r) => r,
+            None => continue,
+        };
+        let ai = Vector3::new(row_i[0], row_i[1], row_i[2]);
+        let bi = Vector3::new(row_i[3], row_i[4], row_i[5]);
         for j in (i + 1)..n {
             if pairs >= max_pairs {
                 break;
             }
-            let aj = Vector3::new(data[(j, 0)], data[(j, 1)], data[(j, 2)]);
-            let bj = Vector3::new(data[(j, 3)], data[(j, 4)], data[(j, 5)]);
+            let row_j = match view.point(j) {
+                Some(r) => r,
+                None => continue,
+            };
+            let aj = Vector3::new(row_j[0], row_j[1], row_j[2]);
+            let bj = Vector3::new(row_j[3], row_j[4], row_j[5]);
             let da = (aj - ai).norm();
             let db = (bj - bi).norm();
             if (db - da).abs() <= 2.0 * beta {

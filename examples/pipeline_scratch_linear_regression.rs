@@ -176,7 +176,7 @@ fn main() {
         data_flat.push(x);
         data_flat.push(y);
     }
-    let data = DMatrix::from_row_slice(n_sample, 2, &data_flat);
+    let data = inlier::types::DataMatrix::from_row_slice(n_sample, 2, &data_flat);
 
     let settings = MetasacSettings {
         min_iterations: 500,
