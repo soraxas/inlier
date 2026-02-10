@@ -5,11 +5,13 @@
 //! - A decoupled similarity pipeline: estimate scale via voting, then run rigid registration on
 //!   scale-normalized data to recover rotation/translation. The final model is a SimilarityTransform.
 
+use crate::estimators::ScalarTLSEstimator;
 use crate::models::SimilarityTransform;
 use crate::presets::similarity_registration::similarity_registration_pipeline;
 use crate::settings::MetasacSettings;
 use crate::types::DataMatrix;
-use nalgebra::{SymmetricEigen, Vector3};
+use nalgebra::{Matrix3, SymmetricEigen, Vector3};
+use std::collections::{HashMap, HashSet};
 
 /// Estimate scale using TEASER++-style adaptive voting.
 ///
@@ -85,6 +87,100 @@ pub fn adaptive_scale_voting(
     }
 
     Some(best_scale.max(1e-9))
+}
+
+/// Scale estimation using TLS (Truncated Least Squares) estimator
+///
+/// This is the proper TEASER++ implementation using weighted least squares.
+/// Uses Translation Invariant Measurements (TIMs) for scale estimation.
+///
+/// # Arguments
+/// * `src_points` - Source point cloud (N×3)
+/// * `dst_points` - Target point cloud (N×3)
+/// * `noise_bound` - Maximum noise level
+/// * `c_bar` - Confidence parameter (typically 1.0)
+///
+/// # Returns
+/// * Estimated scale factor and inlier mask
+pub fn estimate_scale_tls(
+    src_points: &DataMatrix,
+    dst_points: &DataMatrix,
+    noise_bound: f64,
+    c_bar: f64,
+) -> Option<(f64, Vec<bool>)> {
+    if src_points.n_points() != dst_points.n_points() {
+        return None;
+    }
+
+    let n = src_points.n_points();
+    if n < 2 {
+        return None;
+    }
+
+    // Compute TIMs (Translation Invariant Measurements)
+    let src_tims = compute_tims(src_points);
+    let dst_tims = compute_tims(dst_points);
+
+    // Compute scale ratios from TIM norms
+    let n_tims = src_tims.n_points();
+    let mut scale_ratios = Vec::with_capacity(n_tims);
+    let mut ranges = Vec::with_capacity(n_tims);
+
+    let beta = 2.0 * noise_bound * c_bar.sqrt();
+
+    for i in 0..n_tims {
+        let src_norm = compute_norm(&src_tims, i);
+        let dst_norm = compute_norm(&dst_tims, i);
+
+        if src_norm < 1e-9 {
+            continue;
+        }
+
+        let ratio = dst_norm / src_norm;
+        let range = beta / src_norm;
+
+        scale_ratios.push(ratio);
+        ranges.push(range);
+    }
+
+    if scale_ratios.is_empty() {
+        return None;
+    }
+
+    // Use TLS estimator
+    let tls = ScalarTLSEstimator::new();
+    tls.estimate(&scale_ratios, &ranges)
+}
+
+/// Compute TIMs (Translation Invariant Measurements) from points
+fn compute_tims(points: &DataMatrix) -> DataMatrix {
+    let n = points.n_points();
+    let n_tims = n * (n - 1) / 2;
+
+    let mut tims = DataMatrix::zeros(n_tims, 3);
+    let mut idx = 0;
+
+    for i in 0..n {
+        let pi = Vector3::new(points.get(i, 0), points.get(i, 1), points.get(i, 2));
+        for j in (i + 1)..n {
+            let pj = Vector3::new(points.get(j, 0), points.get(j, 1), points.get(j, 2));
+            let diff = pj - pi;
+            tims.set(idx, 0, diff.x);
+            tims.set(idx, 1, diff.y);
+            tims.set(idx, 2, diff.z);
+            idx += 1;
+        }
+    }
+
+    tims
+}
+
+/// Compute norm of a 3D point/vector in DataMatrix
+fn compute_norm(data: &DataMatrix, idx: usize) -> f64 {
+    let x = data.get(idx, 0);
+    let y = data.get(idx, 1);
+    let z = data.get(idx, 2);
+    (x * x + y * y + z * z).sqrt()
 }
 
 /// Simple geometric suppression: drop correspondences whose source/target neighborhoods

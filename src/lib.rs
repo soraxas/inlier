@@ -168,11 +168,14 @@ pub mod bundle_adjustment;
 pub mod choices;
 pub mod core;
 pub mod estimators;
+pub mod kiss_matcher;
 pub mod models;
 pub mod nister_stewenius;
 pub mod optimisers;
 pub mod preconditioner;
+pub mod preprocessing;
 pub mod presets;
+pub mod progress;
 pub mod samplers;
 pub mod scoring;
 pub mod settings;
@@ -181,6 +184,9 @@ pub mod utils;
 
 #[cfg(feature = "python")]
 pub mod python;
+
+#[cfg(feature = "io")]
+pub mod io;
 
 // Re-export high-level API
 pub use api::{

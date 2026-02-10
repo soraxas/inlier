@@ -15,6 +15,7 @@ pub mod homography;
 pub mod line;
 pub mod rigid_transform;
 pub mod similarity_transform;
+pub mod tls;
 
 // Re-export all estimators for convenience
 pub use absolute_pose::AbsolutePoseEstimator;
@@ -24,6 +25,7 @@ pub use homography::HomographyEstimator;
 pub use line::LineEstimator;
 pub use rigid_transform::RigidTransformEstimator;
 pub use similarity_transform::SimilarityTransformEstimator;
+pub use tls::ScalarTLSEstimator;
 
 #[cfg(test)]
 mod tests {
