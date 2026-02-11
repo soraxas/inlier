@@ -3,10 +3,7 @@
 #[cfg(feature = "io")]
 use crate::types::DataMatrix;
 #[cfg(feature = "io")]
-use ply_rs::{
-    parser::Parser,
-    ply::{Ply, Property},
-};
+use ply_rs::{parser::Parser, ply::Property};
 #[cfg(feature = "io")]
 use std::fs::File;
 #[cfg(feature = "io")]

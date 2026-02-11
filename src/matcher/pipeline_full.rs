@@ -4,7 +4,6 @@ use crate::matcher::config::KISSMatcherConfig;
 use crate::matcher::correspondence::FeatureMatcher;
 use crate::matcher::features::FasterPFH;
 use crate::matcher::gnc::GNCSolver;
-use crate::matcher::matching::ROBINMatching;
 use crate::types::DataMatrix;
 use nalgebra::{Matrix3, Vector3};
 
@@ -115,7 +114,7 @@ pub fn kiss_matcher_full_pipeline(
     // Step 3: Estimate scale using TLS on TIMs from correspondences
     println!("\n[3/6] Estimating scale with TLS...");
     let scale = estimate_scale_from_correspondences(&corr_matrix, config.solver_noise_bound)?;
-    println!("  Estimated scale: {:.6}", scale);
+    println!("  Estimated scale: {scale:.6}");
 
     // Step 4: ROBIN k-core pruning on correspondences
     println!("\n[4/6] ROBIN k-core pruning...");
@@ -150,7 +149,7 @@ pub fn kiss_matcher_full_pipeline(
     );
 
     println!("\n=== Results ===");
-    println!("Scale: {:.6}", scale);
+    println!("Scale: {scale:.6}");
     println!("Rotation:\n{}", gnc_result.rotation);
     println!("Translation: {:?}", gnc_result.translation);
     println!(

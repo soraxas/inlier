@@ -4,8 +4,7 @@
 //! robust linear regression on 2D data with outliers using the LineEstimator.
 //! The results are visualized and saved to a PNG image.
 
-use inlier::api::estimate_line;
-use nalgebra::DMatrix;
+use inlier::{api::estimate_line, types::DataMatrix};
 use plotters::prelude::*;
 use rand::Rng;
 
@@ -18,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_total = n_inliers + n_outliers;
 
     let mut rng = rand::rng();
-    let mut points = DMatrix::<f64>::zeros(n_total, 2);
+    let mut points = DataMatrix::zeros(n_total, 2);
 
     // True line parameters: y = mx + b
     let true_slope = 2.0;
@@ -28,14 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..n_inliers {
         let x = (i as f64) * 0.1 - 2.5;
         let y = true_slope * x + true_intercept + rng.random_range(-0.1..0.1);
-        points[(i, 0)] = x;
-        points[(i, 1)] = y;
+        points.set(i, 0, x);
+        points.set(i, 1, y);
     }
 
     // Generate outliers (random points)
     for i in n_inliers..n_total {
-        points[(i, 0)] = rng.random_range(-5.0..5.0);
-        points[(i, 1)] = rng.random_range(-10.0..10.0);
+        points.set(i, 0, rng.random_range(-5.0..5.0));
+        points.set(i, 1, rng.random_range(-10.0..10.0));
     }
 
     // Shuffle points to mix inliers and outliers
@@ -43,10 +42,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut indices: Vec<usize> = (0..n_total).collect();
     indices.shuffle(&mut rng);
 
-    let mut shuffled_points = DMatrix::<f64>::zeros(n_total, 2);
+    let mut shuffled_points = DataMatrix::zeros(n_total, 2);
     for (new_idx, &old_idx) in indices.iter().enumerate() {
-        shuffled_points[(new_idx, 0)] = points[(old_idx, 0)];
-        shuffled_points[(new_idx, 1)] = points[(old_idx, 1)];
+        shuffled_points.set(new_idx, 0, points.get(old_idx, 0));
+        shuffled_points.set(new_idx, 1, points.get(old_idx, 1));
     }
 
     println!("Generated {n_inliers} inliers and {n_outliers} outliers");
@@ -91,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Count how many true inliers were found
     let mut found_inliers = 0;
     for &idx in &result.inliers {
-        let x = shuffled_points[(idx, 0)];
-        let y = shuffled_points[(idx, 1)];
+        let x = shuffled_points.get(idx, 0);
+        let y = shuffled_points.get(idx, 1);
         let expected_y = true_slope * x + true_intercept;
         let dist = (y - expected_y).abs();
         if dist < 0.2 {
@@ -127,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !inlier_set.contains(&i) {
             chart
                 .draw_series(std::iter::once(Circle::new(
-                    (shuffled_points[(i, 0)], shuffled_points[(i, 1)]),
+                    (shuffled_points.get(i, 0), shuffled_points.get(i, 1)),
                     3,
                     RED.filled(),
                 )))
@@ -139,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &idx in &result.inliers {
         chart
             .draw_series(std::iter::once(Circle::new(
-                (shuffled_points[(idx, 0)], shuffled_points[(idx, 1)]),
+                (shuffled_points.get(idx, 0), shuffled_points.get(idx, 1)),
                 3,
                 GREEN.filled(),
             )))

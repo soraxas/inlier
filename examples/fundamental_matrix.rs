@@ -3,8 +3,7 @@
 //! This example demonstrates fundamental matrix estimation using RANSAC
 //! on synthetic 2D point correspondences simulating two camera views.
 
-use inlier::*;
-use nalgebra::DMatrix;
+use inlier::{types::DataMatrix, *};
 use rand::Rng;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,8 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_total = n_points + n_outliers;
 
     let mut rng = rand::rng();
-    let mut points1 = DMatrix::<f64>::zeros(n_total, 2);
-    let mut points2 = DMatrix::<f64>::zeros(n_total, 2);
+    let mut points1 = DataMatrix::zeros(n_total, 2);
+    let mut points2 = DataMatrix::zeros(n_total, 2);
 
     // Generate inliers: 3D points on a plane, projected to two views
     // Simple case: points on z=10 plane, cameras at different positions
@@ -30,24 +29,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Project to first camera (at origin, looking along +z)
         let x1 = x_3d / z_3d;
         let y1 = y_3d / z_3d;
-        points1[(i, 0)] = x1 + rng.random_range(-0.01..0.01); // Add noise
-        points1[(i, 1)] = y1 + rng.random_range(-0.01..0.01);
+        points1.set(i, 0, x1 + rng.random_range(-0.01..0.01)); // Add noise
+        points1.set(i, 1, y1 + rng.random_range(-0.01..0.01));
 
         // Project to second camera (translated and slightly rotated)
         let x2_3d = x_3d - 5.0; // Camera translation
         let y2_3d = y_3d - 2.0;
         let x2 = x2_3d / z_3d;
         let y2 = y2_3d / z_3d;
-        points2[(i, 0)] = x2 + rng.random_range(-0.01..0.01);
-        points2[(i, 1)] = y2 + rng.random_range(-0.01..0.01);
+        points2.set(i, 0, x2 + rng.random_range(-0.01..0.01));
+        points2.set(i, 1, y2 + rng.random_range(-0.01..0.01));
     }
 
     // Generate outliers (random correspondences)
     for i in n_points..n_total {
-        points1[(i, 0)] = rng.random_range(-5.0..5.0);
-        points1[(i, 1)] = rng.random_range(-5.0..5.0);
-        points2[(i, 0)] = rng.random_range(-5.0..5.0);
-        points2[(i, 1)] = rng.random_range(-5.0..5.0);
+        points1.set(i, 0, rng.random_range(-5.0..5.0));
+        points1.set(i, 1, rng.random_range(-5.0..5.0));
+        points2.set(i, 0, rng.random_range(-5.0..5.0));
+        points2.set(i, 1, rng.random_range(-5.0..5.0));
     }
 
     println!("Generated {n_points} inliers and {n_outliers} outliers");

@@ -50,7 +50,7 @@ fn test_feature_matching_pipeline() {
 
     // With distinctive geometry, should find at least some matches
     assert!(
-        correspondences.len() > 0,
+        !correspondences.is_empty(),
         "Should find at least some correspondences"
     );
     assert!(

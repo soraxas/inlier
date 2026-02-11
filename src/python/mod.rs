@@ -38,16 +38,16 @@ impl PyDataMatrix {
     }
 
     fn __len__(&self) -> usize {
-        self.inner.nrows()
+        self.inner.n_points()
     }
 
     fn __getitem__(&self, idx: usize) -> Option<Vec<f64>> {
-        if idx >= self.inner.nrows() {
+        if idx >= self.inner.n_points() {
             return None;
         }
-        let mut row = Vec::with_capacity(self.inner.ncols());
-        for c in 0..self.inner.ncols() {
-            row.push(self.inner[(idx, c)]);
+        let mut row = Vec::with_capacity(self.inner.n_dims());
+        for c in 0..self.inner.n_dims() {
+            row.push(self.inner.get(idx, c));
         }
         Some(row)
     }
@@ -141,13 +141,13 @@ fn matrix_input_from_pyany<'py>(obj: Bound<'py, PyAny>) -> PyResult<MatrixInput<
     let data = Arc::new(matrix_from_python_owned(&obj)?);
     Python::with_gil(|py| {
         // Build a Python view once for callbacks.
-        let rows = data.nrows();
-        let cols = data.ncols();
+        let rows = data.n_points();
+        let cols = data.n_dims();
         let mut data_vec = Vec::with_capacity(rows);
         for r in 0..rows {
             let mut row = Vec::with_capacity(cols);
             for c in 0..cols {
-                row.push(data[(r, c)]);
+                row.push(data.get(r, c));
             }
             data_vec.push(row);
         }
@@ -161,10 +161,14 @@ fn matrix_input_from_pyany<'py>(obj: Bound<'py, PyAny>) -> PyResult<MatrixInput<
 }
 
 fn matrix_to_python<'py>(py: Python<'py>, matrix: &DataMatrix) -> PyResult<Bound<'py, PyList>> {
-    let rows: Vec<Vec<f64>> = matrix
-        .row_iter()
-        .map(|row| row.iter().copied().collect::<Vec<f64>>())
-        .collect();
+    let mut rows = Vec::with_capacity(matrix.n_points());
+    for point_idx in 0..matrix.n_points() {
+        let mut row = Vec::with_capacity(matrix.n_dims());
+        for dim_idx in 0..matrix.n_dims() {
+            row.push(matrix.get(point_idx, dim_idx));
+        }
+        rows.push(row);
+    }
     Ok(PyList::new_bound(py, rows))
 }
 
@@ -180,13 +184,13 @@ fn data_to_pyobject<'py>(
     match handle {
         Some(h) => h.clone_ref(py).into_py(py),
         None => {
-            let rows = matrix.nrows();
-            let cols = matrix.ncols();
+            let rows = matrix.n_points();
+            let cols = matrix.n_dims();
             let mut data_vec = Vec::with_capacity(rows);
             for r in 0..rows {
                 let mut row = Vec::with_capacity(cols);
                 for c in 0..cols {
-                    row.push(matrix[(r, c)]);
+                    row.push(matrix.get(r, c));
                 }
                 data_vec.push(row);
             }
@@ -1099,7 +1103,7 @@ impl InlierSelector<PyModel> for PyInlierSelectorAdapter {
                 .bind(py)
                 .call_method("select", (data_py, model.inner.clone_ref(py)), None)
                 .and_then(|v| v.extract())
-                .unwrap_or_else(|_| (0..data.nrows()).collect())
+                .unwrap_or_else(|_| (0..data.n_points()).collect())
         })
     }
 }
@@ -1342,6 +1346,161 @@ pub fn run_metasac(
     }
 }
 
+/// Point cloud registration (PCR) configuration
+#[pyclass(name = "PCRConfig")]
+#[derive(Clone)]
+pub struct PyPCRConfig {
+    #[pyo3(get, set)]
+    pub voxel_size: f64,
+    #[pyo3(get, set)]
+    pub normal_radius: f64,
+    #[pyo3(get, set)]
+    pub feature_radius: f64,
+    #[pyo3(get, set)]
+    pub ratio_threshold: f64,
+    #[pyo3(get, set)]
+    pub noise_bound: f64,
+    #[pyo3(get, set)]
+    pub use_scale_invariant_features: bool,
+}
+
+#[pymethods]
+impl PyPCRConfig {
+    #[new]
+    #[pyo3(signature = (voxel_size=0.05, normal_radius=0.15, feature_radius=0.3, ratio_threshold=0.9, noise_bound=0.05, use_scale_invariant_features=false))]
+    fn new(
+        voxel_size: f64,
+        normal_radius: f64,
+        feature_radius: f64,
+        ratio_threshold: f64,
+        noise_bound: f64,
+        use_scale_invariant_features: bool,
+    ) -> Self {
+        Self {
+            voxel_size,
+            normal_radius,
+            feature_radius,
+            ratio_threshold,
+            noise_bound,
+            use_scale_invariant_features,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "PCRConfig(voxel_size={:.3}, normal_radius={:.3}, feature_radius={:.3}, \
+             ratio_threshold={:.2}, noise_bound={:.3}, use_scale_invariant_features={})",
+            self.voxel_size,
+            self.normal_radius,
+            self.feature_radius,
+            self.ratio_threshold,
+            self.noise_bound,
+            self.use_scale_invariant_features
+        )
+    }
+}
+
+impl PyPCRConfig {
+    fn to_rust(&self) -> crate::pcr::PCRConfig {
+        crate::pcr::PCRConfig {
+            voxel_size: self.voxel_size,
+            normal_radius: self.normal_radius,
+            feature_radius: self.feature_radius,
+            ratio_threshold: self.ratio_threshold,
+            noise_bound: self.noise_bound,
+            use_scale_invariant_features: self.use_scale_invariant_features,
+        }
+    }
+}
+
+/// Register point clouds with rigid transformation
+///
+/// Args:
+///     src: Source point cloud (N × 3 numpy array)
+///     dst: Target point cloud (M × 3 numpy array)
+///     config: Registration configuration (optional, defaults to PCRConfig())
+///
+/// Returns:
+///     dict with keys: rotation (3×3), translation (3,), scale (float),
+///     inlier_count (int), total_correspondences (int)
+///     Returns None if registration fails
+#[pyfunction]
+#[pyo3(signature = (src, dst, config=None))]
+pub fn register_rigid_py(
+    src: Bound<PyAny>,
+    dst: Bound<PyAny>,
+    config: Option<PyPCRConfig>,
+) -> PyResult<Option<PyObject>> {
+    let src_matrix = matrix_from_python_owned(&src)?;
+    let dst_matrix = matrix_from_python_owned(&dst)?;
+
+    let config = config.map(|c| c.to_rust()).unwrap_or_default();
+
+    let result = crate::pcr::register_rigid(&src_matrix, &dst_matrix, &config);
+
+    Ok(result.map(|r| {
+        Python::with_gil(|py| {
+            let dict = PyDict::new_bound(py);
+            dict.set_item("rotation", r.rotation.data.as_slice())
+                .unwrap();
+            dict.set_item("translation", r.translation.data.as_slice())
+                .unwrap();
+            dict.set_item("scale", r.scale).unwrap();
+            dict.set_item("inlier_count", r.inlier_count).unwrap();
+            dict.set_item("total_correspondences", r.total_correspondences)
+                .unwrap();
+            dict.to_object(py)
+        })
+    }))
+}
+
+/// Register point clouds with non-rigid transformation
+///
+/// Args:
+///     src: Source point cloud (N × 3 numpy array)
+///     dst: Target point cloud (M × 3 numpy array)
+///     config: Registration configuration (optional, defaults to PCRConfig with SIPFH)
+///
+/// Returns:
+///     dict with keys: mean_scale (float), scale_std (float),
+///     rotation (3×3), translation (3,),
+///     inlier_count (int), total_correspondences (int)
+///     Returns None if registration fails
+#[pyfunction]
+#[pyo3(signature = (src, dst, config=None))]
+pub fn register_nonrigid_py(
+    src: Bound<PyAny>,
+    dst: Bound<PyAny>,
+    config: Option<PyPCRConfig>,
+) -> PyResult<Option<PyObject>> {
+    let src_matrix = matrix_from_python_owned(&src)?;
+    let dst_matrix = matrix_from_python_owned(&dst)?;
+
+    let config = config.map(|c| c.to_rust()).unwrap_or_else(|| {
+        let mut cfg = crate::pcr::PCRConfig::default();
+        cfg.use_scale_invariant_features = true;
+        cfg
+    });
+
+    let result = crate::pcr::register_nonrigid(&src_matrix, &dst_matrix, &config);
+
+    Ok(result.map(|r| {
+        Python::with_gil(|py| {
+            let dict = PyDict::new_bound(py);
+            dict.set_item("mean_scale", r.mean_scale).unwrap();
+            dict.set_item("scale_std", r.scale_std).unwrap();
+            dict.set_item("rotation", r.transform.rotation.data.as_slice())
+                .unwrap();
+            dict.set_item("translation", r.transform.translation.data.as_slice())
+                .unwrap();
+            dict.set_item("inlier_count", r.inlier_count).unwrap();
+            dict.set_item("total_correspondences", r.total_correspondences)
+                .unwrap();
+            dict.to_object(py)
+        })
+    }))
+}
+
 #[pymodule]
 fn _inlier_rs(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEstimatorAdapter>()?;
@@ -1360,6 +1519,7 @@ fn _inlier_rs(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMetasacSettings>()?;
     m.add_class::<PyPipeline>()?;
     m.add_class::<PyDataMatrix>()?;
+    m.add_class::<PyPCRConfig>()?;
 
     m.add_function(wrap_pyfunction!(estimate_homography_py, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_fundamental_matrix_py, m)?)?;
@@ -1368,6 +1528,8 @@ fn _inlier_rs(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(estimate_rigid_transform_py, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_line_py, m)?)?;
     m.add_function(wrap_pyfunction!(run_metasac, m)?)?;
+    m.add_function(wrap_pyfunction!(register_rigid_py, m)?)?;
+    m.add_function(wrap_pyfunction!(register_nonrigid_py, m)?)?;
 
     let _ = py;
     Ok(())

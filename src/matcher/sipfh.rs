@@ -337,7 +337,7 @@ impl SIPFH {
     ) -> (f64, f64) {
         // Compute gradient directions and magnitudes
         let mut azimuth_hist = vec![0.0; 36]; // 36 bins = 10° per bin
-        let mut elevation_hist = vec![0.0; 18]; // 18 bins = 10° per bin
+        let mut elevation_hist = [0.0; 18]; // 18 bins = 10° per bin
 
         for p in neighbors {
             let diff = p - centroid;
@@ -483,11 +483,10 @@ impl SIPFH {
         }
 
         // Compute SPFH (Simplified Point Feature Histogram)
-        let spfh = self.compute_spfh(point, &normal, &neighbor_points, neighbors);
 
         // Aggregate to FPFH (Fast Point Feature Histogram)
         // In full FPFH, we'd aggregate SPFH from neighbors, but for keypoints we use SPFH directly
-        spfh
+        self.compute_spfh(point, &normal, &neighbor_points, neighbors)
     }
 
     /// Compute normal using PCA
@@ -608,7 +607,7 @@ impl SIPFH {
     fn build_kdtree(&self, points: &DataMatrix) -> KiddoKdTree<f64, usize, 3, 32, u32> {
         let mut tree = KiddoKdTree::new();
         for i in 0..points.n_points() {
-            let _ = tree.add(&[points.get(i, 0), points.get(i, 1), points.get(i, 2)], i);
+            tree.add(&[points.get(i, 0), points.get(i, 1), points.get(i, 2)], i);
         }
         tree
     }

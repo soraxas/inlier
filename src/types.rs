@@ -33,9 +33,12 @@ impl DataMatrix {
     }
 
     /// Create from row-major slice: [point0_data..., point1_data..., ...].
-    /// Internally transposes to column-major for better cache locality.
+    /// Zero-copy: directly interprets as column-major transposed layout.
     pub fn from_row_slice(rows: usize, cols: usize, data: &[f64]) -> Self {
-        Self(NaDMatrix::from_row_slice(rows, cols, data).transpose())
+        // OPTIMIZATION: Instead of creating N×M matrix then transposing (copy),
+        // we directly create M×N from column-slice (zero-copy reinterpretation).
+        // NumPy N×M row-major has same memory as M×N column-major!
+        Self(NaDMatrix::from_column_slice(cols, rows, data))
     }
 
     /// Get a single element at (point_idx, dim_idx).

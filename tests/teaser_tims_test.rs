@@ -66,8 +66,8 @@ fn test_teaser_scale_tls() {
     let n_inliers = inliers.iter().filter(|&&x| x).count();
 
     println!("\n=== TLS Scale Estimation ===");
-    println!("Estimated scale: {}", scale);
-    println!("Expected scale: {}", expected_scale);
+    println!("Estimated scale: {scale}");
+    println!("Expected scale: {expected_scale}");
     println!("Error: {:.6}", (scale - expected_scale).abs());
     println!(
         "Inliers: {} / {} ({:.1}%)",

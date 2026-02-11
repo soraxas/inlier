@@ -1,7 +1,6 @@
 //! ROBIN matching with k-core pruning
 
 use crate::types::DataMatrix;
-use std::collections::{HashMap, HashSet};
 
 /// ROBIN (Robust Bilateral Network) correspondence matching
 ///

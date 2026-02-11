@@ -126,8 +126,8 @@ fn run_ply_example(src_path: &str, dst_path: &str) -> Result<(), Box<dyn std::er
                 let min_scale = scales.iter().cloned().fold(f64::INFINITY, f64::min);
                 let max_scale = scales.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
-                println!("  Min scale: {:.6}", min_scale);
-                println!("  Max scale: {:.6}", max_scale);
+                println!("  Min scale: {min_scale:.6}");
+                println!("  Max scale: {max_scale:.6}");
                 println!(
                     "  Scale range: {:.6} ({:.1}% variation)",
                     max_scale - min_scale,
@@ -251,9 +251,9 @@ fn run_synthetic_example() {
                 .scale_field
                 .eval(&Point3::new(14.0, 7.0, 4.0));
 
-            println!("  Scale at x=0:  {:.4} (expected ~1.00)", scale_at_x0);
-            println!("  Scale at x=7:  {:.4} (expected ~1.07)", scale_at_x7);
-            println!("  Scale at x=14: {:.4} (expected ~1.14)", scale_at_x14);
+            println!("  Scale at x=0:  {scale_at_x0:.4} (expected ~1.00)");
+            println!("  Scale at x=7:  {scale_at_x7:.4} (expected ~1.07)");
+            println!("  Scale at x=14: {scale_at_x14:.4} (expected ~1.14)");
 
             // Compute and show residuals
             let residuals: Vec<f64> = src_points
@@ -266,8 +266,8 @@ fn run_synthetic_example() {
             let max_residual = residuals.iter().cloned().fold(0.0, f64::max);
 
             println!("\nResidual Statistics:");
-            println!("  Mean residual: {:.6}", mean_residual);
-            println!("  Max residual:  {:.6}", max_residual);
+            println!("  Mean residual: {mean_residual:.6}");
+            println!("  Max residual:  {max_residual:.6}");
         }
         None => {
             println!("✗ Registration failed!");

@@ -47,7 +47,7 @@ fn uniform_scale_example() {
         .collect();
 
     println!("  Source points: {}", src.len());
-    println!("  True scale: {}", scale);
+    println!("  True scale: {scale}");
 
     // Estimate transformation
     let config = RBFScaleConfig {
@@ -77,8 +77,8 @@ fn uniform_scale_example() {
     let mean_residual = residuals.iter().sum::<f64>() / residuals.len() as f64;
     let max_residual = residuals.iter().cloned().fold(0.0, f64::max);
 
-    println!("  Mean residual: {:.6}", mean_residual);
-    println!("  Max residual: {:.6}", max_residual);
+    println!("  Mean residual: {mean_residual:.6}");
+    println!("  Max residual: {max_residual:.6}");
 }
 
 fn linear_gradient_example() {
@@ -128,9 +128,9 @@ fn linear_gradient_example() {
     let scale_at_x3 = result.scale_field.eval(&Point3::new(3.5, 3.5, 0.0));
     let scale_at_x7 = result.scale_field.eval(&Point3::new(7.0, 3.5, 0.0));
 
-    println!("  Scale at x=0: {:.3}", scale_at_x0);
-    println!("  Scale at x=3.5: {:.3}", scale_at_x3);
-    println!("  Scale at x=7: {:.3}", scale_at_x7);
+    println!("  Scale at x=0: {scale_at_x0:.3}");
+    println!("  Scale at x=3.5: {scale_at_x3:.3}");
+    println!("  Scale at x=7: {scale_at_x7:.3}");
 
     // Compute residuals
     let residuals: Vec<f64> = src
@@ -142,8 +142,8 @@ fn linear_gradient_example() {
     let mean_residual = residuals.iter().sum::<f64>() / residuals.len() as f64;
     let max_residual = residuals.iter().cloned().fold(0.0, f64::max);
 
-    println!("  Mean residual: {:.6}", mean_residual);
-    println!("  Max residual: {:.6}", max_residual);
+    println!("  Mean residual: {mean_residual:.6}");
+    println!("  Max residual: {max_residual:.6}");
 }
 
 fn radial_expansion_example() {
@@ -193,8 +193,8 @@ fn radial_expansion_example() {
     let scale_at_center = result.scale_field.eval(&Point3::new(0.0, 0.0, 0.0));
     let scale_at_edge = result.scale_field.eval(&Point3::new(2.0, 0.0, 0.0));
 
-    println!("  Scale at center: {:.3}", scale_at_center);
-    println!("  Scale at edge: {:.3}", scale_at_edge);
+    println!("  Scale at center: {scale_at_center:.3}");
+    println!("  Scale at edge: {scale_at_edge:.3}");
 
     // Compute residuals
     let residuals: Vec<f64> = src
@@ -206,6 +206,6 @@ fn radial_expansion_example() {
     let mean_residual = residuals.iter().sum::<f64>() / residuals.len() as f64;
     let max_residual = residuals.iter().cloned().fold(0.0, f64::max);
 
-    println!("  Mean residual: {:.6}", mean_residual);
-    println!("  Max residual: {:.6}", max_residual);
+    println!("  Mean residual: {mean_residual:.6}");
+    println!("  Max residual: {max_residual:.6}");
 }

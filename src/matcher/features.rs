@@ -214,7 +214,7 @@ impl FasterPFH {
 
         // Compute eigenvalues and eigenvectors
         let eigen = cov.symmetric_eigen();
-        let mut eigenvalues = eigen.eigenvalues;
+        let eigenvalues = eigen.eigenvalues;
         let eigenvectors = eigen.eigenvectors;
 
         // Sort eigenvalues in descending order and track indices
@@ -507,8 +507,8 @@ impl FasterPFH {
         let f1 = n2.dot(&u);
 
         // f2 = angle between v and n2 projected on v-w plane
-        let v_proj = v.dot(&n2);
-        let w_proj = w.dot(&n2);
+        let v_proj = v.dot(n2);
+        let w_proj = w.dot(n2);
         let f2 = w_proj.atan2(v_proj);
 
         // f3 = angle between u and diff
@@ -552,7 +552,7 @@ mod tests {
         let fpfh = FasterPFH::new(0.15, 0.2, 1.0, 11);
         let features = fpfh.compute_features(&points);
 
-        assert!(features.len() > 0, "Should extract some features");
+        assert!(!features.is_empty(), "Should extract some features");
 
         for feat in &features {
             assert!(feat.is_valid, "All features should be valid");

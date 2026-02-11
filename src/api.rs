@@ -19,7 +19,7 @@ use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{MsacScoring, RansacInlierCountScoring, Score};
 use crate::settings::{MetasacSettings, SamplerType};
 use crate::types::DataMatrix;
-use nalgebra::{DMatrix, Vector2, Vector3};
+use nalgebra::{Vector2, Vector3};
 
 /// Result of a RANSAC estimation.
 #[derive(Debug, Clone)]
@@ -45,26 +45,26 @@ pub struct EstimationResult<M> {
 /// # Returns
 /// `EstimationResult` containing the homography matrix, inliers, score, and iterations.
 pub fn estimate_homography(
-    points1: &DMatrix<f64>,
-    points2: &DMatrix<f64>,
+    points1: &DataMatrix,
+    points2: &DataMatrix,
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<Homography>, String> {
-    if points1.nrows() != points2.nrows() {
-        return Err("points1 and points2 must have the same number of rows".to_string());
+    if points1.n_points() != points2.n_points() {
+        return Err("points1 and points2 must have the same number of points".to_string());
     }
-    if points1.ncols() != 2 || points2.ncols() != 2 {
+    if points1.n_dims() != 2 || points2.n_dims() != 2 {
         return Err("points must be Nx2 matrices".to_string());
     }
 
     // Combine into data matrix: [x1, y1, x2, y2]
-    let n = points1.nrows();
+    let n = points1.n_points();
     let mut data = DataMatrix::zeros(n, 4);
     for i in 0..n {
-        data.set(i, 0, points1[(i, 0)]);
-        data.set(i, 1, points1[(i, 1)]);
-        data.set(i, 2, points2[(i, 0)]);
-        data.set(i, 3, points2[(i, 1)]);
+        data.set(i, 0, points1.get(i, 0));
+        data.set(i, 1, points1.get(i, 1));
+        data.set(i, 2, points2.get(i, 0));
+        data.set(i, 3, points2.get(i, 1));
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -139,26 +139,26 @@ pub fn estimate_homography(
 /// # Returns
 /// `EstimationResult` containing the fundamental matrix, inliers, score, and iterations.
 pub fn estimate_fundamental_matrix(
-    points1: &DMatrix<f64>,
-    points2: &DMatrix<f64>,
+    points1: &DataMatrix,
+    points2: &DataMatrix,
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<FundamentalMatrix>, String> {
-    if points1.nrows() != points2.nrows() {
-        return Err("points1 and points2 must have the same number of rows".to_string());
+    if points1.n_points() != points2.n_points() {
+        return Err("points1 and points2 must have the same number of points".to_string());
     }
-    if points1.ncols() != 2 || points2.ncols() != 2 {
+    if points1.n_dims() != 2 || points2.n_dims() != 2 {
         return Err("points must be Nx2 matrices".to_string());
     }
 
     // Combine into data matrix: [x1, y1, x2, y2]
-    let n = points1.nrows();
+    let n = points1.n_points();
     let mut data = DataMatrix::zeros(n, 4);
     for i in 0..n {
-        data.set(i, 0, points1[(i, 0)]);
-        data.set(i, 1, points1[(i, 1)]);
-        data.set(i, 2, points2[(i, 0)]);
-        data.set(i, 3, points2[(i, 1)]);
+        data.set(i, 0, points1.get(i, 0));
+        data.set(i, 1, points1.get(i, 1));
+        data.set(i, 2, points2.get(i, 0));
+        data.set(i, 3, points2.get(i, 1));
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -224,26 +224,26 @@ pub fn estimate_fundamental_matrix(
 /// # Returns
 /// `EstimationResult` containing the essential matrix, inliers, score, and iterations.
 pub fn estimate_essential_matrix(
-    points1: &DMatrix<f64>,
-    points2: &DMatrix<f64>,
+    points1: &DataMatrix,
+    points2: &DataMatrix,
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<EssentialMatrix>, String> {
-    if points1.nrows() != points2.nrows() {
-        return Err("points1 and points2 must have the same number of rows".to_string());
+    if points1.n_points() != points2.n_points() {
+        return Err("points1 and points2 must have the same number of points".to_string());
     }
-    if points1.ncols() != 2 || points2.ncols() != 2 {
+    if points1.n_dims() != 2 || points2.n_dims() != 2 {
         return Err("points must be Nx2 matrices".to_string());
     }
 
     // Combine into data matrix: [x1, y1, x2, y2]
-    let n = points1.nrows();
+    let n = points1.n_points();
     let mut data = DataMatrix::zeros(n, 4);
     for i in 0..n {
-        data.set(i, 0, points1[(i, 0)]);
-        data.set(i, 1, points1[(i, 1)]);
-        data.set(i, 2, points2[(i, 0)]);
-        data.set(i, 3, points2[(i, 1)]);
+        data.set(i, 0, points1.get(i, 0));
+        data.set(i, 1, points1.get(i, 1));
+        data.set(i, 2, points2.get(i, 0));
+        data.set(i, 3, points2.get(i, 1));
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -309,27 +309,27 @@ pub fn estimate_essential_matrix(
 /// # Returns
 /// `EstimationResult` containing the absolute pose (rotation + translation), inliers, score, and iterations.
 pub fn estimate_absolute_pose(
-    points_3d: &DMatrix<f64>,
-    points_2d: &DMatrix<f64>,
+    points_3d: &DataMatrix,
+    points_2d: &DataMatrix,
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<AbsolutePose>, String> {
-    if points_3d.nrows() != points_2d.nrows() {
-        return Err("points_3d and points_2d must have the same number of rows".to_string());
+    if points_3d.n_points() != points_2d.n_points() {
+        return Err("points_3d and points_2d must have the same number of points".to_string());
     }
-    if points_3d.ncols() != 3 || points_2d.ncols() != 2 {
+    if points_3d.n_dims() != 3 || points_2d.n_dims() != 2 {
         return Err("points_3d must be Nx3 and points_2d must be Nx2".to_string());
     }
 
     // Combine into data matrix: [x2d, y2d, x3d, y3d, z3d]
-    let n = points_3d.nrows();
+    let n = points_3d.n_points();
     let mut data = DataMatrix::zeros(n, 5);
     for i in 0..n {
-        data.set(i, 0, points_2d[(i, 0)]);
-        data.set(i, 1, points_2d[(i, 1)]);
-        data.set(i, 2, points_3d[(i, 0)]);
-        data.set(i, 3, points_3d[(i, 1)]);
-        data.set(i, 4, points_3d[(i, 2)]);
+        data.set(i, 0, points_2d.get(i, 0));
+        data.set(i, 1, points_2d.get(i, 1));
+        data.set(i, 2, points_3d.get(i, 0));
+        data.set(i, 3, points_3d.get(i, 1));
+        data.set(i, 4, points_3d.get(i, 2));
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -402,12 +402,12 @@ pub fn estimate_absolute_pose(
 /// ```
 /// use inlier::api::estimate_line;
 /// use inlier::settings::MetasacSettings;
-/// use nalgebra::DMatrix;
+/// use inlier::types::DataMatrix;
 ///
 /// // Generate some 2D points
-/// let mut points = DMatrix::<f64>::zeros(10, 2);
-/// points[(0, 0)] = 0.0; points[(0, 1)] = 0.0;
-/// points[(1, 0)] = 1.0; points[(1, 1)] = 1.0;
+/// let mut points = DataMatrix::zeros(10, 2);
+/// points.set(0, 0, 0.0); points.set(0, 1, 0.0);
+/// points.set(1, 0, 1.0); points.set(1, 1, 1.0);
 /// // ... add more points
 ///
 /// let threshold = 0.5; // Distance threshold
@@ -422,20 +422,20 @@ pub fn estimate_absolute_pose(
 /// }
 /// ```
 pub fn estimate_line(
-    points: &DMatrix<f64>,
+    points: &DataMatrix,
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<Line>, String> {
-    if points.ncols() != 2 {
+    if points.n_dims() != 2 {
         return Err("points must be Nx2 matrix (each row is [x, y])".to_string());
     }
 
     // Use points directly as data matrix
-    let n = points.nrows();
+    let n = points.n_points();
     let mut data = DataMatrix::zeros(n, 2);
     for i in 0..n {
-        data.set(i, 0, points[(i, 0)]);
-        data.set(i, 1, points[(i, 1)]);
+        data.set(i, 0, points.get(i, 0));
+        data.set(i, 1, points.get(i, 1));
     }
 
     let settings = settings_opt.unwrap_or_default();
@@ -491,27 +491,27 @@ pub fn estimate_line(
 ///
 /// Expects an Nx3 source matrix and an Nx3 target matrix.
 pub fn estimate_rigid_transform(
-    points_src: &DMatrix<f64>,
-    points_tgt: &DMatrix<f64>,
+    points_src: &DataMatrix,
+    points_tgt: &DataMatrix,
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<RigidTransform>, String> {
-    if points_src.nrows() != points_tgt.nrows() {
-        return Err("points_src and points_tgt must have the same number of rows".to_string());
+    if points_src.n_points() != points_tgt.n_points() {
+        return Err("points_src and points_tgt must have the same number of points".to_string());
     }
-    if points_src.ncols() != 3 || points_tgt.ncols() != 3 {
+    if points_src.n_dims() != 3 || points_tgt.n_dims() != 3 {
         return Err("points must be Nx3 matrices".to_string());
     }
 
-    let n = points_src.nrows();
+    let n = points_src.n_points();
     let mut data = DataMatrix::zeros(n, 6);
     for i in 0..n {
-        data.set(i, 0, points_src[(i, 0)]);
-        data.set(i, 1, points_src[(i, 1)]);
-        data.set(i, 2, points_src[(i, 2)]);
-        data.set(i, 3, points_tgt[(i, 0)]);
-        data.set(i, 4, points_tgt[(i, 1)]);
-        data.set(i, 5, points_tgt[(i, 2)]);
+        data.set(i, 0, points_src.get(i, 0));
+        data.set(i, 1, points_src.get(i, 1));
+        data.set(i, 2, points_src.get(i, 2));
+        data.set(i, 3, points_tgt.get(i, 0));
+        data.set(i, 4, points_tgt.get(i, 1));
+        data.set(i, 5, points_tgt.get(i, 2));
     }
 
     let settings = settings_opt.unwrap_or_default();

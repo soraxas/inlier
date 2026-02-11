@@ -2,8 +2,7 @@
 //!
 //! This example demonstrates robust line fitting using the LineEstimator.
 
-use inlier::api::estimate_line;
-use nalgebra::DMatrix;
+use inlier::{api::estimate_line, types::DataMatrix};
 use rand::Rng;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,10 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     points.shuffle(&mut rng);
 
     // Convert to DMatrix format
-    let mut points_matrix = DMatrix::<f64>::zeros(n_total, 2);
+    let mut points_matrix = DataMatrix::zeros(n_total, 2);
     for (i, &(x, y)) in points.iter().enumerate() {
-        points_matrix[(i, 0)] = x;
-        points_matrix[(i, 1)] = y;
+        points_matrix.set(i, 0, x);
+        points_matrix.set(i, 1, y);
     }
 
     // Estimate line using RANSAC
@@ -91,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &idx in &result.inliers {
         // Check if this point was originally an inlier
         // (we shuffled, so we need to check the actual point)
-        let x = points_matrix[(idx, 0)];
-        let y = points_matrix[(idx, 1)];
+        let x = points_matrix.get(idx, 0);
+        let y = points_matrix.get(idx, 1);
         let expected_y = true_slope * x + true_intercept;
         let dist = (y - expected_y).abs();
         if dist < 0.5 {

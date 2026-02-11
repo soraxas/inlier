@@ -30,7 +30,7 @@ use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
 ///     fn build_kdtree(&mut self, data: &DataMatrix) {
 ///         // Build KD-tree and find k-nearest neighbors for each point
 ///         // (Implementation would use a KD-tree library like kdtree or rstar)
-///         let n = data.nrows();
+///         let n = data.n_points();
 ///         self.neighbors.clear();
 ///         self.neighbors.resize(n, Vec::new());
 ///

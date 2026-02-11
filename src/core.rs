@@ -26,7 +26,6 @@ use hotpath::measure_block;
 /// ```rust
 /// use inlier::core::Estimator;
 /// use inlier::types::DataMatrix;
-/// use nalgebra::DMatrix;
 ///
 /// /// A 2D line model: ax + by + c = 0
 /// #[derive(Clone, Debug)]
@@ -63,12 +62,12 @@ use hotpath::measure_block;
 ///         // Check that points are distinct
 ///         let idx1 = sample[0];
 ///         let idx2 = sample[1];
-///         if idx1 >= data.nrows() || idx2 >= data.nrows() {
+///         if idx1 >= data.n_points() || idx2 >= data.n_points() {
 ///             return false;
 ///         }
 ///         // Check that points are not too close
-///         let dx = data[(idx1, 0)] - data[(idx2, 0)];
-///         let dy = data[(idx1, 1)] - data[(idx2, 1)];
+///         let dx = data.get(idx1, 0) - data.get(idx2, 0);
+///         let dy = data.get(idx1, 1) - data.get(idx2, 1);
 ///         (dx * dx + dy * dy).sqrt() > 1e-6
 ///     }
 ///
@@ -78,10 +77,10 @@ use hotpath::measure_block;
 ///         }
 ///         let idx1 = sample[0];
 ///         let idx2 = sample[1];
-///         let x1 = data[(idx1, 0)];
-///         let y1 = data[(idx1, 1)];
-///         let x2 = data[(idx2, 0)];
-///         let y2 = data[(idx2, 1)];
+///         let x1 = data.get(idx1, 0);
+///         let y1 = data.get(idx1, 1);
+///         let x2 = data.get(idx2, 0);
+///         let y2 = data.get(idx2, 1);
 ///
 ///         // Compute line parameters: (y2 - y1)x - (x2 - x1)y + (x2 - x1)y1 - (y2 - y1)x1 = 0
 ///         let a = y2 - y1;
@@ -110,7 +109,7 @@ use hotpath::measure_block;
 ///
 /// // Usage example
 /// # fn main() {
-/// #     let data = DMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 10.0, 5.0]);
+/// #     let data = DataMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 10.0, 5.0]);
 /// #     let estimator = LineEstimator;
 /// #     let sample = vec![0, 1];
 /// #     let models = estimator.estimate_model(&data, &sample);
@@ -126,7 +125,6 @@ use hotpath::measure_block;
 /// ```rust
 /// # use inlier::core::Estimator;
 /// # use inlier::types::DataMatrix;
-/// # use nalgebra::DMatrix;
 /// # #[derive(Clone)]
 /// # struct Line { a: f64, b: f64, c: f64 }
 /// # struct LineEstimator;
@@ -281,7 +279,7 @@ pub trait Estimator {
 ///         sample_size: usize,
 ///         out_indices: &mut [usize],
 ///     ) -> bool {
-///         let n = data.nrows();
+///         let n = data.n_points();
 ///         if sample_size > n || out_indices.len() < sample_size {
 ///             return false;
 ///         }
@@ -319,7 +317,7 @@ pub trait Sampler {
     /// Draw a sample of `sample_size` elements into `out_indices`.
     ///
     /// The indices should be valid row indices into `data` (i.e., in the range
-    /// `[0, data.nrows())`). The sampler may draw with or without replacement,
+    /// `[0, data.n_points())`). The sampler may draw with or without replacement,
     /// depending on the strategy.
     ///
     /// # Arguments
@@ -388,7 +386,7 @@ pub trait Sampler {
 ///         let mut cost = 0.0;
 ///         inliers_out.clear();
 ///
-///         for i in 0..data.nrows() {
+///         for i in 0..data.n_points() {
 ///             // Compute residual for point i
 ///             let residual = 0.0; // Your residual computation here
 ///
@@ -621,9 +619,9 @@ impl crate::core::TerminationCriterion<crate::scoring::Score> for RansacTerminat
 ///     fn select(&mut self, data: &DataMatrix, _model: &MyModel) -> Vec<usize> {
 ///         // Select points in a spatial region (simplified example)
 ///         let mut candidates = Vec::new();
-///         for i in 0..data.nrows() {
-///             let x = data[(i, 0)];
-///             let y = data[(i, 1)];
+///         for i in 0..data.n_points() {
+///             let x = data.get(i, 0);
+///             let y = data.get(i, 1);
 ///             // Only consider points in a specific region
 ///             if x.abs() < 10.0 && y.abs() < 10.0 {
 ///                 candidates.push(i);

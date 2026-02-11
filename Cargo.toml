@@ -79,6 +79,10 @@ required-features = ["io"]
 name = "nonrigid_registration"
 required-features = ["io"]
 
+[[example]]
+name = "pcr_api"
+required-features = ["io"]
+
 
 [[example]]
 name = "point_cloud_registration"

@@ -4,10 +4,8 @@ use crate::estimators::rbf_scale_field::{NonRigidTransform, RBFScaleConfig, RBFS
 use crate::matcher::config::KISSMatcherConfig;
 use crate::matcher::correspondence::FeatureMatcher;
 use crate::matcher::features::{FasterPFH, FeaturePoint};
-use crate::matcher::gnc::GNCSolver;
-use crate::matcher::sipfh::{SIPFH, SIPFHConfig, SIPFHFeaturePoint};
+use crate::matcher::sipfh::{SIPFH, SIPFHConfig};
 use crate::types::{DataMatrix, Point3};
-use nalgebra::{Matrix3, Vector3};
 
 /// Feature extraction method for non-rigid registration
 #[derive(Clone, Debug)]
@@ -25,7 +23,7 @@ impl Default for FeatureMethod {
 }
 
 /// Configuration for non-rigid KISS-Matcher pipeline
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct NonRigidKISSConfig {
     /// Base KISS-Matcher parameters
     pub base: KISSMatcherConfig,
@@ -33,16 +31,6 @@ pub struct NonRigidKISSConfig {
     pub rbf: RBFScaleConfig,
     /// Feature extraction method
     pub feature_method: FeatureMethod,
-}
-
-impl Default for NonRigidKISSConfig {
-    fn default() -> Self {
-        Self {
-            base: KISSMatcherConfig::default(),
-            rbf: RBFScaleConfig::default(),
-            feature_method: FeatureMethod::default(),
-        }
-    }
 }
 
 /// Result from non-rigid KISS-Matcher pipeline
@@ -197,8 +185,8 @@ pub fn nonrigid_kiss_matcher_pipeline(
     let mean_scale = transform.mean_scale();
     let scale_std = compute_scale_std(&transform, &src_corr_points);
 
-    println!("  Mean scale: {:.6}", mean_scale);
-    println!("  Scale std dev: {:.6}", scale_std);
+    println!("  Mean scale: {mean_scale:.6}");
+    println!("  Scale std dev: {scale_std:.6}");
     println!(
         "  Control points: {}",
         transform.scale_field.control_points.len()
@@ -207,10 +195,7 @@ pub fn nonrigid_kiss_matcher_pipeline(
     // Warn if scale variation is very large
     let scale_variation_pct = scale_std / mean_scale * 100.0;
     if scale_variation_pct > 30.0 {
-        println!(
-            "\n  ⚠ Warning: Large scale variation ({:.1}%)!",
-            scale_variation_pct
-        );
+        println!("\n  ⚠ Warning: Large scale variation ({scale_variation_pct:.1}%)!");
         println!("     This may indicate:");
         println!("     - Point clouds are rigid (no real deformation)");
         println!("     - RBF overfitting to outlier correspondences");
@@ -263,12 +248,9 @@ pub fn nonrigid_kiss_matcher_pipeline(
     let initial_threshold = sorted_init[(sorted_init.len() * 9 / 10).min(sorted_init.len() - 1)]
         .max(final_threshold * 2.0); // At least 2× final threshold
 
-    println!(
-        "  Initial threshold: {:.4} (90th percentile)",
-        initial_threshold
-    );
-    println!("  Final threshold: {:.4}", final_threshold);
-    println!("  Max iterations: {}", max_iterations);
+    println!("  Initial threshold: {initial_threshold:.4} (90th percentile)");
+    println!("  Final threshold: {final_threshold:.4}");
+    println!("  Max iterations: {max_iterations}");
 
     let mut best_transform = transform.clone();
     let mut best_inlier_count = 0;
@@ -334,8 +316,7 @@ pub fn nonrigid_kiss_matcher_pipeline(
             // We want median < current_threshold (most points fit current tolerance)
             if median_residual < current_threshold * 1.2 {
                 println!(
-                    "  → Early stop: {} inliers with acceptable residual {:.4} (threshold {:.4})",
-                    inlier_count, median_residual, current_threshold
+                    "  → Early stop: {inlier_count} inliers with acceptable residual {median_residual:.4} (threshold {current_threshold:.4})"
                 );
                 stopped_early = true;
                 // Keep current inliers - they're good at this threshold!
@@ -425,8 +406,7 @@ pub fn nonrigid_kiss_matcher_pipeline(
                 transform = refined;
             } else {
                 println!(
-                    "  → Re-estimation degraded model (median {:.4} → {:.4}), keeping previous",
-                    old_median, new_median
+                    "  → Re-estimation degraded model (median {old_median:.4} → {new_median:.4}), keeping previous"
                 );
                 break;
             }

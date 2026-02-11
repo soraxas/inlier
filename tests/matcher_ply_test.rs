@@ -47,7 +47,7 @@ fn test_kiss_matcher_with_teaser_benchmark_4() {
             // Reasonable checks for 50-point dataset
             assert!(res.scale > 0.0, "Scale should be positive");
             assert!(
-                res.inlier_indices.len() > 0,
+                !res.inlier_indices.is_empty(),
                 "Should find at least some inliers"
             );
         }
@@ -93,7 +93,7 @@ fn test_kiss_matcher_with_teaser_benchmark_5() {
             res.n_correspondences_initial
         );
         assert!(res.scale > 0.0);
-        assert!(res.inlier_indices.len() > 0);
+        assert!(!res.inlier_indices.is_empty());
     } else {
         println!("⚠ Registration failed (acceptable for test data)");
     }

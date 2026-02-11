@@ -9,11 +9,11 @@
 //!
 //! ```rust
 //! use inlier::{estimate_homography, MetasacSettings};
-//! use nalgebra::DMatrix;
+//! use inlier::types::DataMatrix;
 //!
 //! // Create point correspondences
-//! let points1 = DMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]);
-//! let points2 = DMatrix::from_row_slice(4, 2, &[1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 2.0]);
+//! let points1 = DataMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]);
+//! let points2 = DataMatrix::from_row_slice(4, 2, &[1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 2.0]);
 //!
 //! // Estimate homography
 //! let result = estimate_homography(&points1, &points2, 1.0, None).unwrap();
@@ -172,6 +172,7 @@ pub mod matcher;
 pub mod models;
 pub mod nister_stewenius;
 pub mod optimisers;
+pub mod pcr;
 pub mod preconditioner;
 pub mod preprocessing;
 pub mod presets;

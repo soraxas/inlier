@@ -95,8 +95,8 @@ fn test_teaser_scale_estimation_reference() {
     assert!(scale.is_some(), "Scale estimation should succeed");
     let scale = scale.unwrap();
 
-    println!("Estimated scale: {}", scale);
-    println!("Expected scale: {}", expected_scale);
+    println!("Estimated scale: {scale}");
+    println!("Expected scale: {expected_scale}");
     println!("Error: {}", (scale - expected_scale).abs());
 
     // Note: This test uses direct point correspondences (168 pairs), not TIMs.

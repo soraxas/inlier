@@ -23,6 +23,9 @@ from ._inlier_rs import (  # type: ignore[F401]
     estimate_line_py,
     estimate_rigid_transform_py,
     run_metasac,
+    PCRConfig,
+    register_rigid_py,
+    register_nonrigid_py,
 )
 
 __all__ = [
@@ -48,4 +51,7 @@ __all__ = [
     "estimate_line_py",
     "estimate_rigid_transform_py",
     "run_metasac",
+    "PCRConfig",
+    "register_rigid_py",
+    "register_nonrigid_py",
 ]

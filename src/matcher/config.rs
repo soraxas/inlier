@@ -36,7 +36,7 @@ impl KISSMatcherConfig {
     /// Create default configuration for given voxel size
     pub fn new(voxel_size: f64) -> Self {
         if voxel_size < 0.005 {
-            panic!("Voxel size too small: {}", voxel_size);
+            panic!("Voxel size too small: {voxel_size}");
         }
 
         let normal_radius = 3.0 * voxel_size;
@@ -73,13 +73,12 @@ impl KISSMatcherConfig {
         solver_noise_bound_gain: f64,
     ) -> Self {
         if voxel_size < 0.005 {
-            panic!("Voxel size too small: {}", voxel_size);
+            panic!("Voxel size too small: {voxel_size}");
         }
 
         if robin_noise_bound_gain < solver_noise_bound_gain {
             panic!(
-                "solver_noise_bound_gain ({}) should be <= robin_noise_bound_gain ({})",
-                solver_noise_bound_gain, robin_noise_bound_gain
+                "solver_noise_bound_gain ({solver_noise_bound_gain}) should be <= robin_noise_bound_gain ({robin_noise_bound_gain})"
             );
         }
 

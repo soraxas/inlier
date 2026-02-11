@@ -84,8 +84,7 @@ fn test_fpfh_normal_estimation() {
             // Should be within 30 degrees for planar surface
             assert!(
                 angle < 30.0,
-                "Normals on plane should be consistent, got {} degrees",
-                angle
+                "Normals on plane should be consistent, got {angle} degrees"
             );
         }
     }
@@ -118,11 +117,11 @@ fn test_fpfh_with_different_voxel_sizes() {
 
     // Both should extract reasonable number of features
     assert!(
-        features_small.len() > 0,
+        !features_small.is_empty(),
         "Should extract features with small radius"
     );
     assert!(
-        features_large.len() > 0,
+        !features_large.is_empty(),
         "Should extract features with large radius"
     );
 }

@@ -10,8 +10,7 @@ use crate::models::SimilarityTransform;
 use crate::presets::similarity_registration::similarity_registration_pipeline;
 use crate::settings::MetasacSettings;
 use crate::types::DataMatrix;
-use nalgebra::{Matrix3, SymmetricEigen, Vector3};
-use std::collections::{HashMap, HashSet};
+use nalgebra::{SymmetricEigen, Vector3};
 
 /// Estimate scale using TEASER++-style adaptive voting.
 ///

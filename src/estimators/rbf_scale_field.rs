@@ -215,7 +215,7 @@ pub fn place_control_points_voxel(points: &[Point3], voxel_size: f64) -> Vec<Poi
             (point.y / voxel_size).floor() as i32,
             (point.z / voxel_size).floor() as i32,
         );
-        voxel_map.entry(voxel).or_insert_with(Vec::new).push(*point);
+        voxel_map.entry(voxel).or_default().push(*point);
     }
 
     // Control point = voxel center
@@ -704,7 +704,7 @@ mod tests {
 
         // Apply rotation + different scales
         let rot = Rotation3::from_axis_angle(&Vector3::z_axis(), 0.3);
-        let scales = vec![1.0, 1.2, 1.4, 1.6, 1.8];
+        let scales = [1.0, 1.2, 1.4, 1.6, 1.8];
         let dst: Vec<Point3> = src
             .iter()
             .zip(scales.iter())
@@ -732,7 +732,7 @@ mod tests {
             assert!((transform.rotation.determinant() - 1.0).abs() < 0.1);
 
             // Check control points were created
-            assert!(transform.scale_field.control_points.len() > 0);
+            assert!(!transform.scale_field.control_points.is_empty());
         }
     }
 }

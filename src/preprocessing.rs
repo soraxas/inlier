@@ -59,7 +59,7 @@ pub fn voxel_downsample(points: &DataMatrix, voxel_size: f64) -> DataMatrix {
                 .lock()
                 .unwrap()
                 .entry((vx, vy, vz))
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(i);
         });
     }

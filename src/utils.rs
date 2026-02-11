@@ -5,33 +5,32 @@
 //! `include/utils/uniform_random_generator.h`.
 
 use crate::types::DataMatrix;
-use nalgebra::DMatrix;
 
 use anyhow::Result;
 
 pub fn combine_input_points_33(
-    points_3d_a: &DMatrix<f64>,
-    points_3d_b: &DMatrix<f64>,
+    points_3d_a: &DataMatrix,
+    points_3d_b: &DataMatrix,
 ) -> Result<DataMatrix> {
-    let n = points_3d_a.nrows();
-    if points_3d_a.nrows() != points_3d_b.nrows() {
+    let n = points_3d_a.n_points();
+    if points_3d_a.n_points() != points_3d_b.n_points() {
         return Err(anyhow::anyhow!(
-            "points_3d_a and points_3d_b must have the same number of rows"
+            "points_3d_a and points_3d_b must have the same number of points"
         ));
     }
-    if points_3d_a.ncols() != 3 || points_3d_b.ncols() != 3 {
+    if points_3d_a.n_dims() != 3 || points_3d_b.n_dims() != 3 {
         return Err(anyhow::anyhow!(
-            "points_3d_a and points_3d_b must have 3 columns"
+            "points_3d_a and points_3d_b must have 3 dimensions"
         ));
     }
     let mut data = DataMatrix::zeros(n, 6);
     for i in 0..n {
-        data.set(i, 0, points_3d_a[(i, 0)]);
-        data.set(i, 1, points_3d_a[(i, 1)]);
-        data.set(i, 2, points_3d_a[(i, 2)]);
-        data.set(i, 3, points_3d_b[(i, 0)]);
-        data.set(i, 4, points_3d_b[(i, 1)]);
-        data.set(i, 5, points_3d_b[(i, 2)]);
+        data.set(i, 0, points_3d_a.get(i, 0));
+        data.set(i, 1, points_3d_a.get(i, 1));
+        data.set(i, 2, points_3d_a.get(i, 2));
+        data.set(i, 3, points_3d_b.get(i, 0));
+        data.set(i, 4, points_3d_b.get(i, 1));
+        data.set(i, 5, points_3d_b.get(i, 2));
     }
     Ok(data)
 }

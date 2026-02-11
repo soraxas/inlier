@@ -3,8 +3,7 @@
 //! This example demonstrates robust line fitting using RANSAC
 //! and visualizes the results with plots.
 
-use inlier::api::estimate_line;
-use nalgebra::DMatrix;
+use inlier::{api::estimate_line, types::DataMatrix};
 use plotters::prelude::*;
 use rand::Rng;
 
@@ -44,10 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     points.shuffle(&mut rng);
 
     // Convert to DMatrix format
-    let mut points_matrix = DMatrix::<f64>::zeros(n_total, 2);
+    let mut points_matrix = DataMatrix::zeros(n_total, 2);
     for (i, &(x, y)) in points.iter().enumerate() {
-        points_matrix[(i, 0)] = x;
-        points_matrix[(i, 1)] = y;
+        points_matrix.set(i, 0, x);
+        points_matrix.set(i, 1, y);
     }
 
     // Estimate line using RANSAC

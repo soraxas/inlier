@@ -4,7 +4,6 @@
 
 use inlier::matcher::sipfh::{SIPFH, SIPFHConfig};
 use inlier::types::DataMatrix;
-use nalgebra::{Matrix3, Vector3};
 use rand::Rng;
 
 fn main() {

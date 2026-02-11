@@ -390,8 +390,7 @@ mod tests {
         let t_error = (result.translation - translation_gt).norm();
         assert!(
             t_error < 0.05,
-            "Translation error {} should be small",
-            t_error
+            "Translation error {t_error} should be small"
         );
 
         println!(
@@ -455,13 +454,12 @@ mod tests {
         // Translation should be close to ground truth
         // (may be slightly off if some outliers have high weight)
         let t_error = (result.translation - translation_gt).norm();
-        println!("Translation error: {:.4}", t_error);
+        println!("Translation error: {t_error:.4}");
 
         // Allow larger error tolerance since GNC may not perfectly reject all outliers
         assert!(
             t_error < 1.0,
-            "Translation error {} should be reasonable",
-            t_error
+            "Translation error {t_error} should be reasonable"
         );
     }
 }
