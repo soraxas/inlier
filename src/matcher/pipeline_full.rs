@@ -17,6 +17,12 @@ pub struct KISSMatcherFullResult {
     pub n_correspondences_initial: usize,
     pub n_correspondences_after_robin: usize,
     pub n_correspondences_final: usize,
+    /// Source keypoints (downsampled cloud)
+    pub source_keypoints: DataMatrix,
+    /// Target keypoints (downsampled cloud)
+    pub target_keypoints: DataMatrix,
+    /// Initial correspondences (src_idx, tgt_idx)
+    pub correspondences: Vec<(usize, usize)>,
 }
 
 /// Run full KISS-Matcher pipeline for point cloud registration
@@ -161,6 +167,43 @@ pub fn kiss_matcher_full_pipeline(
 
     let n_final = gnc_result.inliers.len();
 
+    // Build keypoint DataMatrix from actual feature points
+    // (correspondences index into these, not src_ds/dst_ds!)
+    // DataMatrix::from_row_slice expects ROW-MAJOR data: [x0,y0,z0, x1,y1,z1, ...]
+    let src_keypoints = {
+        let n = src_features.len();
+        let mut points = Vec::with_capacity(n * 3);
+
+        // Row-major order: x, y, z for each point
+        for feat in &src_features {
+            points.push(feat.point.x);
+            points.push(feat.point.y);
+            points.push(feat.point.z);
+        }
+
+        DataMatrix::from_row_slice(n, 3, &points)
+    };
+
+    let dst_keypoints = {
+        let n = dst_features.len();
+        let mut points = Vec::with_capacity(n * 3);
+
+        // Row-major order: x, y, z for each point
+        for feat in &dst_features {
+            points.push(feat.point.x);
+            points.push(feat.point.y);
+            points.push(feat.point.z);
+        }
+
+        DataMatrix::from_row_slice(n, 3, &points)
+    };
+
+    // Convert correspondences to (src_idx, tgt_idx) format
+    let corr_pairs: Vec<(usize, usize)> = correspondences
+        .iter()
+        .map(|c| (c.src_idx, c.tgt_idx))
+        .collect();
+
     Some(KISSMatcherFullResult {
         scale,
         rotation: gnc_result.rotation,
@@ -169,6 +212,9 @@ pub fn kiss_matcher_full_pipeline(
         n_correspondences_initial: n_initial,
         n_correspondences_after_robin: n_after_robin,
         n_correspondences_final: n_final,
+        source_keypoints: src_keypoints,
+        target_keypoints: dst_keypoints,
+        correspondences: corr_pairs,
     })
 }
 

@@ -39,6 +39,14 @@ pub struct PCRConfig {
     pub noise_bound: f64,
     /// Use scale-invariant features (SIPFH) - recommended for non-rigid
     pub use_scale_invariant_features: bool,
+    /// Minimum allowed scale (non-rigid only)
+    pub min_scale: f64,
+    /// Maximum allowed scale (non-rigid only)
+    pub max_scale: f64,
+    /// GNC max iterations (non-rigid only)
+    pub gnc_max_iterations: usize,
+    /// GNC final threshold multiplier (non-rigid: final_threshold = noise_bound * this)
+    pub gnc_final_threshold_multiplier: f64,
 }
 
 impl Default for PCRConfig {
@@ -50,6 +58,10 @@ impl Default for PCRConfig {
             ratio_threshold: 0.9,
             noise_bound: 0.05,
             use_scale_invariant_features: false,
+            min_scale: 0.5,
+            max_scale: 2.0,
+            gnc_max_iterations: 10,
+            gnc_final_threshold_multiplier: 3.0,
         }
     }
 }
@@ -67,6 +79,14 @@ pub struct RigidRegistrationResult {
     pub inlier_count: usize,
     /// Total number of initial correspondences
     pub total_correspondences: usize,
+    /// Source keypoints (downsampled points used for matching)
+    pub source_keypoints: DataMatrix,
+    /// Target keypoints (downsampled points used for matching)
+    pub target_keypoints: DataMatrix,
+    /// Initial correspondence indices (src_idx, tgt_idx) before refinement
+    pub initial_correspondences: Vec<(usize, usize)>,
+    /// Final inlier correspondence indices (src_idx, tgt_idx) after refinement
+    pub inlier_correspondences: Vec<(usize, usize)>,
 }
 
 /// Non-rigid registration result
@@ -82,6 +102,14 @@ pub struct NonRigidRegistrationResult {
     pub inlier_count: usize,
     /// Total number of initial correspondences
     pub total_correspondences: usize,
+    /// Source keypoints (downsampled points used for matching)
+    pub source_keypoints: DataMatrix,
+    /// Target keypoints (downsampled points used for matching)
+    pub target_keypoints: DataMatrix,
+    /// Initial correspondence indices (src_idx, tgt_idx) before refinement
+    pub initial_correspondences: Vec<(usize, usize)>,
+    /// Final inlier correspondence indices (src_idx, tgt_idx) after refinement
+    pub inlier_correspondences: Vec<(usize, usize)>,
 }
 
 /// Register point clouds with rigid transformation (rotation + translation + uniform scale)
@@ -111,12 +139,23 @@ pub fn register_rigid(
 
     let result = kiss_matcher_full_pipeline(src, dst, &kiss_config)?;
 
+    // Extract inlier correspondences from indices
+    let inlier_corr: Vec<(usize, usize)> = result
+        .inlier_indices
+        .iter()
+        .map(|&i| result.correspondences[i])
+        .collect();
+
     Some(RigidRegistrationResult {
         rotation: result.rotation,
         translation: result.translation,
         scale: result.scale,
         inlier_count: result.inlier_indices.len(),
         total_correspondences: result.n_correspondences_initial,
+        source_keypoints: result.source_keypoints,
+        target_keypoints: result.target_keypoints,
+        initial_correspondences: result.correspondences,
+        inlier_correspondences: inlier_corr,
     })
 }
 
@@ -172,14 +211,23 @@ pub fn register_nonrigid(
             regularization_lambda: 1e-3,
             max_iterations: 100,
             convergence_threshold: 1e-4,
-            min_scale: 0.8,
-            max_scale: 1.5,
+            min_scale: config.min_scale,
+            max_scale: config.max_scale,
             use_sparse: true,
         },
         feature_method,
+        gnc_max_iterations: config.gnc_max_iterations,
+        gnc_final_threshold_multiplier: config.gnc_final_threshold_multiplier,
     };
 
     let result = nonrigid_kiss_matcher_pipeline(src, dst, &nonrigid_config)?;
+
+    // Extract inlier correspondences from indices
+    let inlier_corr: Vec<(usize, usize)> = result
+        .inlier_indices
+        .iter()
+        .map(|&i| result.correspondences[i])
+        .collect();
 
     Some(NonRigidRegistrationResult {
         transform: result.transform,
@@ -187,6 +235,10 @@ pub fn register_nonrigid(
         scale_std: result.scale_std,
         inlier_count: result.n_correspondences_final,
         total_correspondences: result.n_correspondences_initial,
+        source_keypoints: result.source_keypoints,
+        target_keypoints: result.target_keypoints,
+        initial_correspondences: result.correspondences,
+        inlier_correspondences: inlier_corr,
     })
 }
 

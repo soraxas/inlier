@@ -31,6 +31,10 @@ pub struct NonRigidKISSConfig {
     pub rbf: RBFScaleConfig,
     /// Feature extraction method
     pub feature_method: FeatureMethod,
+    /// GNC max iterations
+    pub gnc_max_iterations: usize,
+    /// GNC final threshold multiplier (final = noise_bound * this)
+    pub gnc_final_threshold_multiplier: f64,
 }
 
 /// Result from non-rigid KISS-Matcher pipeline
@@ -43,6 +47,12 @@ pub struct NonRigidKISSResult {
     pub n_correspondences_final: usize,
     pub mean_scale: f64,
     pub scale_std: f64,
+    /// Source keypoints (downsampled cloud)
+    pub source_keypoints: DataMatrix,
+    /// Target keypoints (downsampled cloud)
+    pub target_keypoints: DataMatrix,
+    /// Initial correspondences (src_idx, tgt_idx)
+    pub correspondences: Vec<(usize, usize)>,
 }
 
 /// Run non-rigid KISS-Matcher pipeline with spatially-varying scale
@@ -231,9 +241,9 @@ pub fn nonrigid_kiss_matcher_pipeline(
     let mut current_src: Vec<Point3> = inlier_indices.iter().map(|&i| src_corr_points[i]).collect();
     let mut current_dst: Vec<Point3> = inlier_indices.iter().map(|&i| dst_corr_points[i]).collect();
 
-    // GNC parameters
-    let max_iterations = 10;
-    let final_threshold = config.base.solver_noise_bound * 3.0;
+    // GNC parameters from config
+    let max_iterations = config.gnc_max_iterations;
+    let final_threshold = config.base.solver_noise_bound * config.gnc_final_threshold_multiplier;
 
     // Compute initial residuals to set starting threshold
     let initial_residuals: Vec<f64> = current_src
@@ -469,6 +479,43 @@ pub fn nonrigid_kiss_matcher_pipeline(
 
     let n_final = final_inliers.len();
 
+    // Build keypoint DataMatrix from actual feature points
+    // (correspondences index into these, not src_ds/dst_ds!)
+    // DataMatrix::from_row_slice expects ROW-MAJOR data: [x0,y0,z0, x1,y1,z1, ...]
+    let src_keypoints = {
+        let n = src_features.len();
+        let mut points = Vec::with_capacity(n * 3);
+
+        // Row-major order: x, y, z for each point
+        for feat in &src_features {
+            points.push(feat.point.x);
+            points.push(feat.point.y);
+            points.push(feat.point.z);
+        }
+
+        DataMatrix::from_row_slice(n, 3, &points)
+    };
+
+    let dst_keypoints = {
+        let n = dst_features.len();
+        let mut points = Vec::with_capacity(n * 3);
+
+        // Row-major order: x, y, z for each point
+        for feat in &dst_features {
+            points.push(feat.point.x);
+            points.push(feat.point.y);
+            points.push(feat.point.z);
+        }
+
+        DataMatrix::from_row_slice(n, 3, &points)
+    };
+
+    // Convert correspondences to (src_idx, tgt_idx) format
+    let corr_pairs: Vec<(usize, usize)> = correspondences
+        .iter()
+        .map(|c| (c.src_idx, c.tgt_idx))
+        .collect();
+
     Some(NonRigidKISSResult {
         transform,
         inlier_indices: final_inliers,
@@ -477,6 +524,9 @@ pub fn nonrigid_kiss_matcher_pipeline(
         n_correspondences_final: n_final,
         mean_scale,
         scale_std,
+        source_keypoints: src_keypoints,
+        target_keypoints: dst_keypoints,
+        correspondences: corr_pairs,
     })
 }
 

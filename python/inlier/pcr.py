@@ -36,6 +36,7 @@ from ._inlier_rs import PCRConfig, register_rigid_py, register_nonrigid_py
 def register_rigid(
     src: NDArray[np.float64],
     dst: NDArray[np.float64],
+    config: Optional[PCRConfig] = None,
     voxel_size: float = 0.05,
     normal_radius: float = 0.15,
     feature_radius: float = 0.3,
@@ -50,6 +51,7 @@ def register_rigid(
     Args:
         src: Source point cloud (N × 3 array)
         dst: Target point cloud (M × 3 array)
+        config: Optional PCRConfig object (overrides other parameters if provided)
         voxel_size: Voxel size for downsampling (0 to disable)
         normal_radius: Radius for normal estimation
         feature_radius: Radius for feature descriptors
@@ -77,14 +79,15 @@ def register_rigid(
     if src.shape[1] != 3 or dst.shape[1] != 3:
         raise ValueError(f"Point clouds must be N×3, got {src.shape} and {dst.shape}")
 
-    config = PCRConfig(
-        voxel_size=voxel_size,
-        normal_radius=normal_radius,
-        feature_radius=feature_radius,
-        ratio_threshold=ratio_threshold,
-        noise_bound=noise_bound,
-        use_scale_invariant_features=False,
-    )
+    if config is None:
+        config = PCRConfig(
+            voxel_size=voxel_size,
+            normal_radius=normal_radius,
+            feature_radius=feature_radius,
+            ratio_threshold=ratio_threshold,
+            noise_bound=noise_bound,
+            use_scale_invariant_features=False,
+        )
 
     result = register_rigid_py(src, dst, config)
 
@@ -99,12 +102,15 @@ def register_rigid(
 def register_nonrigid(
     src: NDArray[np.float64],
     dst: NDArray[np.float64],
+    config: Optional[PCRConfig] = None,
     voxel_size: float = 0.05,
     normal_radius: float = 0.15,
     feature_radius: float = 0.3,
     ratio_threshold: float = 0.9,
     noise_bound: float = 0.05,
     use_scale_invariant_features: bool = True,
+    min_scale: float = 0.5,
+    max_scale: float = 2.0,
 ) -> Optional[Dict[str, Any]]:
     """Register point clouds with non-rigid transformation.
 
@@ -117,12 +123,15 @@ def register_nonrigid(
     Args:
         src: Source point cloud (N × 3 array)
         dst: Target point cloud (M × 3 array)
+        config: Optional PCRConfig object (overrides other parameters if provided)
         voxel_size: Voxel size for downsampling (0 to disable)
         normal_radius: Radius for normal estimation
         feature_radius: Radius for feature descriptors
         ratio_threshold: Feature matching ratio test (0-1, lower = stricter)
         noise_bound: ROBIN outlier rejection threshold
         use_scale_invariant_features: Use SIPFH (recommended) vs FasterPFH
+        min_scale: Minimum allowed scale (default: 0.5 = 50% shrink)
+        max_scale: Maximum allowed scale (default: 2.0 = 200% expand)
 
     Returns:
         Dictionary with keys:
@@ -140,7 +149,8 @@ def register_nonrigid(
         >>> scale = np.linspace(0.9, 1.1, 1000)[:, None]
         >>> dst = src * scale + np.array([0, 0, 1])
         >>>
-        >>> result = register_nonrigid(src, dst)
+        >>> # Constrain scale to [0.8, 1.2]
+        >>> result = register_nonrigid(src, dst, min_scale=0.8, max_scale=1.2)
         >>> if result:
         ...     print(f"Mean scale: {result['mean_scale']:.3f}")
         ...     print(f"Scale variation: {result['scale_std']:.3f}")
@@ -149,14 +159,17 @@ def register_nonrigid(
     if src.shape[1] != 3 or dst.shape[1] != 3:
         raise ValueError(f"Point clouds must be N×3, got {src.shape} and {dst.shape}")
 
-    config = PCRConfig(
-        voxel_size=voxel_size,
-        normal_radius=normal_radius,
-        feature_radius=feature_radius,
-        ratio_threshold=ratio_threshold,
-        noise_bound=noise_bound,
-        use_scale_invariant_features=use_scale_invariant_features,
-    )
+    if config is None:
+        config = PCRConfig(
+            voxel_size=voxel_size,
+            normal_radius=normal_radius,
+            feature_radius=feature_radius,
+            ratio_threshold=ratio_threshold,
+            noise_bound=noise_bound,
+            use_scale_invariant_features=use_scale_invariant_features,
+            min_scale=min_scale,
+            max_scale=max_scale,
+        )
 
     result = register_nonrigid_py(src, dst, config)
 

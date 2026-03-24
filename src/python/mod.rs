@@ -17,7 +17,7 @@ use crate::{
     settings::MetasacSettings,
     types::DataMatrix,
 };
-use numpy::{PyArray2, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyArray2, PyReadonlyArray2, PyUntypedArrayMethods};
 use std::sync::Arc;
 
 /// Rust-owned data matrix that can be reused without copying each call.
@@ -1362,12 +1362,20 @@ pub struct PyPCRConfig {
     pub noise_bound: f64,
     #[pyo3(get, set)]
     pub use_scale_invariant_features: bool,
+    #[pyo3(get, set)]
+    pub min_scale: f64,
+    #[pyo3(get, set)]
+    pub max_scale: f64,
+    #[pyo3(get, set)]
+    pub gnc_max_iterations: usize,
+    #[pyo3(get, set)]
+    pub gnc_final_threshold_multiplier: f64,
 }
 
 #[pymethods]
 impl PyPCRConfig {
     #[new]
-    #[pyo3(signature = (voxel_size=0.05, normal_radius=0.15, feature_radius=0.3, ratio_threshold=0.9, noise_bound=0.05, use_scale_invariant_features=false))]
+    #[pyo3(signature = (voxel_size=0.05, normal_radius=0.15, feature_radius=0.3, ratio_threshold=0.9, noise_bound=0.05, use_scale_invariant_features=false, min_scale=0.5, max_scale=2.0, gnc_max_iterations=10, gnc_final_threshold_multiplier=3.0))]
     fn new(
         voxel_size: f64,
         normal_radius: f64,
@@ -1375,6 +1383,10 @@ impl PyPCRConfig {
         ratio_threshold: f64,
         noise_bound: f64,
         use_scale_invariant_features: bool,
+        min_scale: f64,
+        max_scale: f64,
+        gnc_max_iterations: usize,
+        gnc_final_threshold_multiplier: f64,
     ) -> Self {
         Self {
             voxel_size,
@@ -1383,19 +1395,26 @@ impl PyPCRConfig {
             ratio_threshold,
             noise_bound,
             use_scale_invariant_features,
+            min_scale,
+            max_scale,
+            gnc_max_iterations,
+            gnc_final_threshold_multiplier,
         }
     }
 
     fn __repr__(&self) -> String {
         format!(
             "PCRConfig(voxel_size={:.3}, normal_radius={:.3}, feature_radius={:.3}, \
-             ratio_threshold={:.2}, noise_bound={:.3}, use_scale_invariant_features={})",
+             ratio_threshold={:.2}, noise_bound={:.3}, use_scale_invariant_features={}, \
+             min_scale={:.2}, max_scale={:.2})",
             self.voxel_size,
             self.normal_radius,
             self.feature_radius,
             self.ratio_threshold,
             self.noise_bound,
-            self.use_scale_invariant_features
+            self.use_scale_invariant_features,
+            self.min_scale,
+            self.max_scale
         )
     }
 }
@@ -1409,6 +1428,10 @@ impl PyPCRConfig {
             ratio_threshold: self.ratio_threshold,
             noise_bound: self.noise_bound,
             use_scale_invariant_features: self.use_scale_invariant_features,
+            min_scale: self.min_scale,
+            max_scale: self.max_scale,
+            gnc_max_iterations: self.gnc_max_iterations,
+            gnc_final_threshold_multiplier: self.gnc_final_threshold_multiplier,
         }
     }
 }
@@ -1449,6 +1472,49 @@ pub fn register_rigid_py(
             dict.set_item("inlier_count", r.inlier_count).unwrap();
             dict.set_item("total_correspondences", r.total_correspondences)
                 .unwrap();
+
+            // Convert keypoints to numpy arrays (N x 3)
+            let mut src_kp_vec = Vec::with_capacity(r.source_keypoints.n_points());
+            for i in 0..r.source_keypoints.n_points() {
+                let mut row = Vec::with_capacity(r.source_keypoints.n_dims());
+                for j in 0..r.source_keypoints.n_dims() {
+                    row.push(r.source_keypoints.get(i, j));
+                }
+                src_kp_vec.push(row);
+            }
+            let src_kp_arr = PyArray2::from_vec2_bound(py, &src_kp_vec).unwrap();
+            dict.set_item("source_keypoints", src_kp_arr).unwrap();
+
+            let mut tgt_kp_vec = Vec::with_capacity(r.target_keypoints.n_points());
+            for i in 0..r.target_keypoints.n_points() {
+                let mut row = Vec::with_capacity(r.target_keypoints.n_dims());
+                for j in 0..r.target_keypoints.n_dims() {
+                    row.push(r.target_keypoints.get(i, j));
+                }
+                tgt_kp_vec.push(row);
+            }
+            let tgt_kp_arr = PyArray2::from_vec2_bound(py, &tgt_kp_vec).unwrap();
+            dict.set_item("target_keypoints", tgt_kp_arr).unwrap();
+
+            // Convert correspondences to 2D numpy array (N x 2)
+            let init_corr_vec: Vec<Vec<usize>> = r
+                .initial_correspondences
+                .iter()
+                .map(|&(s, t)| vec![s, t])
+                .collect();
+            let init_corr_arr = PyArray2::<usize>::from_vec2_bound(py, &init_corr_vec).unwrap();
+            dict.set_item("initial_correspondences", init_corr_arr)
+                .unwrap();
+
+            let inlier_corr_vec: Vec<Vec<usize>> = r
+                .inlier_correspondences
+                .iter()
+                .map(|&(s, t)| vec![s, t])
+                .collect();
+            let inlier_corr_arr = PyArray2::<usize>::from_vec2_bound(py, &inlier_corr_vec).unwrap();
+            dict.set_item("inlier_correspondences", inlier_corr_arr)
+                .unwrap();
+
             dict.to_object(py)
         })
     }))
@@ -1496,6 +1562,64 @@ pub fn register_nonrigid_py(
             dict.set_item("inlier_count", r.inlier_count).unwrap();
             dict.set_item("total_correspondences", r.total_correspondences)
                 .unwrap();
+
+            // Convert keypoints to numpy arrays (N x 3)
+            let mut src_kp_vec = Vec::with_capacity(r.source_keypoints.n_points());
+            for i in 0..r.source_keypoints.n_points() {
+                let mut row = Vec::with_capacity(r.source_keypoints.n_dims());
+                for j in 0..r.source_keypoints.n_dims() {
+                    row.push(r.source_keypoints.get(i, j));
+                }
+                src_kp_vec.push(row);
+            }
+            let src_kp_arr = PyArray2::from_vec2_bound(py, &src_kp_vec).unwrap();
+            dict.set_item("source_keypoints", src_kp_arr).unwrap();
+
+            let mut tgt_kp_vec = Vec::with_capacity(r.target_keypoints.n_points());
+            for i in 0..r.target_keypoints.n_points() {
+                let mut row = Vec::with_capacity(r.target_keypoints.n_dims());
+                for j in 0..r.target_keypoints.n_dims() {
+                    row.push(r.target_keypoints.get(i, j));
+                }
+                tgt_kp_vec.push(row);
+            }
+            let tgt_kp_arr = PyArray2::from_vec2_bound(py, &tgt_kp_vec).unwrap();
+            dict.set_item("target_keypoints", tgt_kp_arr).unwrap();
+
+            // Convert correspondences to 2D numpy array (N x 2)
+            let init_corr_vec: Vec<Vec<usize>> = r
+                .initial_correspondences
+                .iter()
+                .map(|&(s, t)| vec![s, t])
+                .collect();
+            let init_corr_arr = PyArray2::<usize>::from_vec2_bound(py, &init_corr_vec).unwrap();
+            dict.set_item("initial_correspondences", init_corr_arr)
+                .unwrap();
+
+            let inlier_corr_vec: Vec<Vec<usize>> = r
+                .inlier_correspondences
+                .iter()
+                .map(|&(s, t)| vec![s, t])
+                .collect();
+            let inlier_corr_arr = PyArray2::<usize>::from_vec2_bound(py, &inlier_corr_vec).unwrap();
+            dict.set_item("inlier_correspondences", inlier_corr_arr)
+                .unwrap();
+
+            // Evaluate scale field at source keypoints for visualization
+            use nalgebra::Vector3;
+            let mut scales = Vec::with_capacity(r.source_keypoints.n_points());
+            for i in 0..r.source_keypoints.n_points() {
+                let point = Vector3::new(
+                    r.source_keypoints.get(i, 0),
+                    r.source_keypoints.get(i, 1),
+                    r.source_keypoints.get(i, 2),
+                );
+                let scale = r.transform.scale_field.eval(&point);
+                scales.push(scale);
+            }
+            let scales_arr = PyArray1::from_vec_bound(py, scales);
+            dict.set_item("source_scales", scales_arr).unwrap();
+
             dict.to_object(py)
         })
     }))
