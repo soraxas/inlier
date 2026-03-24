@@ -1,5 +1,6 @@
 [tools]
 "cargo:cargo-nextest" = "latest"
 mdbook = "latest"
+"npm:@fission-ai/openspec" = "latest"
 rust = "latest"
 # "cargo:mdbookkit" = { version = "latest", features = "rustdoc-link" }
