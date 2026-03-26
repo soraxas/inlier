@@ -95,7 +95,7 @@ pub struct SIPFHFeaturePoint {
 /// SIPFH extractor combining 3D-SIFT and FPFH
 pub struct SIPFH {
     config: SIPFHConfig,
-    fpfh: FasterPFH,
+    _fpfh: FasterPFH,
 }
 
 impl SIPFH {
@@ -108,7 +108,10 @@ impl SIPFH {
             config.fpfh_bins,
         );
 
-        Self { config, fpfh }
+        Self {
+            config,
+            _fpfh: fpfh,
+        }
     }
 
     /// Extract SIPFH features from point cloud
@@ -331,7 +334,7 @@ impl SIPFH {
     /// Compute dominant orientation for rotation invariance
     fn compute_orientation(
         &self,
-        keypoint: &ScaleKeypoint,
+        _keypoint: &ScaleKeypoint,
         neighbors: &[Vector3<f64>],
         centroid: &Vector3<f64>,
     ) -> (f64, f64) {
@@ -535,7 +538,7 @@ impl SIPFH {
 
         let normalized_normal = normal.normalize();
 
-        for (&neighbor_idx, neighbor_point) in neighbors.iter().zip(neighbor_points.iter()) {
+        for (&_neighbor_idx, neighbor_point) in neighbors.iter().zip(neighbor_points.iter()) {
             // Skip self
             if (neighbor_point - point).norm() < 1e-6 {
                 continue;

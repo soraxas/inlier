@@ -6,7 +6,6 @@
 use crate::choices::SamplerChoice;
 use crate::core::MetaSAC;
 use crate::core::NoopInlierSelector;
-use crate::core::Scoring as ScoringTrait;
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, RigidTransformEstimator,
@@ -14,7 +13,7 @@ use crate::estimators::{
 use crate::models::{
     AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
 };
-use crate::optimisers::{LeastSquaresOptimizer, LocalOptimizer};
+use crate::optimisers::LeastSquaresOptimizer;
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{MsacScoring, RansacInlierCountScoring, Score};
 use crate::settings::{MetasacSettings, SamplerType};
@@ -73,9 +72,7 @@ pub fn estimate_homography(
         SamplerType::Prosac => {
             SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
         }
-        SamplerType::Uniform | _ => {
-            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
-        }
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &Homography, idx| {
@@ -167,9 +164,7 @@ pub fn estimate_fundamental_matrix(
         SamplerType::Prosac => {
             SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
         }
-        SamplerType::Uniform | _ => {
-            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
-        }
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &FundamentalMatrix, idx| {
@@ -252,9 +247,7 @@ pub fn estimate_essential_matrix(
         SamplerType::Prosac => {
             SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
         }
-        SamplerType::Uniform | _ => {
-            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
-        }
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
     let scoring_builder =
         RansacInlierCountScoring::new(threshold, |data, model: &EssentialMatrix, idx| {
@@ -338,9 +331,7 @@ pub fn estimate_absolute_pose(
         SamplerType::Prosac => {
             SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
         }
-        SamplerType::Uniform | _ => {
-            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
-        }
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
     let scoring_builder = MsacScoring::new(threshold, |data, model: &AbsolutePose, idx| {
         // Compute reprojection error
@@ -444,9 +435,7 @@ pub fn estimate_line(
         SamplerType::Prosac => {
             SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
         }
-        SamplerType::Uniform | _ => {
-            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
-        }
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
     let scoring_builder = RansacInlierCountScoring::new(threshold, |data, model: &Line, idx| {
         // Compute distance from point to line
@@ -520,9 +509,7 @@ pub fn estimate_rigid_transform(
         SamplerType::Prosac => {
             SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
         }
-        SamplerType::Uniform | _ => {
-            SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed))
-        }
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
 
     let scoring_builder =

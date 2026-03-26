@@ -112,16 +112,16 @@ impl GNCSolver {
         // GNC loop
         while mu < mu_max && iterations < self.max_iterations {
             // Solve weighted Procrustes problem
-            let (R, t) = self.solve_weighted_procrustes(&src_points, &tgt_points, &weights, scale);
+            let (r, t) = self.solve_weighted_procrustes(&src_points, &tgt_points, &weights, scale);
 
             // Update weights based on residuals
-            let new_weights = self.compute_weights(&src_points, &tgt_points, &R, &t, scale, mu);
+            let new_weights = self.compute_weights(&src_points, &tgt_points, &r, &t, scale, mu);
 
             // Check convergence (weights stabilized)
             let weight_change = self.compute_weight_change(&weights, &new_weights);
 
             weights = new_weights;
-            rotation = R;
+            rotation = r;
             translation = t;
             iterations += 1;
 
@@ -209,33 +209,33 @@ impl GNCSolver {
         }
 
         // Build weighted covariance matrix H = Σ w_i * tgt_i * (s * src_i)^T
-        let mut H = Matrix3::zeros();
+        let mut h = Matrix3::zeros();
         for i in 0..n {
-            H += weights[i] * tgt_centered[i] * (scale * src_centered[i]).transpose();
+            h += weights[i] * tgt_centered[i] * (scale * src_centered[i]).transpose();
         }
 
         // SVD of H = U * Σ * V^T
-        let svd = SVD::new(H, true, true);
+        let svd = SVD::new(h, true, true);
 
-        let U = svd.u.unwrap();
-        let Vt = svd.v_t.unwrap();
+        let u = svd.u.unwrap();
+        let vt = svd.v_t.unwrap();
 
         // Rotation R = U * V^T (with correction for reflections)
-        let mut R = U * Vt;
+        let mut r = u * vt;
 
         // Correct for reflection (ensure det(R) = 1)
-        if R.determinant() < 0.0 {
-            let mut U_corrected = U;
-            U_corrected[(0, 2)] = -U_corrected[(0, 2)];
-            U_corrected[(1, 2)] = -U_corrected[(1, 2)];
-            U_corrected[(2, 2)] = -U_corrected[(2, 2)];
-            R = U_corrected * Vt;
+        if r.determinant() < 0.0 {
+            let mut u_corrected = u;
+            u_corrected[(0, 2)] = -u_corrected[(0, 2)];
+            u_corrected[(1, 2)] = -u_corrected[(1, 2)];
+            u_corrected[(2, 2)] = -u_corrected[(2, 2)];
+            r = u_corrected * vt;
         }
 
         // Translation t = tgt_centroid - s*R*src_centroid
-        let translation = tgt_centroid - scale * R * src_centroid;
+        let translation = tgt_centroid - scale * r * src_centroid;
 
-        (R, translation)
+        (r, translation)
     }
 
     /// Compute weights using GNC cost function

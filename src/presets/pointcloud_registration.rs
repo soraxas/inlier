@@ -194,7 +194,7 @@ pub fn geometric_suppression(
     let mut keep = vec![true; n];
     let r2 = radius * radius;
 
-    for idx in 0..n {
+    for (idx, keep_flag) in keep.iter_mut().enumerate().take(n) {
         let p = Vector3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2));
 
         let mut neigh_src = Vec::new();
@@ -205,12 +205,12 @@ pub fn geometric_suppression(
             }
         }
         if neigh_src.len() < min_neighbors {
-            keep[idx] = false;
+            *keep_flag = false;
             continue;
         }
         let lin_src = linearity(&neigh_src);
         if lin_src > linearity_thresh {
-            keep[idx] = false;
+            *keep_flag = false;
             continue;
         }
 
@@ -223,12 +223,12 @@ pub fn geometric_suppression(
             }
         }
         if neigh_tgt.len() < min_neighbors {
-            keep[idx] = false;
+            *keep_flag = false;
             continue;
         }
         let lin_t = linearity(&neigh_tgt);
         if lin_t > linearity_thresh {
-            keep[idx] = false;
+            *keep_flag = false;
         }
     }
 

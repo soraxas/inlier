@@ -127,6 +127,7 @@ impl DataMatrix {
         &mut self.0
     }
 
+    #[allow(deprecated)]
     #[deprecated(since = "0.1.0", note = "Use direct methods on DataMatrix instead")]
     /// Borrow this matrix as a point view.
     pub fn as_points(&self) -> DataPoints<'_> {
@@ -159,6 +160,11 @@ impl<'a> DataPoints<'a> {
     /// Number of points (rows in the current layout).
     pub fn len(&self) -> usize {
         self.mat.nrows()
+    }
+
+    /// Whether the view contains no points.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Get a single point as an array `[sx, sy, sz, tx, ty, tz]` if available.

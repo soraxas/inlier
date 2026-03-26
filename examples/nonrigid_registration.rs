@@ -17,7 +17,7 @@ use inlier::matcher::pipeline_nonrigid::{
 use inlier::matcher::sipfh::SIPFHConfig;
 use inlier::types::{DataMatrix, Point3};
 use nalgebra::{Rotation3, Vector3};
-use rand::{Rng, thread_rng};
+use rand::Rng;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -83,6 +83,8 @@ fn run_ply_example(src_path: &str, dst_path: &str) -> Result<(), Box<dyn std::er
             max_scale: 1.5,
             use_sparse: true,
         },
+        gnc_max_iterations: 10,
+        gnc_final_threshold_multiplier: 3.0,
         feature_method: FeatureMethod::SIPFH(SIPFHConfig {
             num_octaves: 3,
             scales_per_octave: 3,
@@ -153,16 +155,16 @@ fn run_ply_example(src_path: &str, dst_path: &str) -> Result<(), Box<dyn std::er
 
 fn run_synthetic_example() {
     // Generate realistic irregular point cloud with more structure
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let mut src_points = Vec::new();
 
     // Create a semi-structured point cloud (grid with jitter)
     for xi in 0..15 {
         for yi in 0..15 {
             for zi in 0..8 {
-                let x = xi as f64 + rng.gen_range(-0.3..0.3);
-                let y = yi as f64 + rng.gen_range(-0.3..0.3);
-                let z = zi as f64 + rng.gen_range(-0.3..0.3);
+                let x = xi as f64 + rng.random_range(-0.3..0.3);
+                let y = yi as f64 + rng.random_range(-0.3..0.3);
+                let z = zi as f64 + rng.random_range(-0.3..0.3);
                 src_points.push(Point3::new(x, y, z));
             }
         }
@@ -189,14 +191,14 @@ fn run_synthetic_example() {
         .collect();
 
     // Add small noise
-    let mut rng2 = thread_rng();
+    let mut rng2 = rand::rng();
     let dst_points_noisy: Vec<Point3> = dst_points
         .iter()
         .map(|p| {
             let noise = Vector3::new(
-                rng2.gen_range(-0.015..0.015),
-                rng2.gen_range(-0.015..0.015),
-                rng2.gen_range(-0.015..0.015),
+                rng2.random_range(-0.015..0.015),
+                rng2.random_range(-0.015..0.015),
+                rng2.random_range(-0.015..0.015),
             );
             p + noise
         })
@@ -227,6 +229,8 @@ fn run_synthetic_example() {
             max_scale: 1.3,
             use_sparse: true,
         },
+        gnc_max_iterations: 10,
+        gnc_final_threshold_multiplier: 3.0,
         feature_method: FeatureMethod::FasterPFH, // Synthetic data doesn't need scale-invariance
     };
 

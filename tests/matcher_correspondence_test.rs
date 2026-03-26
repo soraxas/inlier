@@ -147,7 +147,7 @@ fn test_feature_matching_ratio_threshold() {
     let src_data = DataMatrix::from_row_slice(9, 3, &src_points);
 
     // Same points
-    let tgt_data = DataMatrix::from_row_slice(9, 3, &src_points);
+    let _tgt_data = DataMatrix::from_row_slice(9, 3, &src_points);
 
     // Extract features with generous radii
     let fpfh = FasterPFH::new(0.4, 0.6, 0.95, 11);

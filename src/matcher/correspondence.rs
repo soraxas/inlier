@@ -212,11 +212,11 @@ impl FeatureMatcher {
         for corr in src_to_tgt {
             // corr.src_idx is source feature index
             // corr.tgt_idx is target feature index
-            if let Some(&Some(reverse_match)) = tgt_to_src_map.get(corr.tgt_idx) {
-                if reverse_match == corr.src_idx {
-                    // Mutual match found
-                    mutual_matches.push(corr.clone());
-                }
+            if let Some(&Some(reverse_match)) = tgt_to_src_map.get(corr.tgt_idx)
+                && reverse_match == corr.src_idx
+            {
+                // Mutual match found
+                mutual_matches.push(corr.clone());
             }
         }
 

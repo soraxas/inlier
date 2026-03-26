@@ -56,10 +56,7 @@ impl PyDataMatrix {
 /// Input matrix that either borrows from a PyDataMatrix or owns its own copy.
 enum MatrixInput<'py> {
     Borrowed(PyRef<'py, PyDataMatrix>),
-    Owned {
-        data: Arc<DataMatrix>,
-        handle: Py<PyAny>,
-    },
+    Owned { data: Arc<DataMatrix> },
 }
 
 impl<'py> MatrixInput<'py> {
@@ -87,7 +84,7 @@ impl<'py> MatrixInput<'py> {
                     .map(|arr| arr.into_py(py))
                     .map_err(|e| PyValueError::new_err(format!("failed to create numpy view: {e}")))
             }
-            MatrixInput::Owned { data, handle: _ } => {
+            MatrixInput::Owned { data } => {
                 let rows = data.n_points();
                 let cols = data.n_dims();
                 let mut data_vec = Vec::with_capacity(rows);
@@ -151,25 +148,11 @@ fn matrix_input_from_pyany<'py>(obj: Bound<'py, PyAny>) -> PyResult<MatrixInput<
             }
             data_vec.push(row);
         }
-        let arr = PyArray2::from_vec2_bound(py, &data_vec)
-            .map_err(|e| PyValueError::new_err(format!("failed to create numpy array: {e}")))?;
-        Ok(MatrixInput::Owned {
-            data,
-            handle: arr.into_py(py),
-        })
+        let _ = PyArray2::from_vec2_bound(py, &data_vec)
+            .map_err(|e| PyValueError::new_err(format!("failed to create numpy array: {e}")))?
+            .into_py(py);
+        Ok(MatrixInput::Owned { data })
     })
-}
-
-fn matrix_to_python<'py>(py: Python<'py>, matrix: &DataMatrix) -> PyResult<Bound<'py, PyList>> {
-    let mut rows = Vec::with_capacity(matrix.n_points());
-    for point_idx in 0..matrix.n_points() {
-        let mut row = Vec::with_capacity(matrix.n_dims());
-        for dim_idx in 0..matrix.n_dims() {
-            row.push(matrix.get(point_idx, dim_idx));
-        }
-        rows.push(row);
-    }
-    Ok(PyList::new_bound(py, rows))
 }
 
 fn indices_to_python<'py>(py: Python<'py>, indices: &[usize]) -> Bound<'py, PyList> {
@@ -1376,6 +1359,7 @@ pub struct PyPCRConfig {
 impl PyPCRConfig {
     #[new]
     #[pyo3(signature = (voxel_size=0.05, normal_radius=0.15, feature_radius=0.3, ratio_threshold=0.9, noise_bound=0.05, use_scale_invariant_features=false, min_scale=0.5, max_scale=2.0, gnc_max_iterations=10, gnc_final_threshold_multiplier=3.0))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         voxel_size: f64,
         normal_radius: f64,
@@ -1542,11 +1526,12 @@ pub fn register_nonrigid_py(
     let src_matrix = matrix_from_python_owned(&src)?;
     let dst_matrix = matrix_from_python_owned(&dst)?;
 
-    let config = config.map(|c| c.to_rust()).unwrap_or_else(|| {
-        let mut cfg = crate::pcr::PCRConfig::default();
-        cfg.use_scale_invariant_features = true;
-        cfg
-    });
+    let config = config
+        .map(|c| c.to_rust())
+        .unwrap_or_else(|| crate::pcr::PCRConfig {
+            use_scale_invariant_features: true,
+            ..crate::pcr::PCRConfig::default()
+        });
 
     let result = crate::pcr::register_nonrigid(&src_matrix, &dst_matrix, &config);
 

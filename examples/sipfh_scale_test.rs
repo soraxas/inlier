@@ -87,6 +87,8 @@ fn main() {
             fpfh_bins: 11,
             scale_weight: 0.5,
         }),
+        gnc_max_iterations: 10,
+        gnc_final_threshold_multiplier: 3.0,
     };
 
     println!("Running SIPFH-based non-rigid registration...\n");

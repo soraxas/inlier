@@ -37,14 +37,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Target: {} points", dst.n_points());
 
     // Configure registration
-    let mut config = PCRConfig::default();
-    config.voxel_size = 0.05;
-    config.feature_radius = 0.3;
-    config.normal_radius = 0.15;
+    let base_config = PCRConfig {
+        voxel_size: 0.05,
+        feature_radius: 0.3,
+        normal_radius: 0.15,
+        ..PCRConfig::default()
+    };
 
     if use_nonrigid {
         // Non-rigid registration with scale-invariant features
-        config.use_scale_invariant_features = true;
+        let config = PCRConfig {
+            use_scale_invariant_features: true,
+            ..base_config.clone()
+        };
 
         println!("\n[2/3] Running non-rigid registration (SIPFH + RBF)...");
         println!("  Config: {config:?}");
@@ -94,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else {
         // Rigid registration with FasterPFH
-        config.use_scale_invariant_features = false;
+        let config = base_config;
 
         println!("\n[2/3] Running rigid registration (FasterPFH + KISS-Matcher)...");
         println!("  Config: {config:?}");
@@ -133,12 +138,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn print_rotation(R: &Matrix3<f64>) {
+fn print_rotation(r: &Matrix3<f64>) {
     println!("Rotation:");
     for i in 0..3 {
         print!(" ");
         for j in 0..3 {
-            print!(" {:9.6}", R[(i, j)]);
+            print!(" {:9.6}", r[(i, j)]);
         }
         println!();
     }

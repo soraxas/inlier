@@ -11,28 +11,11 @@ use crate::models::RigidTransform;
 use crate::optimisers::LeastSquaresOptimizer;
 use crate::pipeline::CorePipeline;
 use crate::pipeline::Pipeline;
-use crate::preconditioner::{IdentityPreconditioner, Preconditioner};
+use crate::preconditioner::IdentityPreconditioner;
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{RansacInlierCountScoring, Score};
 use crate::settings::MetasacSettings;
-use crate::types::DataMatrix;
 use nalgebra::Vector3;
-
-/// Identity preconditioner for rigid transforms; leaves data and model unchanged.
-#[derive(Clone)]
-struct IdentityRigidPreconditioner;
-
-impl Preconditioner<RigidTransform> for IdentityRigidPreconditioner {
-    type Normalization = ();
-
-    fn normalize(&self, data: &DataMatrix) -> (DataMatrix, Self::Normalization) {
-        (data.clone(), ())
-    }
-
-    fn denormalize(&self, model: &RigidTransform, _norm: &Self::Normalization) -> RigidTransform {
-        model.clone()
-    }
-}
 
 /// Build a preset RANSAC pipeline for estimating a rigid 3D-3D transform.
 ///

@@ -220,8 +220,8 @@ pub fn place_control_points_voxel(points: &[Point3], voxel_size: f64) -> Vec<Poi
 
     // Control point = voxel center
     voxel_map
-        .into_iter()
-        .map(|(voxel, points_in_voxel)| {
+        .into_values()
+        .map(|points_in_voxel| {
             // Average of points in voxel
             let sum = points_in_voxel
                 .iter()
@@ -342,12 +342,11 @@ impl RBFScaleEstimator {
         let k = control_points.len();
         let mut weights = DVector::from_element(k, 1.0);
         let mut rotation = Matrix3::identity();
-        let mut translation = Vector3::zeros();
 
         // Initial alignment (center and compute initial translation)
         let src_center = compute_centroid(src_points);
         let dst_center = compute_centroid(dst_points);
-        translation = dst_center - src_center;
+        let mut translation = dst_center - src_center;
 
         let mut prev_energy = f64::INFINITY;
 

@@ -29,8 +29,8 @@ fn load_csv_points(path: &str) -> Result<DataMatrix, Box<dyn std::error::Error>>
 
     let mut flat = Vec::with_capacity(n_points * n_dims);
     for point_idx in 0..n_points {
-        for dim_idx in 0..n_dims {
-            flat.push(rows[dim_idx][point_idx]);
+        for row in rows.iter().take(n_dims) {
+            flat.push(row[point_idx]);
         }
     }
 

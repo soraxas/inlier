@@ -10,16 +10,16 @@ use crate::types::DataMatrix;
 /// 3. Progressive/max-core pruning
 pub struct ROBINMatching {
     noise_bound: f64,
-    num_max_corr: usize,
-    tuple_scale: f64,
+    _num_max_corr: usize,
+    _tuple_scale: f64,
 }
 
 impl ROBINMatching {
     pub fn new(noise_bound: f64, num_max_corr: usize, tuple_scale: f64) -> Self {
         Self {
             noise_bound,
-            num_max_corr,
-            tuple_scale,
+            _num_max_corr: num_max_corr,
+            _tuple_scale: tuple_scale,
         }
     }
 

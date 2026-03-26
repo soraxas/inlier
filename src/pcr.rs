@@ -252,8 +252,10 @@ pub fn register_nonrigid_auto(
     src: &DataMatrix,
     dst: &DataMatrix,
 ) -> Option<NonRigidRegistrationResult> {
-    let mut config = PCRConfig::default();
-    config.use_scale_invariant_features = true;
+    let config = PCRConfig {
+        use_scale_invariant_features: true,
+        ..PCRConfig::default()
+    };
     register_nonrigid(src, dst, &config)
 }
 
