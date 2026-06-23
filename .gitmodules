@@ -1,0 +1,3 @@
+[submodule "vendor/spatialrust"]
+	path = vendor/spatialrust
+	url = https://github.com/rsasaki0109/SpatialRust
