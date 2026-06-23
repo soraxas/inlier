@@ -4,7 +4,7 @@
 //! hierarchy: homographies, fundamental/essential matrices, absolute pose, and
 //! rigid transformations.
 
-use nalgebra::{Matrix3, Matrix4, Rotation3, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Matrix3, Matrix4, Rotation3, Translation3, UnitQuaternion, Vector3, Vector4};
 
 /// Planar projective transformation represented by a 3x3 matrix.
 #[derive(Clone, Debug)]
@@ -168,5 +168,49 @@ impl Line {
             let intercept = -self.params[2] / self.params[1];
             Some((slope, intercept))
         }
+    }
+}
+
+/// 3-D plane model: `ax + by + cz + d = 0` with `|normal| = 1`.
+#[derive(Clone, Debug)]
+pub struct Plane3 {
+    /// Unit normal vector (a, b, c).
+    pub normal: Vector3<f64>,
+    /// Plane offset d, so that `normal · p + d = 0` for any point p on the plane.
+    pub d: f64,
+}
+
+impl Plane3 {
+    /// Construct from coefficients, normalising the normal on the fly.
+    pub fn new(a: f64, b: f64, c: f64, d: f64) -> Self {
+        let norm = (a * a + b * b + c * c).sqrt();
+        if norm < 1e-10 {
+            Self { normal: Vector3::new(0.0, 0.0, 1.0), d: 0.0 }
+        } else {
+            Self { normal: Vector3::new(a / norm, b / norm, c / norm), d: d / norm }
+        }
+    }
+
+    /// Construct from a unit normal and a point known to lie on the plane.
+    pub fn from_normal_and_point(normal: Vector3<f64>, point: Vector3<f64>) -> Self {
+        let d = -normal.dot(&point);
+        Self { normal, d }
+    }
+
+    /// Signed point-to-plane distance (positive on the normal side).
+    #[inline]
+    pub fn signed_distance(&self, x: f64, y: f64, z: f64) -> f64 {
+        self.normal.x * x + self.normal.y * y + self.normal.z * z + self.d
+    }
+
+    /// Unsigned point-to-plane distance.
+    #[inline]
+    pub fn distance(&self, x: f64, y: f64, z: f64) -> f64 {
+        self.signed_distance(x, y, z).abs()
+    }
+
+    /// Plane parameters as a 4-vector [a, b, c, d].
+    pub fn to_vec4(&self) -> Vector4<f64> {
+        Vector4::new(self.normal.x, self.normal.y, self.normal.z, self.d)
     }
 }

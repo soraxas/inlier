@@ -1,3 +1,52 @@
+[workspace]
+members = [
+    ".",
+    "crates/spatialrust-inlier",
+    "crates/spatialrust-viewer",
+]
+exclude = ["vendor"]
+resolver = "2"
+
+# Required so SpatialRust crates (vendored via submodule) can resolve
+# their `field.workspace = true` declarations against this workspace root.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["SpatialRust Contributors"]
+repository = "https://github.com/rsasaki0109/SpatialRust"
+rust-version = "1.75"
+description = "Next-generation spatial computing framework for Rust"
+
+[workspace.dependencies]
+# SpatialRust vendored crates
+spatialrust-core         = { path = "vendor/spatialrust/crates/spatialrust-core" }
+spatialrust-math         = { path = "vendor/spatialrust/crates/spatialrust-math" }
+spatialrust-io           = { path = "vendor/spatialrust/crates/spatialrust-io" }
+spatialrust-gpu          = { path = "vendor/spatialrust/crates/spatialrust-gpu" }
+spatialrust-search       = { path = "vendor/spatialrust/crates/spatialrust-search" }
+spatialrust-filtering    = { path = "vendor/spatialrust/crates/spatialrust-filtering" }
+spatialrust-features     = { path = "vendor/spatialrust/crates/spatialrust-features" }
+spatialrust-segmentation = { path = "vendor/spatialrust/crates/spatialrust-segmentation" }
+spatialrust-registration = { path = "vendor/spatialrust/crates/spatialrust-registration" }
+spatialrust-pipeline     = { path = "vendor/spatialrust/crates/spatialrust-pipeline" }
+spatialrust-metrics      = { path = "vendor/spatialrust/crates/spatialrust-metrics", default-features = false }
+spatialrust-transform    = { path = "vendor/spatialrust/crates/spatialrust-transform", default-features = false }
+spatialrust-voxelize     = { path = "vendor/spatialrust/crates/spatialrust-voxelize", default-features = false }
+# External deps declared by SpatialRust crates
+bytemuck     = { version = "1", features = ["derive"] }
+las          = "0.9"
+e57          = "0.11"
+copc-streaming = "0.1.5"
+copc-core    = "0.2.0"
+copc-writer  = "0.2.0"
+pollster     = "0.4"
+ureq         = "2.12"
+serde        = { version = "1", features = ["derive"] }
+thiserror    = "2"
+wgpu         = "24"
+criterion    = { version = "0.5", features = ["html_reports"] }
+
 [package]
 name = "inlier"
 version = "0.1.0"
@@ -65,6 +114,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 [dev-dependencies]
 approx = "0.5"
 criterion = { version = "0.5", features = ["html_reports"] }
+spatialrust-inlier = { path = "crates/spatialrust-inlier" }
 
 [[example]]
 name = "plot_line_fitting"
@@ -89,6 +139,14 @@ required-features = ["io"]
 
 [[example]]
 name = "point_cloud_registration"
+
+[[example]]
+name = "plane_segmentation"
+required-features = ["spatialrust-inlier/filtering", "spatialrust-inlier/io"]
+
+[[example]]
+name = "full_pipeline"
+required-features = ["spatialrust-inlier/full"]
 
 [[bench]]
 name = "teaser_comparison"
