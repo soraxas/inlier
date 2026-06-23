@@ -1,0 +1,70 @@
+[package]
+name = "spatialrust-inlier"
+version = "0.1.0"
+edition = "2024"
+description = "Bridge between inlier's RANSAC engine and SpatialRust's point cloud pipeline."
+license = "MIT"
+
+[features]
+default = []
+
+# File IO: PCD, PLY, LAS/LAZ, E57, COPC
+io     = ["dep:spatialrust-io", "spatialrust-io/io-pcd", "spatialrust-io/io-ply", "spatialrust-io/io-las"]
+io-e57  = ["io", "spatialrust-io/io-e57"]
+io-copc = ["io", "spatialrust-io/io-copc"]
+
+# Downsampling, outlier removal, crop, FPS
+filtering = [
+    "dep:spatialrust-filtering",
+    "spatialrust-filtering/filter-voxel",
+    "spatialrust-filtering/filter-outlier",
+    "spatialrust-filtering/filter-crop",
+    "spatialrust-filtering/filter-fps",
+]
+filtering-gpu = ["filtering", "spatialrust-filtering/filter-voxel-gpu", "dep:spatialrust-gpu"]
+
+# Occupancy grids and range images
+voxelize       = ["dep:spatialrust-voxelize", "spatialrust-voxelize/voxelize-occupancy", "spatialrust-voxelize/voxelize-range-image"]
+
+# Normal estimation, ISS keypoints, boundary detection
+cloud-features = [
+    "dep:spatialrust-features",
+    "spatialrust-features/feature-normal",
+    "spatialrust-features/feature-normal-orient",
+    "spatialrust-features/feature-iss",
+    "spatialrust-features/feature-boundary",
+    "dep:spatialrust-search",
+]
+cloud-features-gpu = ["cloud-features", "spatialrust-features/feature-normal-gpu", "dep:spatialrust-gpu"]
+
+# RANSAC plane/sphere/cylinder, Euclidean clustering, DBSCAN, ground, region-growing
+segmentation = [
+    "dep:spatialrust-segmentation",
+    "spatialrust-segmentation/segment-ransac-plane",
+    "spatialrust-segmentation/segment-euclidean",
+    "spatialrust-segmentation/segment-dbscan",
+    "spatialrust-segmentation/segment-ground",
+    "spatialrust-segmentation/segment-region-growing",
+    "spatialrust-segmentation/segment-ransac-primitives",
+]
+
+# Wraps inlier's RANSAC as a SpatialRust PointCloudRegistration backend
+registration = ["dep:spatialrust-registration"]
+
+gpu = ["filtering-gpu", "cloud-features-gpu"]
+full = ["io", "io-e57", "io-copc", "filtering", "voxelize", "cloud-features", "segmentation", "registration"]
+
+[dependencies]
+inlier               = { path = "../.." }
+spatialrust-core     = { path = "../../vendor/spatialrust/crates/spatialrust-core" }
+spatialrust-math     = { path = "../../vendor/spatialrust/crates/spatialrust-math" }
+spatialrust-io           = { path = "../../vendor/spatialrust/crates/spatialrust-io",           optional = true, default-features = false }
+spatialrust-filtering    = { path = "../../vendor/spatialrust/crates/spatialrust-filtering",    optional = true, default-features = false }
+spatialrust-voxelize     = { path = "../../vendor/spatialrust/crates/spatialrust-voxelize",     optional = true, default-features = false }
+spatialrust-features     = { path = "../../vendor/spatialrust/crates/spatialrust-features",     optional = true, default-features = false }
+spatialrust-search       = { path = "../../vendor/spatialrust/crates/spatialrust-search",       optional = true, default-features = false }
+spatialrust-segmentation = { path = "../../vendor/spatialrust/crates/spatialrust-segmentation", optional = true, default-features = false }
+spatialrust-registration = { path = "../../vendor/spatialrust/crates/spatialrust-registration", optional = true, default-features = false }
+spatialrust-gpu          = { path = "../../vendor/spatialrust/crates/spatialrust-gpu",          optional = true, default-features = false }
+nalgebra  = { version = "0.33", features = ["std"] }
+thiserror = "2"
