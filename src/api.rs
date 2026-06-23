@@ -8,10 +8,10 @@ use crate::core::MetaSAC;
 use crate::core::NoopInlierSelector;
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
-    LineEstimator, RigidTransformEstimator,
+    LineEstimator, PlaneEstimator, RigidTransformEstimator,
 };
 use crate::models::{
-    AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, RigidTransform,
+    AbsolutePose, EssentialMatrix, FundamentalMatrix, Homography, Line, Plane3, RigidTransform,
 };
 use crate::optimisers::LeastSquaresOptimizer;
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
@@ -551,5 +551,76 @@ pub fn estimate_rigid_transform(
             iterations: ransac.iteration,
         }),
         _ => Err("Failed to estimate rigid transform".to_string()),
+    }
+}
+
+/// Fit a 3-D plane to a point cloud using RANSAC.
+///
+/// # Arguments
+/// * `points` — Nx3 matrix (each row is `[x, y, z]`)
+/// * `threshold` — inlier distance threshold in the same units as the point cloud
+/// * `settings` — optional RANSAC settings; `None` uses defaults (MSAC scoring)
+///
+/// # Returns
+/// `EstimationResult` with the best [`Plane3`], inlier indices, score, and iteration count.
+pub fn estimate_plane(
+    points: &DataMatrix,
+    threshold: f64,
+    settings_opt: Option<MetasacSettings>,
+) -> Result<EstimationResult<Plane3>, String> {
+    if points.n_dims() != 3 {
+        return Err("points must be an Nx3 matrix (each row is [x, y, z])".to_string());
+    }
+    let n = points.n_points();
+    if n < 3 {
+        return Err("need at least 3 points to fit a plane".to_string());
+    }
+
+    let settings = settings_opt.unwrap_or_default();
+    let estimator = PlaneEstimator::new();
+
+    let sampler = match settings.sampler {
+        SamplerType::Prosac => {
+            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
+        }
+        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
+    };
+
+    let scoring_builder =
+        MsacScoring::new(threshold, |data: &DataMatrix, model: &Plane3, idx| {
+            model.distance(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
+        });
+    let scoring = match settings.point_priors.as_ref() {
+        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
+        _ => scoring_builder,
+    };
+
+    let local_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
+    let final_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
+    let termination = crate::core::RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
+
+    let mut ransac = MetaSAC::new(
+        settings,
+        estimator,
+        sampler,
+        scoring,
+        local_optimizer,
+        final_optimizer,
+        termination,
+        Some(NoopInlierSelector),
+    );
+
+    ransac.run(points);
+
+    match (&ransac.best_model, &ransac.best_score) {
+        (Some(model), Some(score)) => Ok(EstimationResult {
+            model: model.clone(),
+            inliers: ransac.best_inliers.clone(),
+            score: *score,
+            iterations: ransac.iteration,
+        }),
+        _ => Err("Failed to estimate plane".to_string()),
     }
 }

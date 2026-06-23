@@ -192,8 +192,9 @@ pub mod io;
 // Re-export high-level API
 pub use api::{
     EstimationResult, estimate_absolute_pose, estimate_essential_matrix,
-    estimate_fundamental_matrix, estimate_homography, estimate_line,
+    estimate_fundamental_matrix, estimate_homography, estimate_line, estimate_plane,
 };
+pub use models::Plane3;
 
 pub mod pipeline;
 pub use pipeline::{CorePipeline, Pipeline, PipelineResult};
