@@ -35,6 +35,28 @@
 pub mod convert;
 pub mod plane;
 
+// ── Plane-segmentation library modules (always available) ─────────────────────
+/// Uniform spatial grid for approximate k-NN queries.
+pub mod spatial_grid;
+/// PCA normal + curvature estimation, plus minimal plane-fitting helpers.
+pub mod normals;
+/// Auto-tune algorithm parameters from point cloud statistics.
+pub mod auto_tune;
+
+// ── Modules gated on the `segmentation` feature ───────────────────────────────
+#[cfg(feature = "segmentation")]
+/// Ling et al. 2024 region-growing + RANSAC plane segmentation.
+pub mod region_growing;
+
+#[cfg(feature = "segmentation")]
+/// Merge and grow post-processing for segmented planes.
+pub mod plane_ops;
+
+#[cfg(feature = "segmentation")]
+/// High-level pipeline API for the dollhouse cutaway effect.
+pub mod dollhouse;
+
+// ── Existing optional feature modules ─────────────────────────────────────────
 #[cfg(feature = "io")]
 pub mod io;
 
@@ -66,3 +88,11 @@ pub use spatialrust_core::{
 
 #[cfg(feature = "registration")]
 pub use registration::InlierRegistration;
+
+// Pipeline API re-exports for convenience.
+#[cfg(feature = "segmentation")]
+pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, segment_for_dollhouse};
+#[cfg(feature = "segmentation")]
+pub use region_growing::RansacMode;
+#[cfg(feature = "segmentation")]
+pub use plane_ops::GrowArgs;

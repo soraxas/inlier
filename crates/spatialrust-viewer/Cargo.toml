@@ -6,5 +6,5 @@ edition = "2021"
 [dependencies]
 bevy = "0.19.0"
 bevy_egui = "0.40.0"
-spatialrust-inlier = { path = "../spatialrust-inlier", features = ["io", "filtering"] }
+spatialrust-inlier = { path = "../spatialrust-inlier", features = ["io", "filtering", "segmentation"] }
 spade = "2"
