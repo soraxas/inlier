@@ -59,8 +59,9 @@ pub use convert::{
     point_cloud_with_normals_to_data_matrix,
 };
 pub use plane::{PlaneResult, estimate_plane_from_cloud, fit_plane_msac, fit_plane_magsac_raw};
+pub use inlier::MetasacSettings;
 pub use spatialrust_core::{
-    PointCloud, PointCloudBuilder, SpatialError, SpatialResult, StandardSchemas,
+    FieldSemantic, PointBuffer, PointCloud, PointCloudBuilder, SpatialError, SpatialResult, StandardSchemas,
 };
 
 #[cfg(feature = "registration")]
