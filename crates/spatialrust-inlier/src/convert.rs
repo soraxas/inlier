@@ -100,4 +100,46 @@ mod tests {
         assert!((iso.rotation().w - 1.0).abs() < 1e-6);
         assert!(iso.translation().x.abs() < 1e-6);
     }
+
+    #[test]
+    fn point_cloud_with_normals_round_trip() {
+        use spatialrust_core::{DType, FieldSemantic, PointField, StandardSchemas};
+        let schema = StandardSchemas::point_xyz()
+            .with_field(PointField::scalar("normal_x", FieldSemantic::NormalX, DType::F32))
+            .with_field(PointField::scalar("normal_y", FieldSemantic::NormalY, DType::F32))
+            .with_field(PointField::scalar("normal_z", FieldSemantic::NormalZ, DType::F32));
+        let mut builder = spatialrust_core::PointCloudBuilder::new(schema);
+        builder.push_point([1.0f32, 2.0, 3.0, 0.0, 0.0, 1.0]).unwrap();
+        builder.push_point([4.0f32, 5.0, 6.0, 1.0, 0.0, 0.0]).unwrap();
+        let cloud = builder.build().unwrap();
+
+        let dm = point_cloud_with_normals_to_data_matrix(&cloud).unwrap();
+        assert_eq!(dm.n_points(), 2);
+        assert_eq!(dm.n_dims(), 6, "xyz + normals = 6 columns");
+        // First point: x=1, y=2, z=3, nx=0, ny=0, nz=1
+        assert!((dm.get(0, 0) - 1.0).abs() < 1e-5, "x[0]");
+        assert!((dm.get(0, 5) - 1.0).abs() < 1e-5, "nz[0]");
+        // Second point normal: nx=1
+        assert!((dm.get(1, 3) - 1.0).abs() < 1e-5, "nx[1]");
+    }
+
+    #[test]
+    fn nalgebra_to_isometry3_90_degree_rotation() {
+        use std::f64::consts::FRAC_PI_2;
+        // 90° rotation around Z axis.
+        let rot = Matrix3::new(
+            0.0, -1.0, 0.0,
+            1.0,  0.0, 0.0,
+            0.0,  0.0, 1.0,
+        );
+        let trans = Vector3::new(1.0, 2.0, 3.0);
+        let iso = nalgebra_to_isometry3(&rot, &trans);
+        // Translation should round-trip.
+        assert!((iso.translation().x - 1.0).abs() < 1e-5);
+        assert!((iso.translation().y - 2.0).abs() < 1e-5);
+        assert!((iso.translation().z - 3.0).abs() < 1e-5);
+        // Rotation angle should be ≈ π/2.
+        let angle = 2.0 * iso.rotation().w.acos();
+        assert!((angle - FRAC_PI_2 as f32).abs() < 1e-4, "angle={angle}");
+    }
 }

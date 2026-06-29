@@ -381,6 +381,28 @@ mod tests {
     }
 
     #[test]
+    fn ransac_plane_simple_flat_xy() {
+        // Dense XY-plane with a few outliers.
+        let mut pts: Vec<[f32; 3]> = (0..200)
+            .map(|i| [(i % 20) as f32 * 0.05, (i / 20) as f32 * 0.05, 0.0])
+            .collect();
+        // Add 30 outliers scattered in z.
+        for i in 0..30u64 {
+            let z = (i as f32 * 0.3 + 1.0).min(5.0);
+            pts.push([i as f32 * 0.1, 0.0, z]);
+        }
+        let (n, d) = ransac_plane_simple(&pts, 0.05, 300, 42).unwrap();
+        assert!(n[2].abs() > 0.9, "normal should be ≈ z: {n:?}");
+        assert!(d.abs() < 0.1, "plane at z≈0 → d≈0: {d}");
+    }
+
+    #[test]
+    fn ransac_plane_simple_too_few_returns_none() {
+        let pts = vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0]];
+        assert!(ransac_plane_simple(&pts, 0.1, 100, 1).is_none());
+    }
+
+    #[test]
     fn smoke_3_planes_simple() {
         let pts = synthetic_multi_plane(3, 600, 0.03, 200, 42);
         let planes = region_growing_ransac(
