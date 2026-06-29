@@ -7486,6 +7486,8 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "inlier",
+ "nalgebra 0.33.2",
  "spade",
  "spatialrust-inlier",
 ]

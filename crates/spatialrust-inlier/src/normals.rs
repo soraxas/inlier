@@ -206,4 +206,107 @@ mod tests {
         assert!((n[2].abs() - 1.0).abs() < 1e-5, "z-plane normal: {n:?}");
         assert!(d.abs() < 1e-5, "d should be 0: {d}");
     }
+
+    #[test]
+    fn fit_3pts_collinear_returns_none() {
+        let a = [0.0f32, 0.0, 0.0];
+        let b = [1.0, 0.0, 0.0];
+        let c = [2.0, 0.0, 0.0]; // collinear
+        assert!(fit_plane_3pts(a, b, c).is_none());
+    }
+
+    #[test]
+    fn fit_plane_ls_xy_plane() {
+        let pts: Vec<[f32; 3]> = (0..16)
+            .map(|i| [(i % 4) as f32, (i / 4) as f32, 0.0])
+            .collect();
+        let (n, d) = fit_plane_ls(&pts).unwrap();
+        assert!(n[2].abs() > 0.99, "normal should be ≈ z-axis, got {n:?}");
+        assert!(d.abs() < 1e-4, "d should be 0: {d}");
+    }
+
+    #[test]
+    fn fit_plane_ls_offset_plane() {
+        // All points at z = 2.0
+        let pts: Vec<[f32; 3]> = (0..16)
+            .map(|i| [(i % 4) as f32, (i / 4) as f32, 2.0])
+            .collect();
+        let (n, d) = fit_plane_ls(&pts).unwrap();
+        // n·p + d = 0  →  ±1·2 + d = 0  →  d = ∓2
+        let residual = (n[2] * 2.0 + d).abs();
+        assert!(residual < 1e-3, "plane should pass through z=2: n={n:?} d={d}");
+    }
+
+    #[test]
+    fn normalize3_unit_length() {
+        let v = normalize3([3.0, 4.0, 0.0]);
+        let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        assert!((len - 1.0).abs() < 1e-6, "length should be 1: {len}");
+        assert!((v[0] - 0.6).abs() < 1e-5);
+        assert!((v[1] - 0.8).abs() < 1e-5);
+    }
+
+    #[test]
+    fn normalize3_near_zero_returns_finite() {
+        let v = normalize3([0.0, 0.0, 0.0]);
+        assert!(v.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn cross3_orthogonal() {
+        let a = [1.0f32, 0.0, 0.0];
+        let b = [0.0f32, 1.0, 0.0];
+        let c = cross3(a, b);
+        assert!((c[0]).abs() < 1e-6);
+        assert!((c[1]).abs() < 1e-6);
+        assert!((c[2] - 1.0).abs() < 1e-6, "x×y should be z: {c:?}");
+    }
+
+    #[test]
+    fn cross3_anticommutative() {
+        let a = [1.0f32, 2.0, 3.0];
+        let b = [4.0f32, 5.0, 6.0];
+        let ab = cross3(a, b);
+        let ba = cross3(b, a);
+        for i in 0..3 {
+            assert!((ab[i] + ba[i]).abs() < 1e-6, "a×b = -b×a failed at [{i}]");
+        }
+    }
+
+    #[test]
+    fn matvec_identity() {
+        let eye = [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let v = [1.0f32, 2.0, 3.0];
+        let r = matvec(eye, v);
+        assert_eq!(r, v);
+    }
+
+    #[test]
+    fn power_iter_dominant_eigenvector() {
+        // Diagonal matrix: eigenvalues 3, 2, 1 → dominant eigenvector is [1,0,0].
+        let m = [[3.0f32, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 1.0]];
+        let v = power_iter(m, [0.9, 0.1, 0.1]);
+        assert!(v[0].abs() > 0.99, "dominant eigenvector should be x-axis: {v:?}");
+    }
+
+    #[test]
+    fn pca_degenerate_returns_none() {
+        // Fewer than 3 points → None.
+        let pts = vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0]];
+        assert!(pca_normal_and_curvature(&pts, &[0, 1]).is_none());
+    }
+
+    #[test]
+    fn pca_curvature_high_for_sphere() {
+        // Points sampled roughly isotropically (random-ish spread in xyz) should
+        // produce higher curvature than a flat plane.
+        let pts: Vec<[f32; 3]> = (0..20).map(|i| {
+            let t = i as f32 * 0.314;
+            [t.cos(), t.sin(), (i as f32 * 0.1).sin()]
+        }).collect();
+        let idxs: Vec<usize> = (0..pts.len()).collect();
+        let (_, curv) = pca_normal_and_curvature(&pts, &idxs).unwrap();
+        // Not a flat surface — curvature should be notably above 0.
+        assert!(curv > 0.01, "curved surface should have curvature > 0.01, got {curv}");
+    }
 }

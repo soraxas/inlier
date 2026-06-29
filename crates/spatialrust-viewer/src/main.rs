@@ -1,4 +1,13 @@
+mod absolute_pose_demo;
+mod algo_config;
+mod essential_matrix_demo;
+mod fundamental_matrix_demo;
+mod line_fitting_demo;
+mod merge_demo;
+mod normals_demo;
 mod plane_demo;
+mod rigid_transform_demo;
+mod segmentation_demo;
 mod voxel_demo;
 mod voxel_plane_demo;
 
@@ -12,6 +21,41 @@ pub enum AppDemo {
     Plane,
     Voxel,
     VoxelPlane,
+    Normals,
+    Merge,
+    Segmentation,
+    LineFit,
+    AbsolutePose,
+    EssentialMatrix,
+    FundamentalMatrix,
+    RigidTransform,
+}
+
+impl AppDemo {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Plane          => "Plane Estimation",
+            Self::Voxel          => "Voxel Downsample",
+            Self::VoxelPlane     => "Voxel-Normal Planes",
+            Self::Normals        => "Normal Estimation",
+            Self::Merge          => "Merge Demo",
+            Self::Segmentation   => "Segmentation Pipeline",
+            Self::LineFit        => "Line Fitting",
+            Self::AbsolutePose   => "Absolute Pose",
+            Self::EssentialMatrix   => "Essential Matrix",
+            Self::FundamentalMatrix => "Fundamental Matrix",
+            Self::RigidTransform => "Rigid Transform",
+        }
+    }
+
+    pub fn all() -> &'static [AppDemo] {
+        &[
+            Self::Plane, Self::Voxel, Self::VoxelPlane,
+            Self::Normals, Self::Merge, Self::Segmentation,
+            Self::LineFit, Self::AbsolutePose,
+            Self::EssentialMatrix, Self::FundamentalMatrix, Self::RigidTransform,
+        ]
+    }
 }
 
 #[derive(Component)]
@@ -37,6 +81,14 @@ fn main() {
         .add_plugins(plane_demo::PlanePlugin)
         .add_plugins(voxel_demo::VoxelPlugin)
         .add_plugins(voxel_plane_demo::VoxelPlanePlugin)
+        .add_plugins(normals_demo::NormalsPlugin)
+        .add_plugins(merge_demo::MergePlugin)
+        .add_plugins(segmentation_demo::SegmentationPlugin)
+        .add_plugins(line_fitting_demo::LineFitPlugin)
+        .add_plugins(absolute_pose_demo::AbsolutePosePlugin)
+        .add_plugins(essential_matrix_demo::EssentialMatrixPlugin)
+        .add_plugins(fundamental_matrix_demo::FundamentalMatrixPlugin)
+        .add_plugins(rigid_transform_demo::RigidTransformPlugin)
         .add_systems(Startup, setup_scene)
         .add_systems(EguiPrimaryContextPass, demo_switcher_ui)
         .add_systems(Update, orbit_camera_system)
@@ -64,15 +116,18 @@ fn demo_switcher_ui(
     egui::Panel::top("top_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label("Demo:");
-            if ui.selectable_label(state.get() == &AppDemo::Plane, "Plane Estimation").clicked() {
-                next.set(AppDemo::Plane);
-            }
-            if ui.selectable_label(state.get() == &AppDemo::Voxel, "Voxel Downsample").clicked() {
-                next.set(AppDemo::Voxel);
-            }
-            if ui.selectable_label(state.get() == &AppDemo::VoxelPlane, "Voxel-Normal Planes").clicked() {
-                next.set(AppDemo::VoxelPlane);
-            }
+            let current = state.get();
+            egui::ComboBox::from_id_salt("demo_selector")
+                .selected_text(current.label())
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    for demo in AppDemo::all() {
+                        let selected = current == demo;
+                        if ui.selectable_label(selected, demo.label()).clicked() {
+                            next.set(demo.clone());
+                        }
+                    }
+                });
         });
     });
 }

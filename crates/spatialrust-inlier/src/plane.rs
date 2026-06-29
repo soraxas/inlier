@@ -259,3 +259,75 @@ fn extract_by_mask(
     }
     builder.build()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spatialrust_core::{PointCloudBuilder, StandardSchemas};
+
+    /// Build a flat XY-plane cloud with optional noise and outliers using a simple LCG.
+    fn flat_plane_cloud(n_inliers: usize, noise: f32, n_outliers: usize, seed: u64) -> PointCloud {
+        let mut s = seed;
+        let mut rng = move || -> f32 {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((s >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0
+        };
+        let mut builder = PointCloudBuilder::new(StandardSchemas::point_xyz());
+        for _ in 0..n_inliers {
+            builder.push_point([rng() * 5.0, rng() * 5.0, rng() * noise]).unwrap();
+        }
+        for _ in 0..n_outliers {
+            builder.push_point([rng() * 5.0, rng() * 5.0, rng() * 5.0]).unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    #[test]
+    fn fit_plane_msac_finds_xy_plane() {
+        let cloud = flat_plane_cloud(200, 0.02, 50, 42);
+        let pts: Vec<[f32; 3]> = {
+            use spatialrust_core::HasPositions3;
+            let (xs, ys, zs) = cloud.positions3().unwrap();
+            (0..cloud.len()).map(|i| [xs[i], ys[i], zs[i]]).collect()
+        };
+        let (n, d, inliers) = fit_plane_msac(&pts, 0.1, None).unwrap();
+        // Normal should be roughly [0,0,±1]
+        assert!(n[2].abs() > 0.9, "normal should be ≈ z-axis: {n:?}");
+        assert!(d.abs() < 0.5, "offset near origin: {d}");
+        assert!(inliers >= 150, "at least 150 inliers expected, got {inliers}");
+    }
+
+    #[test]
+    fn fit_plane_magsac_raw_finds_xy_plane() {
+        let cloud = flat_plane_cloud(200, 0.02, 50, 7);
+        let pts: Vec<[f32; 3]> = {
+            use spatialrust_core::HasPositions3;
+            let (xs, ys, zs) = cloud.positions3().unwrap();
+            (0..cloud.len()).map(|i| [xs[i], ys[i], zs[i]]).collect()
+        };
+        let (n, d, inliers) = fit_plane_magsac_raw(&pts, 0.05, None).unwrap();
+        assert!(n[2].abs() > 0.9, "MAGSAC normal should be ≈ z-axis: {n:?}");
+        assert!(d.abs() < 0.5, "MAGSAC offset near origin: {d}");
+        assert!(inliers >= 150, "at least 150 inliers expected, got {inliers}");
+    }
+
+    #[test]
+    fn estimate_plane_from_cloud_splits_inliers_outliers() {
+        let cloud = flat_plane_cloud(300, 0.01, 100, 13);
+        let result = estimate_plane_from_cloud(&cloud, 0.1, None).unwrap();
+        assert!(result.normal[2].abs() > 0.9, "normal ≈ z: {:?}", result.normal);
+        assert!(result.inlier_cloud.len() >= 200, "too few inliers: {}", result.inlier_cloud.len());
+        assert!(result.outlier_cloud.len() >= 50, "too few outliers: {}", result.outlier_cloud.len());
+        assert_eq!(
+            result.inlier_cloud.len() + result.outlier_cloud.len(),
+            cloud.len(),
+            "inlier + outlier must equal input"
+        );
+    }
+
+    #[test]
+    fn fit_plane_msac_too_few_points_returns_none() {
+        let pts = vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0]];
+        assert!(fit_plane_msac(&pts, 0.1, None).is_none());
+    }
+}

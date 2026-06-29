@@ -193,7 +193,9 @@ pub mod io;
 pub use api::{
     EstimationResult, estimate_absolute_pose, estimate_essential_matrix,
     estimate_fundamental_matrix, estimate_homography, estimate_line, estimate_plane,
+    estimate_rigid_transform,
 };
+pub use settings::ScoringType;
 pub use models::Plane3;
 
 pub mod pipeline;
