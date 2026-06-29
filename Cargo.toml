@@ -2,7 +2,7 @@
 members = [
     ".",
     "crates/spatialrust-inlier",
-    "crates/spatialrust-viewer",
+    "crates/inlier-gallery",
 ]
 exclude = ["vendor"]
 resolver = "2"
