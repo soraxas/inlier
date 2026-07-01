@@ -20,6 +20,25 @@ wasm-dev:
 wasm-build:
   trunk build --release {{gallery-html}}
 
+gallery-html-threads := "crates/inlier-gallery/index-threads.html"
+
+# EXPERIMENTAL multicore browser build (option #4). Compiles the whole gallery
+# with wasm atomics on a nightly build-std toolchain and enables rayon + the
+# wasm-bindgen-rayon worker pool. All the special flags live HERE as env vars,
+# scoped to this invocation — never in .cargo/config.toml — so plain `wasm-dev`
+# stays a stable, scalar build. Requires: `rustup toolchain install nightly`
+# and `rustup component add rust-src --toolchain nightly`.
+#
+# Compiles and is configured (COOP/COEP via Trunk.toml, initThreadPool via
+# threads-init.mjs). Browser runtime is UNVERIFIED: bevy-on-wasm-threads is
+# upstream-unstable, so confirm rendering/segmentation actually work in a
+# cross-origin-isolated browser before relying on it.
+wasm-dev-threads:
+  RUSTUP_TOOLCHAIN=nightly \
+  CARGO_UNSTABLE_BUILD_STD="std,panic_abort" \
+  RUSTFLAGS='--cfg getrandom_backend="wasm_js" -C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--export=__heap_base' \
+    trunk serve {{gallery-html-threads}} --open
+
 maturin-dev profile='--release' +args='':
   uv run maturin develop {{profile}} -F python {{args}}
 

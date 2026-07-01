@@ -1,0 +1,5 @@
+# Cross-origin isolation headers, required for SharedArrayBuffer — which
+# wasm-bindgen-rayon's Web Worker thread pool depends on (the `just wasm-dev-threads`
+# build). Harmless for the stable build: the gallery only loads same-origin assets.
+[serve]
+headers = { "Cross-Origin-Opener-Policy" = "same-origin", "Cross-Origin-Embedder-Policy" = "require-corp" }

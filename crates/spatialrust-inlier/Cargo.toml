@@ -8,6 +8,10 @@ license = "MIT"
 [features]
 default = []
 
+# Parallelize the per-point normal estimation in region_growing_ransac.
+# Enable together with `inlier/rayon` for the multi-threaded (wasm atomics) build.
+rayon = ["dep:rayon", "inlier/rayon"]
+
 # File IO: PCD, PLY, LAS/LAZ, E57, COPC
 io     = ["dep:spatialrust-io", "spatialrust-io/io-pcd", "spatialrust-io/io-ply", "spatialrust-io/io-las"]
 io-e57  = ["io", "spatialrust-io/io-e57"]
@@ -68,3 +72,4 @@ spatialrust-registration = { path = "../../vendor/spatialrust/crates/spatialrust
 spatialrust-gpu          = { path = "../../vendor/spatialrust/crates/spatialrust-gpu",          optional = true, default-features = false }
 nalgebra  = { version = "0.33", features = ["std"] }
 thiserror = "2"
+rayon     = { version = "1.10", optional = true }
