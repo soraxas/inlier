@@ -11,6 +11,9 @@
     <!-- Build this crate to wasm. trunk runs wasm-opt only for --release,
          so debug (`trunk serve`) rebuilds stay fast automatically. -->
     <link data-trunk rel="rust" data-bin="inlier-gallery" />
+    <!-- Bundle the sample point cloud so the voxel-plane demo can fetch it
+         at /SALON.ply (the browser has no filesystem for the Load button). -->
+    <link data-trunk rel="copy-file" href="../../SALON.ply" />
   </head>
   <body>
     <canvas id="bevy"></canvas>
