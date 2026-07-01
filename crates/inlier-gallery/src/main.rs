@@ -11,6 +11,11 @@ mod segmentation_demo;
 mod voxel_demo;
 mod voxel_plane_demo;
 
+// Threads build (wasm): re-export wasm-bindgen-rayon's pool initializer so JS
+// can `await initThreadPool(n)` before the app runs. No-op on other builds.
+#[cfg(all(target_arch = "wasm32", feature = "threads"))]
+pub use wasm_bindgen_rayon::init_thread_pool;
+
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};

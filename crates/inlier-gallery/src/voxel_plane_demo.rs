@@ -185,10 +185,44 @@ use spatialrust_inlier::{
     spatial_grid::{estimate_cell_size, build_grid, knn},
     normals::{pca_normal_and_curvature, normalize3, cross3, fit_plane_3pts, fit_plane_ls},
     auto_tune::{auto_tune_settings, TunedSettings},
-    region_growing::{region_growing_ransac, RansacMode},
+    region_growing::{region_growing_ransac, region_growing_ransac_with_progress, RansacMode},
     plane_ops::{merge_planes, grow_planes, GrowArgs},
     dollhouse::classify_plane,
 };
+
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Mutex};
+
+/// A plane result: (unit normal, plane offset d, inlier indices into all_pts).
+type PlaneVec = Vec<([f32; 3], f32, Vec<usize>)>;
+
+/// An in-flight background segmentation. The heavy `region_growing_ransac` runs
+/// off the render thread so the UI keeps painting and can show live progress.
+struct SegJob {
+    /// (fraction in [0,1], phase label), updated by the compute thread.
+    progress: Arc<Mutex<(f32, String)>>,
+    /// Delivers (planes, all_pts) once the compute finishes. Wrapped in a Mutex
+    /// so `SegJob` is `Sync` (a bevy Resource requirement); `mpsc::Receiver` is
+    /// `Send` but not `Sync`.
+    rx: Mutex<Receiver<(PlaneVec, Vec<[f32; 3]>)>>,
+}
+
+/// Run `f` off the render thread when the platform supports it, so segmentation
+/// doesn't block rendering. Native uses an OS thread; the wasm "threads" build
+/// uses the rayon worker pool (std::thread can't spawn Web Workers). Plain wasm
+/// has no threads, so it runs inline (the UI freezes for the compute's duration).
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_compute<F: FnOnce() + Send + 'static>(f: F) {
+    std::thread::spawn(f);
+}
+#[cfg(all(target_arch = "wasm32", feature = "threads"))]
+fn spawn_compute<F: FnOnce() + Send + 'static>(f: F) {
+    rayon::spawn(f);
+}
+#[cfg(all(target_arch = "wasm32", not(feature = "threads")))]
+fn spawn_compute<F: FnOnce() + Send + 'static>(f: F) {
+    f();
+}
 
 pub struct VoxelPlanePlugin;
 
@@ -313,6 +347,10 @@ pub struct VoxelPlaneState {
     pub loaded_colors: Vec<[u8; 3]>,  // empty = no color data in file
     pub show_rgb: bool,
     // runtime
+    /// In-flight background segmentation (None when idle). Not in Default.
+    pub seg_job: Option<SegJob>,
+    pub seg_active: bool,     // a segmentation is running (drives the progress bar)
+    pub seg_progress: f32,    // last reported fraction in [0,1]
     pub needs_reload: bool,   // show raw cloud, clear segmentation
     pub needs_run: bool,      // run segmentation on loaded_pts
     pub needs_merge: bool,    // re-run merge on existing raw_planes
@@ -404,6 +442,9 @@ impl Default for VoxelPlaneState {
             loaded_pts: Vec::new(),
             loaded_colors: Vec::new(),
             show_rgb: true,
+            seg_job: None,
+            seg_active: false,
+            seg_progress: 0.0,
             needs_reload: false,
             needs_run: true,
             status: String::new(),
@@ -630,6 +671,13 @@ fn voxel_plane_ui(mut contexts: EguiContexts, mut state: ResMut<VoxelPlaneState>
                         }
                     }
                 });
+            }
+
+            if state.seg_active {
+                ui.separator();
+                ui.add(egui::ProgressBar::new(state.seg_progress).show_percentage().animate(true));
+                // Keep repainting so the bar advances while the worker runs.
+                ui.ctx().request_repaint();
             }
 
             if !state.status.is_empty() {
@@ -916,6 +964,33 @@ fn voxel_plane_scene(
         return;
     }
 
+    // Poll an in-flight background segmentation started on a previous frame.
+    if state.seg_job.is_some() {
+        // Snapshot progress (owned) before mutating state, to end the borrow.
+        let prog = state.seg_job.as_ref()
+            .and_then(|j| j.progress.lock().ok().map(|p| (p.0, p.1.clone())));
+        if let Some((frac, phase)) = prog {
+            state.seg_progress = frac;
+            state.status = format!("Segmenting… {:.0}% — {}", frac * 100.0, phase);
+        }
+        let received = state.seg_job.as_ref().unwrap().rx.lock().unwrap().try_recv();
+        match received {
+            Ok((planes, all_pts)) => {
+                state.seg_job = None;
+                state.seg_active = false;
+                finish_segmentation(&mut state, planes, all_pts,
+                    &mut commands, &mut meshes, &mut materials);
+            }
+            Err(TryRecvError::Empty) => {} // still computing; keep the frame alive
+            Err(TryRecvError::Disconnected) => {
+                state.seg_job = None;
+                state.seg_active = false;
+                state.status = "Segmentation failed (compute thread dropped)".into();
+            }
+        }
+        return;
+    }
+
     if !state.needs_run { return; }
     state.needs_run = false;
 
@@ -937,24 +1012,48 @@ fn voxel_plane_scene(
         }
     };
 
+    // Run segmentation off the render thread; the result is consumed on a later
+    // frame by the poll block above, so the UI keeps painting the progress bar.
     let sigma_max = (state.dist_thresh * state.sigma_factor) as f64;
-    let planes = region_growing_ransac(
-        &all_pts,
-        state.k_neighbors,
-        state.angle_thresh.to_radians(),
-        state.min_cluster_size,
-        state.dist_thresh,
-        state.ransac_mode,
-        sigma_max,
-        state.max_iterations,
-        state.confidence,
+    let (k, angle, min_cluster, dist, mode, max_iters, conf) = (
+        state.k_neighbors, state.angle_thresh.to_radians(), state.min_cluster_size,
+        state.dist_thresh, state.ransac_mode, state.max_iterations, state.confidence,
     );
+    let progress = Arc::new(Mutex::new((0.0f32, String::new())));
+    let (tx, rx) = mpsc::channel();
+    let prog = progress.clone();
+    spawn_compute(move || {
+        let planes = region_growing_ransac_with_progress(
+            &all_pts, k, angle, min_cluster, dist, mode, sigma_max, max_iters, conf,
+            &mut |f, phase| {
+                if let Ok(mut g) = prog.lock() {
+                    *g = (f, phase.to_string());
+                }
+            },
+        );
+        let _ = tx.send((planes, all_pts));
+    });
+    state.seg_job = Some(SegJob { progress, rx: Mutex::new(rx) });
+    state.seg_active = true;
+    state.seg_progress = 0.0;
+    state.status = "Segmenting…".into();
+}
 
+/// Turn a finished segmentation into rendered entities and status. Runs on the
+/// main thread (touches `Commands`/`Assets`) once the background job delivers.
+#[allow(clippy::too_many_arguments)]
+fn finish_segmentation(
+    state: &mut VoxelPlaneState,
+    planes: PlaneVec,
+    all_pts: Vec<[f32; 3]>,
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+) {
     state.raw_planes = planes;
     state.all_pts_cache = all_pts.clone();
     let point_size = state.point_size;
 
-    // Extract refs after storing to avoid simultaneous borrows
     let raw_planes_ref: &[([f32;3], f32, Vec<usize>)] = &state.raw_planes;
     let mut used = vec![false; all_pts.len()];
     for (_, _, inliers) in raw_planes_ref { for &i in inliers { if i < used.len() { used[i] = true; } } }
@@ -968,8 +1067,8 @@ fn voxel_plane_scene(
     let color_mode = state.plane_color_mode;
     let plane_colors = state.loaded_colors.clone();
     let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
-    spawn_planes(&raw_planes_clone, &all_pts, &mut commands,
-        &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
+    spawn_planes(&raw_planes_clone, &all_pts, commands,
+        meshes, materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
         &mut det, &mut ents, &mut vis);
     state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
 

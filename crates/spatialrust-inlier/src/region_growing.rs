@@ -33,6 +33,9 @@
 
 use std::collections::VecDeque;
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
 use crate::spatial_grid::{estimate_cell_size, build_grid, knn};
 use crate::normals::{pca_normal_and_curvature, fit_plane_3pts, fit_plane_ls};
 
@@ -80,6 +83,34 @@ pub fn region_growing_ransac(
     max_iterations: usize,
     confidence: f64,
 ) -> Vec<([f32; 3], f32, Vec<usize>)> {
+    region_growing_ransac_with_progress(
+        pts, k, angle_thresh, min_cluster_size, dist_thresh, mode, sigma_max, max_iterations,
+        confidence,
+        &mut |_, _| {},
+    )
+}
+
+/// Same as [`region_growing_ransac`], but reports progress through `on_progress`
+/// as `(fraction ∈ [0,1], phase_label)`. The fraction increases monotonically:
+/// ~0.0–0.6 estimating normals (the dominant cost on large clouds, parallelized
+/// with the `rayon` feature), ~0.6–0.7 region growing, ~0.7–1.0 RANSAC per
+/// cluster. Callers running this off the render thread can poll the last
+/// reported fraction to drive a progress bar.
+///
+/// The `on_progress` callback must not itself be parallel-unsafe: it is invoked
+/// only from the calling thread (between parallel batches), never from a worker.
+pub fn region_growing_ransac_with_progress(
+    pts: &[[f32; 3]],
+    k: usize,
+    angle_thresh: f32,
+    min_cluster_size: usize,
+    dist_thresh: f32,
+    mode: RansacMode,
+    sigma_max: f64,
+    max_iterations: usize,
+    confidence: f64,
+    on_progress: &mut dyn FnMut(f32, &str),
+) -> Vec<([f32; 3], f32, Vec<usize>)> {
     let n = pts.len();
     if n < 3 {
         return vec![];
@@ -88,18 +119,31 @@ pub fn region_growing_ransac(
     let cell_size = estimate_cell_size(pts);
     let grid = build_grid(pts, cell_size);
 
-    // Step 1: per-point normals and curvatures.
+    // Step 1: per-point normals and curvatures. This is a pure per-index map
+    // (each output depends only on `pts`/`grid`), so it is safe to parallelize.
+    // Reported in batches so progress streams while the parallel work proceeds.
     let mut normals: Vec<[f32; 3]> = vec![[0.0; 3]; n];
     let mut curvatures: Vec<f32> = vec![f32::MAX; n];
-    for i in 0..n {
+    let normal_at = |i: usize| -> ([f32; 3], f32) {
         let neighbors = knn(pts, i, k, cell_size, &grid);
         if neighbors.len() < 3 {
-            continue;
+            return ([0.0; 3], f32::MAX);
         }
-        if let Some((nv, cv)) = pca_normal_and_curvature(pts, &neighbors) {
-            normals[i] = nv;
-            curvatures[i] = cv;
+        pca_normal_and_curvature(pts, &neighbors).unwrap_or(([0.0; 3], f32::MAX))
+    };
+    let batch = (n / 100).max(1);
+    on_progress(0.0, "Estimating normals");
+    for start in (0..n).step_by(batch) {
+        let end = (start + batch).min(n);
+        #[cfg(feature = "rayon")]
+        let out: Vec<([f32; 3], f32)> = (start..end).into_par_iter().map(normal_at).collect();
+        #[cfg(not(feature = "rayon"))]
+        let out: Vec<([f32; 3], f32)> = (start..end).map(normal_at).collect();
+        for (offset, (nv, cv)) in out.into_iter().enumerate() {
+            normals[start + offset] = nv;
+            curvatures[start + offset] = cv;
         }
+        on_progress(0.6 * (end as f32 / n as f32), "Estimating normals");
     }
 
     // Step 2: region growing sorted by curvature ascending (flattest = best seed).
@@ -145,11 +189,16 @@ pub fn region_growing_ransac(
         }
     }
 
-    // Step 3: RANSAC per cluster + aggregation sweep.
+    // Step 3: RANSAC per cluster + aggregation sweep. NOT parallelized: each
+    // cluster mutates shared `assigned[]` and later clusters gate on earlier
+    // results (`filter(!assigned[i])`), so parallelizing would change output.
+    on_progress(0.7, "Fitting planes");
     let mut assigned = vec![false; n];
     let mut result: Vec<([f32; 3], f32, Vec<usize>)> = Vec::new();
 
-    for cluster in clusters {
+    let n_clusters = clusters.len().max(1);
+    for (ci, cluster) in clusters.into_iter().enumerate() {
+        on_progress(0.7 + 0.3 * (ci as f32 / n_clusters as f32), "Fitting planes");
         let unassigned: Vec<usize> = cluster
             .iter()
             .cloned()
@@ -231,6 +280,7 @@ pub fn region_growing_ransac(
         result.push((normal, d, plane_pts));
     }
 
+    on_progress(1.0, "Done");
     result.sort_unstable_by(|a, b| b.2.len().cmp(&a.2.len()));
     result
 }
@@ -424,6 +474,39 @@ mod tests {
                 i + 1,
                 inliers.len()
             );
+        }
+    }
+
+    #[test]
+    fn progress_streams_monotonically_and_preserves_result() {
+        let pts = synthetic_multi_plane(3, 600, 0.03, 200, 42);
+        let args = (20usize, 10f32.to_radians(), 30usize, 0.08f32, RansacMode::Simple, 0.0f64, 1000usize, 0.99f64);
+
+        let mut fractions: Vec<f32> = Vec::new();
+        let with = region_growing_ransac_with_progress(
+            &pts, args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7,
+            &mut |f, _phase| fractions.push(f),
+        );
+
+        // Streaming: many intermediate updates, not just 0 -> 1.
+        assert!(fractions.len() > 5, "want several progress ticks, got {}", fractions.len());
+        // Monotonic non-decreasing, bounded to [0, 1].
+        for w in fractions.windows(2) {
+            assert!(w[1] >= w[0], "progress went backwards: {} -> {}", w[0], w[1]);
+        }
+        assert!(fractions.iter().all(|&f| (0.0..=1.0).contains(&f)));
+        assert_eq!(*fractions.first().unwrap(), 0.0);
+        assert_eq!(*fractions.last().unwrap(), 1.0);
+        // At least one tick strictly between the endpoints (real streaming).
+        assert!(fractions.iter().any(|&f| f > 0.0 && f < 1.0));
+
+        // Behavior preserved: same planes as the non-instrumented entry point.
+        let plain = region_growing_ransac(
+            &pts, args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7,
+        );
+        assert_eq!(with.len(), plain.len());
+        for (a, b) in with.iter().zip(plain.iter()) {
+            assert_eq!(a.2, b.2, "inlier sets differ between with_progress and plain");
         }
     }
 }
