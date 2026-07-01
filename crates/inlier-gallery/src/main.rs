@@ -72,6 +72,10 @@ fn main() {
             primary_window: Some(Window {
                 title: "SpatialRust Viewer".into(),
                 resolution: (1280u32, 800u32).into(),
+                // On wasm, render into the <canvas id="bevy"> in index.html and
+                // track its parent's size. Both fields are ignored on native.
+                canvas: Some("#bevy".into()),
+                fit_canvas_to_parent: true,
                 ..default()
             }),
             ..default()

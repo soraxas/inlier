@@ -55,7 +55,7 @@ gpu = ["filtering-gpu", "cloud-features-gpu"]
 full = ["io", "io-e57", "io-copc", "filtering", "voxelize", "cloud-features", "segmentation", "registration"]
 
 [dependencies]
-inlier               = { path = "../.." }
+inlier               = { path = "../..", default-features = false }
 spatialrust-core     = { path = "../../vendor/spatialrust/crates/spatialrust-core" }
 spatialrust-math     = { path = "../../vendor/spatialrust/crates/spatialrust-math" }
 spatialrust-io           = { path = "../../vendor/spatialrust/crates/spatialrust-io",           optional = true, default-features = false }
