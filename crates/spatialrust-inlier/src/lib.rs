@@ -91,7 +91,7 @@ pub use registration::InlierRegistration;
 
 // Pipeline API re-exports for convenience.
 #[cfg(feature = "segmentation")]
-pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, segment_for_dollhouse};
+pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, classify_plane, segment_for_dollhouse};
 #[cfg(feature = "segmentation")]
 pub use region_growing::RansacMode;
 #[cfg(feature = "segmentation")]
