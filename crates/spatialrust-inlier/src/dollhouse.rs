@@ -225,47 +225,8 @@ pub fn segment_for_dollhouse(pts: &[[f32; 3]], params: &DollhouseParams) -> Doll
     let mut result_planes: Vec<SegmentedPlane> = Vec::with_capacity(merged.len());
 
     for (normal, d, inliers) in &merged {
-        // Centroid of inlier set.
-        let centroid = if inliers.is_empty() {
-            [0.0f32; 3]
-        } else {
-            let n = inliers.len() as f32;
-            let mut cx = 0f32;
-            let mut cy = 0f32;
-            let mut cz = 0f32;
-            for &i in inliers {
-                cx += pts[i][0];
-                cy += pts[i][1];
-                cz += pts[i][2];
-            }
-            [cx / n, cy / n, cz / n]
-        };
-
-        // Count points clearly on each side of the plane (exclude near-plane band).
-        let mut far_pos = 0usize;
-        let mut far_neg = 0usize;
-        for &p in pts {
-            let signed = normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2] + d;
-            if signed > margin {
-                far_pos += 1;
-            } else if signed < -margin {
-                far_neg += 1;
-            }
-        }
-
-        // Canonical normal points toward the larger (interior) side.
-        let (canon_normal, canon_d) = if far_pos >= far_neg {
-            (*normal, *d)
-        } else {
-            ([-normal[0], -normal[1], -normal[2]], -*d)
-        };
-
-        // Exterior: the minority (outward/air) side is very small.
-        let total_far = (far_pos + far_neg).max(1);
-        let outward_far = far_pos.min(far_neg);
-        let outward_frac = outward_far as f32 / total_far as f32;
-        let is_exterior = outward_frac < params.exterior_thresh;
-
+        let (canon_normal, canon_d, centroid, is_exterior) =
+            classify_plane(*normal, *d, inliers, pts, margin, params.exterior_thresh);
         result_planes.push(SegmentedPlane {
             normal: canon_normal,
             d: canon_d,
@@ -292,6 +253,71 @@ pub fn segment_for_dollhouse(pts: &[[f32; 3]], params: &DollhouseParams) -> Doll
         planes: result_planes,
         unassigned_indices,
     }
+}
+
+/// Canonicalize a plane's normal to point **inward** (toward the bulk of the
+/// cloud) and classify whether it is an exterior surface.
+///
+/// This is the shared implementation of steps 4 + 5 of the pipeline, factored
+/// out so interactive consumers (which run segment / merge / grow as separate
+/// user-triggered steps) classify planes through the exact same code path as
+/// [`segment_for_dollhouse`].
+///
+/// - `margin`: half-width of the near-plane band excluded from the inward/outward
+///   vote (typically `dist_thresh × canonicalize_margin_factor`).
+/// - `exterior_thresh`: outward-fraction below which the plane is exterior.
+///
+/// Returns `(canonical_normal, canonical_d, centroid, is_exterior)`. The
+/// returned normal/`d` satisfy `canonical_normal · p + canonical_d ≈ 0` on the
+/// plane, with the normal oriented toward the interior side.
+pub fn classify_plane(
+    normal: [f32; 3],
+    d: f32,
+    inliers: &[usize],
+    pts: &[[f32; 3]],
+    margin: f32,
+    exterior_thresh: f32,
+) -> ([f32; 3], f32, [f32; 3], bool) {
+    // Centroid of inlier set.
+    let centroid = if inliers.is_empty() {
+        [0.0f32; 3]
+    } else {
+        let n = inliers.len() as f32;
+        let (mut cx, mut cy, mut cz) = (0f32, 0f32, 0f32);
+        for &i in inliers {
+            cx += pts[i][0];
+            cy += pts[i][1];
+            cz += pts[i][2];
+        }
+        [cx / n, cy / n, cz / n]
+    };
+
+    // Count points clearly on each side of the plane (exclude near-plane band).
+    let mut far_pos = 0usize;
+    let mut far_neg = 0usize;
+    for &p in pts {
+        let signed = normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2] + d;
+        if signed > margin {
+            far_pos += 1;
+        } else if signed < -margin {
+            far_neg += 1;
+        }
+    }
+
+    // Canonical normal points toward the larger (interior) side.
+    let (canon_normal, canon_d) = if far_pos >= far_neg {
+        (normal, d)
+    } else {
+        ([-normal[0], -normal[1], -normal[2]], -d)
+    };
+
+    // Exterior: the minority (outward/air) side is very small.
+    let total_far = (far_pos + far_neg).max(1);
+    let outward_far = far_pos.min(far_neg);
+    let outward_frac = outward_far as f32 / total_far as f32;
+    let is_exterior = outward_frac < exterior_thresh;
+
+    (canon_normal, canon_d, centroid, is_exterior)
 }
 
 #[cfg(test)]

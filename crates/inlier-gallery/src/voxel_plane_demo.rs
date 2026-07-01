@@ -187,6 +187,7 @@ use spatialrust_inlier::{
     auto_tune::{auto_tune_settings, TunedSettings},
     region_growing::{region_growing_ransac, RansacMode},
     plane_ops::{merge_planes, grow_planes, GrowArgs},
+    dollhouse::classify_plane,
 };
 
 pub struct VoxelPlanePlugin;
@@ -209,6 +210,38 @@ impl Plugin for VoxelPlanePlugin {
 pub enum PointSource {
     Synthetic,
     File,
+}
+
+/// How to color the points belonging to detected planes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaneColorMode {
+    /// Per-plane palette color (default).
+    Palette,
+    /// Each point keeps its original point-cloud RGB (file sources only).
+    Original,
+    /// All plane points neutral gray.
+    Gray,
+}
+
+impl PlaneColorMode {
+    /// Cycle to the next mode. `has_rgb` gates the `Original` mode so it is
+    /// skipped for synthetic/RGB-less clouds where it would silently fall back.
+    fn next(self, has_rgb: bool) -> Self {
+        match self {
+            PlaneColorMode::Palette => if has_rgb { PlaneColorMode::Original } else { PlaneColorMode::Gray },
+            PlaneColorMode::Original => PlaneColorMode::Gray,
+            PlaneColorMode::Gray => PlaneColorMode::Palette,
+        }
+    }
+
+    /// Short label for the cycle button.
+    fn label(self) -> &'static str {
+        match self {
+            PlaneColorMode::Palette => "Palette",
+            PlaneColorMode::Original => "RGB",
+            PlaneColorMode::Gray => "Gray",
+        }
+    }
 }
 
 const MAX_PLANES: usize = 8;
@@ -303,7 +336,7 @@ pub struct VoxelPlaneState {
     /// Per-plane visibility toggle (index matches detected).
     pub plane_visible: Vec<bool>,
     pub visibility_dirty: bool,
-    pub color_planes: bool,  // false = render all plane pts in neutral gray
+    pub plane_color_mode: PlaneColorMode,  // how plane inlier points are colored
     /// Points used by all detected planes (for unassigned leftover rendering after merge).
     pub all_pts_cache: Vec<[f32; 3]>,
 }
@@ -362,7 +395,7 @@ impl Default for VoxelPlaneState {
             plane_entities: vec![],
             plane_visible: vec![],
             visibility_dirty: false,
-            color_planes: true,
+            plane_color_mode: PlaneColorMode::Palette,
         }
     }
 }
@@ -599,10 +632,11 @@ fn voxel_plane_ui(mut contexts: EguiContexts, mut state: ResMut<VoxelPlaneState>
                         for v in &mut state.plane_visible { *v = new_val; }
                         state.visibility_dirty = true;
                     }
-                    if ui.small_button(if state.color_planes { "Gray" } else { "Color" }).on_hover_text(
-                        if state.color_planes { "Switch to gray (no plane coloring)" } else { "Switch to per-plane colors" }
+                    if ui.small_button(state.plane_color_mode.label()).on_hover_text(
+                        "Cycle plane coloring: Palette → RGB (original) → Gray"
                     ).clicked() {
-                        state.color_planes = !state.color_planes;
+                        let has_rgb = !state.loaded_colors.is_empty();
+                        state.plane_color_mode = state.plane_color_mode.next(has_rgb);
                         state.needs_run = state.detected.is_empty();
                         if !state.detected.is_empty() {
                             // Re-spawn planes with new color setting without re-segmenting.
@@ -764,10 +798,11 @@ fn voxel_plane_scene(
             let n_merged = merged.len();
             let exterior_thresh = state.dollhouse_exterior_thresh;
             let dist_thresh = state.dist_thresh;
-            let color_planes = state.color_planes;
+            let color_mode = state.plane_color_mode;
+            let plane_colors = state.loaded_colors.clone();
             let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
             spawn_planes(&merged, &all_pts_c, &mut commands,
-                &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_planes,
+                &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
                 &mut det, &mut ents, &mut vis);
             state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
             state.merged_planes = merged;
@@ -822,10 +857,11 @@ fn voxel_plane_scene(
             let n_grown = grown.len();
             let exterior_thresh = state.dollhouse_exterior_thresh;
             let dist_thresh = state.dist_thresh;
-            let color_planes = state.color_planes;
+            let color_mode = state.plane_color_mode;
+            let plane_colors = state.loaded_colors.clone();
             let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
             spawn_planes(&grown, &all_pts_c, &mut commands,
-                &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_planes,
+                &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
                 &mut det, &mut ents, &mut vis);
             state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
             state.merged_planes = grown;
@@ -909,10 +945,11 @@ fn voxel_plane_scene(
         .map(|(n,d,v)| (*n,*d,v.clone())).collect();
     let exterior_thresh = state.dollhouse_exterior_thresh;
     let dist_thresh = state.dist_thresh;
-    let color_planes = state.color_planes;
+    let color_mode = state.plane_color_mode;
+    let plane_colors = state.loaded_colors.clone();
     let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
     spawn_planes(&raw_planes_clone, &all_pts, &mut commands,
-        &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_planes,
+        &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
         &mut det, &mut ents, &mut vis);
     state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
 
@@ -946,7 +983,8 @@ fn spawn_planes(
     point_size: f32,
     exterior_thresh: f32,
     dist_thresh: f32,   // used to exclude near-plane points from exterior count
-    color_planes: bool,
+    color_mode: PlaneColorMode,
+    plane_colors: &[[u8; 3]], // original per-point RGB, indexed like all_pts (empty = none)
     detected: &mut Vec<([f32;3], f32, usize, [f32;3], bool)>,
     plane_entities: &mut Vec<[Option<Entity>;2]>,
     plane_visible: &mut Vec<bool>,
@@ -961,41 +999,33 @@ fn spawn_planes(
         let [mr, mg, mb, ma] = MESH_COLORS[ci];
 
         let pts3d: Vec<[f32; 3]> = inliers.iter().map(|&i| all_pts[i]).collect();
-        let centroid = if pts3d.is_empty() { [0.0f32;3] } else {
-            let n = pts3d.len() as f32;
-            [pts3d.iter().map(|p|p[0]).sum::<f32>()/n,
-             pts3d.iter().map(|p|p[1]).sum::<f32>()/n,
-             pts3d.iter().map(|p|p[2]).sum::<f32>()/n]
-        };
-        // Canonicalize normal to point toward the majority of cloud points (inward).
-        // Exclude points within dist_thresh of the plane — they straddle both sides
-        // due to noise and would inflate the outward count for exterior walls.
-        let margin = dist_thresh * 3.0;
-        let mut far_pos = 0usize;
-        let mut far_neg = 0usize;
-        for &p in all_pts.iter() {
-            let signed = normal[0]*p[0] + normal[1]*p[1] + normal[2]*p[2] + d;
-            if signed > margin { far_pos += 1; }
-            else if signed < -margin { far_neg += 1; }
-        }
-        let (canonical_normal, canonical_d) = if far_pos >= far_neg {
-            (*normal, *d)
-        } else {
-            ([-normal[0], -normal[1], -normal[2]], -*d)
-        };
-        // Exterior test: with canonical_normal pointing inward, the outward side is
-        // canonical_normal·p + canonical_d < -margin (clearly outside, not near-plane noise).
-        let total_far = (far_pos + far_neg).max(1);
-        let outward_far = if far_pos >= far_neg { far_neg } else { far_pos };
-        let outward_frac = outward_far as f32 / total_far as f32;
-        let is_exterior = outward_frac < exterior_thresh;
+        // Canonicalize the normal inward and classify exterior via the shared
+        // library helper — the same code path `segment_for_dollhouse` runs, so
+        // the interactive Segment→Merge→Grow steps stay in sync with the lib.
+        // margin excludes the near-plane band (canonicalize_margin_factor = 3.0).
+        let (canonical_normal, canonical_d, centroid, is_exterior) =
+            classify_plane(*normal, *d, inliers, all_pts, dist_thresh * 3.0, exterior_thresh);
 
         detected.push((canonical_normal, canonical_d, pts3d.len(), centroid, is_exterior));
 
-        let pt_color = if color_planes { Color::srgb(r, g, b) } else { Color::srgb(0.65, 0.65, 0.65) };
+        // Original-RGB mode bakes per-point color into the mesh; palette/gray
+        // use a flat material color. Fall back to palette if colors are missing.
+        let use_rgb = color_mode == PlaneColorMode::Original && !plane_colors.is_empty();
+        let (pt_mesh, pt_color) = if use_rgb {
+            let cols: Vec<[u8; 3]> = inliers.iter()
+                .map(|&i| plane_colors.get(i).copied().unwrap_or([180, 180, 180]))
+                .collect();
+            (make_cloud_mesh_rgb(&pts3d, &cols, point_size), Color::WHITE)
+        } else {
+            let c = match color_mode {
+                PlaneColorMode::Gray => Color::srgb(0.65, 0.65, 0.65),
+                _ => Color::srgb(r, g, b),
+            };
+            (make_cloud_mesh(&pts3d, point_size), c)
+        };
         let pts_entity = if !pts3d.is_empty() {
             Some(commands.spawn((
-                Mesh3d(meshes.add(make_cloud_mesh(&pts3d, point_size))),
+                Mesh3d(meshes.add(pt_mesh)),
                 MeshMaterial3d(materials.add(StandardMaterial {
                     base_color: pt_color,
                     unlit: true,
