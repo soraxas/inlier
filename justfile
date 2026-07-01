@@ -2,6 +2,24 @@
 @default:
   just --list
 
+gallery-html := "crates/inlier-gallery/index.html"
+
+# One-time: install the wasm target and trunk (browser build toolchain).
+# Run this once before `wasm-dev` / `wasm-build`.
+wasm-setup:
+  rustup target add wasm32-unknown-unknown
+  cargo binstall -y trunk || cargo install --locked trunk
+
+# Serve the inlier-gallery as a browser app with hot reload (http://localhost:8080).
+# Debug profile: trunk skips wasm-opt, so rebuilds stay fast. Run `just wasm-setup` first.
+wasm-dev:
+  trunk serve {{gallery-html}} --open
+
+# Build an optimized wasm bundle into dist/. NOTE: --release runs wasm-opt over the
+# full bevy wasm module, which is slow and memory-hungry (untested end-to-end here).
+wasm-build:
+  trunk build --release {{gallery-html}}
+
 maturin-dev profile='--release' +args='':
   uv run maturin develop {{profile}} -F python {{args}}
 

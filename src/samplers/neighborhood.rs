@@ -1,7 +1,7 @@
 //! Neighborhood graph implementations for spatial sampling strategies.
 
 use crate::types::DataMatrix;
-use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
+use kiddo::{KdTree, SquaredEuclidean};
 
 /// Minimal neighborhood graph abstraction used by NAPSAC.
 ///
@@ -171,131 +171,93 @@ impl NeighborhoodGraph for GridNeighborhoodGraph {
     }
 }
 
-/// USearch-based neighborhood graph using approximate nearest neighbor search.
+/// KD-tree-based neighborhood graph using exact k-nearest-neighbor search.
 ///
-/// This implementation uses the `usearch` crate for fast approximate nearest neighbor
-/// search, which is more flexible than grid-based approaches and works well for
-/// high-dimensional data or irregular point distributions.
+/// Backed by the pure-Rust [`kiddo`] crate, this computes the exact `k` nearest
+/// neighbors of every point. The spatial dimension `D` is fixed at compile time
+/// (`2` for planar data, `3` for point clouds), matching the KD-tree idiom used
+/// elsewhere in the crate. It is a drop-in `NeighborhoodGraph` for NAPSAC-style
+/// samplers and compiles cleanly to `wasm32` (no C/C++ toolchain required).
 ///
 /// # Example
 /// ```
-/// use inlier::samplers::{UsearchNeighborhoodGraph, NeighborhoodGraph};
+/// use inlier::samplers::{KdTreeNeighborhoodGraph, NeighborhoodGraph};
 /// use inlier::types::DataMatrix;
 ///
-/// let mut graph = UsearchNeighborhoodGraph::new(10, 2); // 10 neighbors, 2D data
+/// let mut graph = KdTreeNeighborhoodGraph::<2>::new(10); // 10 neighbors, 2D data
 /// let data = DataMatrix::zeros(100, 2);
 /// graph.initialize(&data);
 /// let neighbors = graph.neighbors(0);
 /// ```
-pub struct UsearchNeighborhoodGraph {
-    /// USearch index for nearest neighbor queries
-    index: Option<Index>,
+pub struct KdTreeNeighborhoodGraph<const D: usize> {
     /// Neighbors for each point: `neighbors[i]` contains the neighbor indices for point `i`
     neighbors: Vec<Vec<usize>>,
     /// Number of neighbors to find for each point
     k_neighbors: usize,
-    /// Number of dimensions (extracted from data)
-    dimensions: usize,
     /// Empty vector for points with no neighbors
     empty: Vec<usize>,
 }
 
-impl UsearchNeighborhoodGraph {
-    /// Create a new USearch neighborhood graph.
+impl<const D: usize> KdTreeNeighborhoodGraph<D> {
+    /// Create a new KD-tree neighborhood graph.
     ///
     /// # Arguments
     /// * `k_neighbors` - Number of nearest neighbors to find for each point
-    /// * `dimensions` - Number of dimensions in the data (will be set from data if 0)
-    pub fn new(k_neighbors: usize, dimensions: usize) -> Self {
+    pub fn new(k_neighbors: usize) -> Self {
         Self {
-            index: None,
             neighbors: Vec::new(),
             k_neighbors,
-            dimensions,
             empty: Vec::new(),
         }
     }
 
     /// Build the neighborhood graph from data points.
-    fn build_neighbors(&mut self, data: &DataMatrix) -> bool {
+    fn build_neighbors(&mut self, data: &DataMatrix) {
         let n = data.n_points();
-        let dims = if self.dimensions > 0 {
-            self.dimensions
-        } else {
-            data.n_dims()
-        };
-
-        if n == 0 || dims == 0 {
-            return false;
-        }
-
-        // Create USearch index
-        let options = IndexOptions {
-            dimensions: dims,
-            // Squared L2 distance (faster)
-            metric: MetricKind::L2sq,
-            quantization: ScalarKind::F32,
-            ..Default::default()
-        };
-
-        let index = match Index::new(&options) {
-            Ok(idx) => idx,
-            Err(_) => return false,
-        };
-
-        // Reserve capacity
-        if index.reserve(n).is_err() {
-            return false;
-        }
-
-        // Add all points to the index
-        for i in 0..n {
-            let mut vector = Vec::<f32>::with_capacity(dims);
-            for j in 0..dims {
-                vector.push(data.get(i, j) as f32);
-            }
-            if index.add(i as u64, &vector).is_err() {
-                return false;
-            }
-        }
-
-        // Find neighbors for each point
         self.neighbors.clear();
         self.neighbors.resize(n, Vec::new());
 
+        if n == 0 || self.k_neighbors == 0 {
+            return;
+        }
+        debug_assert!(
+            data.n_dims() >= D,
+            "KdTreeNeighborhoodGraph::<{D}> requires data with at least {D} dimensions, got {}",
+            data.n_dims()
+        );
+
+        // Build a KD-tree over all points, keyed by point index.
+        let mut tree: KdTree<f64, D> = KdTree::with_capacity(n);
         for i in 0..n {
-            let mut query = Vec::<f32>::with_capacity(dims);
-            for j in 0..dims {
-                query.push(data.get(i, j) as f32);
+            let mut point = [0.0f64; D];
+            for (j, coord) in point.iter_mut().enumerate() {
+                *coord = data.get(i, j);
+            }
+            tree.add(&point, i as u64);
+        }
+
+        // For each point, query the k+1 nearest (the first is the point itself).
+        let k = (self.k_neighbors + 1).min(n);
+        for i in 0..n {
+            let mut query = [0.0f64; D];
+            for (j, coord) in query.iter_mut().enumerate() {
+                *coord = data.get(i, j);
             }
 
-            // Search for k+1 neighbors (including the point itself)
-            let k = (self.k_neighbors + 1).min(n);
-            match index.search(&query, k) {
-                Ok(results) => {
-                    // Filter out the point itself and store neighbors
-                    for (key, _distance) in results.keys.iter().zip(results.distances.iter()) {
-                        let key_usize = *key as usize;
-                        if key_usize != i {
-                            self.neighbors[i].push(key_usize);
-                            if self.neighbors[i].len() >= self.k_neighbors {
-                                break;
-                            }
-                        }
+            for nn in tree.nearest_n::<SquaredEuclidean>(&query, k) {
+                let idx = nn.item as usize;
+                if idx != i {
+                    self.neighbors[i].push(idx);
+                    if self.neighbors[i].len() >= self.k_neighbors {
+                        break;
                     }
-                }
-                Err(_) => {
-                    // If search fails, leave neighbors empty for this point
                 }
             }
         }
-
-        self.index = Some(index);
-        true
     }
 }
 
-impl NeighborhoodGraph for UsearchNeighborhoodGraph {
+impl<const D: usize> NeighborhoodGraph for KdTreeNeighborhoodGraph<D> {
     fn neighbors(&self, index: usize) -> &[usize] {
         if index >= self.neighbors.len() {
             return &self.empty;
@@ -304,10 +266,7 @@ impl NeighborhoodGraph for UsearchNeighborhoodGraph {
     }
 
     fn initialize(&mut self, data: &DataMatrix) {
-        if self.dimensions == 0 {
-            self.dimensions = data.n_dims();
-        }
-        let _ = self.build_neighbors(data);
+        self.build_neighbors(data);
     }
 }
 
@@ -339,5 +298,42 @@ impl NeighborhoodGraph for DummyNeighborhood {
 
     fn initialize(&mut self, _data: &DataMatrix) {
         // Dummy neighborhood is pre-initialized
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kdtree_neighbors_are_exact_and_exclude_self() {
+        // Five collinear points on the x-axis at x = 0,1,2,3,4.
+        let coords = [0.0, 1.0, 2.0, 3.0, 4.0];
+        let mut data = DataMatrix::zeros(coords.len(), 2);
+        for (i, &x) in coords.iter().enumerate() {
+            data.set(i, 0, x);
+            data.set(i, 1, 0.0);
+        }
+
+        let mut graph = KdTreeNeighborhoodGraph::<2>::new(2);
+        graph.initialize(&data);
+
+        // Interior point 2 (x=2) has the two immediate neighbors 1 and 3.
+        let mut mid = graph.neighbors(2).to_vec();
+        mid.sort_unstable();
+        assert_eq!(mid, vec![1, 3]);
+        assert!(!graph.neighbors(2).contains(&2), "must exclude self");
+
+        // Endpoint 0 (x=0) has the two nearest: 1 then 2.
+        let mut end = graph.neighbors(0).to_vec();
+        end.sort_unstable();
+        assert_eq!(end, vec![1, 2]);
+        assert!(graph.neighbors(0).iter().all(|&n| n != 0));
+    }
+
+    #[test]
+    fn kdtree_out_of_range_index_is_empty() {
+        let graph = KdTreeNeighborhoodGraph::<3>::new(4);
+        assert!(graph.neighbors(999).is_empty());
     }
 }

@@ -19,7 +19,7 @@ pub use adaptive_reordering::AdaptiveReorderingSampler;
 pub use importance::ImportanceSampler;
 pub use napsac::NapsacSampler;
 pub use neighborhood::{
-    DummyNeighborhood, GridNeighborhoodGraph, NeighborhoodGraph, UsearchNeighborhoodGraph,
+    DummyNeighborhood, GridNeighborhoodGraph, KdTreeNeighborhoodGraph, NeighborhoodGraph,
 };
 pub use progressive_napsac::ProgressiveNapsacSampler;
 pub use prosac::ProsacSampler;

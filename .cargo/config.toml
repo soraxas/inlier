@@ -1,0 +1,4 @@
+# wasm32 builds (the inlier-gallery browser target) need getrandom's `wasm_js`
+# backend selected via cfg. See https://docs.rs/getrandom/latest/#webassembly-support
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
