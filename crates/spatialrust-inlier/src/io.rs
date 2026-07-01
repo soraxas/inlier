@@ -11,7 +11,7 @@ pub use spatialrust_io::{
 #[cfg(feature = "io")]
 pub use spatialrust_io::{
     read_pcd_file, write_pcd_file,
-    read_ply_file, write_ply_file,
+    read_ply, read_ply_file, write_ply_file,
     read_las_file, write_las_file,
 };
 

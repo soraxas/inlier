@@ -10,3 +10,6 @@ spatialrust-inlier = { path = "../spatialrust-inlier", features = ["io", "filter
 inlier = { path = "../..", default-features = false, features = ["io"] }
 nalgebra = { version = "0.33", features = ["std"] }
 spade = "2"
+# Cross-platform async HTTP (native + wasm) used to fetch bundled point-cloud
+# assets in the browser, where there is no filesystem for read_point_cloud_file.
+ehttp = "0.5"

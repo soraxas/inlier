@@ -268,6 +268,18 @@ const MESH_COLORS: [[f32; 4]; MAX_PLANES] = [
     [0.6, 0.6, 0.1, 0.20],
 ];
 
+/// Result of the browser "Load" async fetch. Native builds read the file
+/// synchronously via `read_point_cloud_file` and never use this.
+#[cfg(target_arch = "wasm32")]
+#[derive(Default)]
+enum Fetch {
+    #[default]
+    Idle,
+    Pending,
+    Done(Vec<u8>),
+    Failed(String),
+}
+
 #[derive(Resource)]
 pub struct VoxelPlaneState {
     pub n_planes: usize,
@@ -294,6 +306,9 @@ pub struct VoxelPlaneState {
     // source
     pub point_source: PointSource,
     pub file_path: String,
+    /// Shared slot for the browser async fetch of `file_path` (wasm only).
+    #[cfg(target_arch = "wasm32")]
+    pub fetch: std::sync::Arc<std::sync::Mutex<Fetch>>,
     pub loaded_pts: Vec<[f32; 3]>,
     pub loaded_colors: Vec<[u8; 3]>,  // empty = no color data in file
     pub show_rgb: bool,
@@ -383,7 +398,9 @@ impl Default for VoxelPlaneState {
             merged_planes: vec![],
             all_pts_cache: vec![],
             point_source: PointSource::Synthetic,
-            file_path: String::new(),
+            file_path: "SALON.ply".into(),
+            #[cfg(target_arch = "wasm32")]
+            fetch: std::sync::Arc::new(std::sync::Mutex::new(Fetch::Idle)),
             loaded_pts: Vec::new(),
             loaded_colors: Vec::new(),
             show_rgb: true,
@@ -412,6 +429,9 @@ fn on_exit(mut commands: Commands, q: Query<Entity, With<VpEntity>>) {
 }
 
 fn voxel_plane_ui(mut contexts: EguiContexts, mut state: ResMut<VoxelPlaneState>) {
+    // Browser: pick up a completed async fetch of the point-cloud asset.
+    #[cfg(target_arch = "wasm32")]
+    poll_fetch(&mut state);
     let Ok(ctx) = contexts.ctx_mut() else { return };
     egui::Panel::left("vp_panel").default_size(260.0).show(ctx, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -432,18 +452,18 @@ fn voxel_plane_ui(mut contexts: EguiContexts, mut state: ResMut<VoxelPlaneState>
                 });
                 ui.horizontal(|ui| {
                     if ui.button("Load").clicked() {
+                        #[cfg(not(target_arch = "wasm32"))]
                         match read_point_cloud_file(&state.file_path) {
-                            Ok(cloud) => {
-                                state.loaded_colors = cloud_rgb(&cloud);
-                                state.loaded_pts = cloud_xyz(&cloud);
-                                let color_info = if state.loaded_colors.is_empty() { "" } else { " (RGB)" };
-                                state.status = format!("Loaded {} pts{color_info} — click Segment to run", state.loaded_pts.len());
-                                state.detected.clear();
-                                state.needs_reload = true;
-                            }
-                            Err(e) => {
-                                state.status = format!("Load error: {e}");
-                            }
+                            Ok(cloud) => state.set_cloud(&cloud),
+                            Err(e) => state.status = format!("Load error: {e}"),
+                        }
+                        // Browser: fetch the bundled asset over HTTP; poll_fetch
+                        // (top of this fn) parses it once the bytes arrive.
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let url = state.file_path.clone();
+                            start_fetch(&state.fetch, &url);
+                            state.status = format!("Fetching {url}…");
                         }
                     }
                     let seg_enabled = !state.loaded_pts.is_empty();
@@ -1067,6 +1087,57 @@ fn spawn_planes(
 // ─── Cloud helpers ────────────────────────────────────────────────────────────
 
 /// Extract RGB colors from a PointCloud. Returns empty vec if no color fields.
+impl VoxelPlaneState {
+    /// Populate `loaded_pts`/`loaded_colors` from a decoded cloud and mark it
+    /// for redraw. Shared by the native file read and the browser fetch path.
+    fn set_cloud(&mut self, cloud: &spatialrust_inlier::PointCloud) {
+        self.loaded_colors = cloud_rgb(cloud);
+        self.loaded_pts = cloud_xyz(cloud);
+        let color_info = if self.loaded_colors.is_empty() { "" } else { " (RGB)" };
+        self.status =
+            format!("Loaded {} pts{color_info} — click Segment to run", self.loaded_pts.len());
+        self.detected.clear();
+        self.needs_reload = true;
+    }
+}
+
+/// Kick off a background HTTP fetch of `url` (relative to the page origin) into
+/// the shared slot. The browser has no filesystem, so the "Load" button fetches
+/// the bundled asset instead of reading a path.
+#[cfg(target_arch = "wasm32")]
+fn start_fetch(slot: &std::sync::Arc<std::sync::Mutex<Fetch>>, url: &str) {
+    *slot.lock().unwrap() = Fetch::Pending;
+    let slot = slot.clone();
+    ehttp::fetch(ehttp::Request::get(url), move |result| {
+        let next = match result {
+            Ok(resp) if resp.ok => Fetch::Done(resp.bytes),
+            Ok(resp) => Fetch::Failed(format!("HTTP {} {}", resp.status, resp.status_text)),
+            Err(e) => Fetch::Failed(e),
+        };
+        *slot.lock().unwrap() = next;
+    });
+}
+
+/// Drain a completed fetch: parse the PLY bytes in-memory and load the cloud,
+/// or surface the error in the status line. No-op while idle/pending.
+#[cfg(target_arch = "wasm32")]
+fn poll_fetch(state: &mut VoxelPlaneState) {
+    let done = {
+        let mut slot = state.fetch.lock().unwrap();
+        matches!(&*slot, Fetch::Done(_) | Fetch::Failed(_)).then(|| std::mem::take(&mut *slot))
+    };
+    match done {
+        Some(Fetch::Done(bytes)) => {
+            match spatialrust_inlier::io::read_ply(&mut std::io::Cursor::new(bytes)) {
+                Ok(cloud) => state.set_cloud(&cloud),
+                Err(e) => state.status = format!("Parse error: {e}"),
+            }
+        }
+        Some(Fetch::Failed(e)) => state.status = format!("Fetch error: {e}"),
+        _ => {}
+    }
+}
+
 fn cloud_rgb(cloud: &spatialrust_inlier::PointCloud) -> Vec<[u8; 3]> {
     use spatialrust_inlier::{FieldSemantic, PointBuffer};
     let schema = cloud.schema();
