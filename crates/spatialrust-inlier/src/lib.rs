@@ -49,6 +49,10 @@ pub mod auto_tune;
 pub mod region_growing;
 
 #[cfg(feature = "segmentation")]
+/// Pluggable plane-estimation methods behind a common trait.
+pub mod plane_estimation;
+
+#[cfg(feature = "segmentation")]
 /// Merge and grow post-processing for segmented planes.
 pub mod plane_ops;
 
@@ -94,5 +98,7 @@ pub use registration::InlierRegistration;
 pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, classify_plane, segment_for_dollhouse};
 #[cfg(feature = "segmentation")]
 pub use region_growing::RansacMode;
+#[cfg(feature = "segmentation")]
+pub use plane_estimation::{Plane, PlaneEstimator, RegionGrowing};
 #[cfg(feature = "segmentation")]
 pub use plane_ops::GrowArgs;

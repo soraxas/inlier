@@ -185,7 +185,8 @@ use spatialrust_inlier::{
     spatial_grid::{estimate_cell_size, build_grid, knn},
     normals::{pca_normal_and_curvature, normalize3, cross3, fit_plane_3pts, fit_plane_ls},
     auto_tune::{auto_tune_settings, TunedSettings},
-    region_growing::{region_growing_ransac, region_growing_ransac_with_progress, RansacMode},
+    region_growing::{region_growing_ransac, RansacMode},
+    plane_estimation::{PlaneEstimator, RegionGrowing},
     plane_ops::{merge_planes, grow_planes, GrowArgs},
     dollhouse::classify_plane,
 };
@@ -1022,15 +1023,18 @@ fn voxel_plane_scene(
     let progress = Arc::new(Mutex::new((0.0f32, String::new())));
     let (tx, rx) = mpsc::channel();
     let prog = progress.clone();
+    // Plane-estimation method (currently region-growing; other PlaneEstimator
+    // impls can be selected here once added).
+    let estimator = RegionGrowing {
+        k, angle_thresh: angle, min_cluster_size: min_cluster, dist_thresh: dist,
+        mode, sigma_max, max_iterations: max_iters, confidence: conf,
+    };
     spawn_compute(move || {
-        let planes = region_growing_ransac_with_progress(
-            &all_pts, k, angle, min_cluster, dist, mode, sigma_max, max_iters, conf,
-            &mut |f, phase| {
-                if let Ok(mut g) = prog.lock() {
-                    *g = (f, phase.to_string());
-                }
-            },
-        );
+        let planes = estimator.estimate_with_progress(&all_pts, &mut |f, phase| {
+            if let Ok(mut g) = prog.lock() {
+                *g = (f, phase.to_string());
+            }
+        });
         let _ = tx.send((planes, all_pts));
     });
     state.seg_job = Some(SegJob { progress, rx: Mutex::new(rx) });
