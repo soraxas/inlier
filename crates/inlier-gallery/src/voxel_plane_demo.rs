@@ -186,7 +186,7 @@ use spatialrust_inlier::{
     normals::{pca_normal_and_curvature, normalize3, cross3, fit_plane_3pts, fit_plane_ls},
     auto_tune::{auto_tune_settings, TunedSettings},
     region_growing::{region_growing_ransac, RansacMode},
-    plane_estimation::{PlaneEstimator, RegionGrowing},
+    plane_estimation::{GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator, RegionGrowing},
     plane_ops::{merge_planes, grow_planes, GrowArgs},
     dollhouse::classify_plane,
 };
@@ -245,6 +245,28 @@ impl Plugin for VoxelPlanePlugin {
 pub enum PointSource {
     Synthetic,
     File,
+}
+
+/// Which plane-estimation method to run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaneMethod {
+    /// Region-growing + RANSAC (fragments on holey/variable-density clouds).
+    RegionGrowing,
+    /// Global dominant-plane peeling (high coverage; can slice through).
+    Peeling,
+    /// Manhattan-frame extraction — planes in all orientations. Best for
+    /// buildings; feeds the dollhouse clean, correctly-oriented walls.
+    Manhattan,
+}
+
+impl PlaneMethod {
+    fn label(self) -> &'static str {
+        match self {
+            PlaneMethod::RegionGrowing => "Region-grow",
+            PlaneMethod::Peeling => "Peeling",
+            PlaneMethod::Manhattan => "Manhattan",
+        }
+    }
 }
 
 /// How to color the points belonging to detected planes.
@@ -332,6 +354,7 @@ pub struct VoxelPlaneState {
     // Step 3
     pub dist_thresh: f32,
     pub ransac_mode: RansacMode,
+    pub plane_method: PlaneMethod,
     /// sigma_max for MAGSAC++ (multiples of dist_thresh; UI shows the multiplier)
     pub sigma_factor: f32,
     /// MetaSAC max iterations (MSAC + MAGSAC++)
@@ -410,6 +433,7 @@ impl Default for VoxelPlaneState {
             min_cluster_size: 30,
             dist_thresh: 0.08,
             ransac_mode: RansacMode::Simple,
+            plane_method: PlaneMethod::Manhattan,
             sigma_factor: 1.5,
             max_iterations: 1000,
             confidence: 0.99,
@@ -485,6 +509,14 @@ fn voxel_plane_ui(mut contexts: EguiContexts, mut state: ResMut<VoxelPlaneState>
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut state.point_source, PointSource::Synthetic, "Synthetic");
                 ui.selectable_value(&mut state.point_source, PointSource::File, "File");
+            });
+
+            // Plane-estimation method selector.
+            ui.horizontal(|ui| {
+                ui.label("Method:");
+                for m in [PlaneMethod::RegionGrowing, PlaneMethod::Peeling, PlaneMethod::Manhattan] {
+                    ui.selectable_value(&mut state.plane_method, m, m.label());
+                }
             });
 
             if state.point_source == PointSource::File {
@@ -1025,9 +1057,18 @@ fn voxel_plane_scene(
     let prog = progress.clone();
     // Plane-estimation method (currently region-growing; other PlaneEstimator
     // impls can be selected here once added).
-    let estimator = RegionGrowing {
-        k, angle_thresh: angle, min_cluster_size: min_cluster, dist_thresh: dist,
-        mode, sigma_max, max_iterations: max_iters, confidence: conf,
+    let estimator: Box<dyn PlaneEstimator + Send> = match state.plane_method {
+        PlaneMethod::RegionGrowing => Box::new(RegionGrowing {
+            k, angle_thresh: angle, min_cluster_size: min_cluster, dist_thresh: dist,
+            mode, sigma_max, max_iterations: max_iters, confidence: conf,
+        }),
+        PlaneMethod::Peeling => Box::new(GlobalPlanePeeling {
+            k, normal_consensus: false, dist_thresh: dist, angle_thresh: angle,
+            min_support: min_cluster, max_planes: 60, max_iterations: max_iters, confidence: conf,
+        }),
+        PlaneMethod::Manhattan => Box::new(ManhattanPlanes {
+            k, dist_thresh: dist, angle_thresh: angle, min_support: min_cluster,
+        }),
     };
     spawn_compute(move || {
         let planes = estimator.estimate_with_progress(&all_pts, &mut |f, phase| {
