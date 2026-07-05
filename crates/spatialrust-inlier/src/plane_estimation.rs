@@ -211,6 +211,259 @@ impl PlaneEstimator for GlobalPlanePeeling {
     }
 }
 
+/// Manhattan-frame plane extraction: bias fits to a shared orthogonal frame so
+/// planes come out in *all* orientations (walls in two directions + floors),
+/// instead of greedy peeling repeatedly taking the largest-area orientation.
+///
+/// 1. Estimate an orthogonal frame from normal statistics: `up` = the dominant
+///    normal direction (floors/ceilings have the most points); `h1` = the
+///    dominant *horizontal* normal (main wall direction); `h2 = up × h1`.
+/// 2. Assign each point to the frame axis its normal is closest to (an
+///    orientation vote), so a horizontal slab can't absorb wall points.
+/// 3. Along each axis, gap-cluster the assigned points' projections: each tight
+///    band is one plane (a floor at an `up` offset, a wall at an `h1`/`h2`
+///    offset). Plane normals are snapped exactly to the frame axis.
+///
+/// Assumes walls are near-orthogonal (Manhattan world) — true for buildings.
+/// Slanted/curved surfaces fall between axes and stay unassigned.
+#[derive(Debug, Clone)]
+pub struct ManhattanPlanes {
+    /// Neighbourhood size for per-point normal estimation.
+    pub k: usize,
+    /// Slab half-width: gap between projection bands that splits two planes,
+    /// and the tolerance that binds a band together.
+    pub dist_thresh: f32,
+    /// Max angle (radians) between a point normal and a frame axis for the point
+    /// to be assigned to that axis.
+    pub angle_thresh: f32,
+    /// Minimum points for a band to become a plane.
+    pub min_support: usize,
+}
+
+/// Dominant direction of a set of normals via the largest eigenvector of
+/// `Σ vvᵀ`. With `up=None`, `v = n` → the most common normal (≈ up). With
+/// `up=Some`, `v` is the component of `n` orthogonal to `up` → the dominant
+/// horizontal normal.
+fn dominant_direction(normals: &[[f32; 3]], up: Option<[f32; 3]>) -> [f32; 3] {
+    use nalgebra::{Matrix3, SymmetricEigen, Vector3};
+    let mut m = Matrix3::<f64>::zeros();
+    for &nv in normals {
+        if nv == [0.0; 3] {
+            continue;
+        }
+        let mut v = Vector3::new(nv[0] as f64, nv[1] as f64, nv[2] as f64);
+        if let Some(u) = up {
+            let uu = Vector3::new(u[0] as f64, u[1] as f64, u[2] as f64);
+            v -= uu * v.dot(&uu);
+        }
+        let nrm = v.norm();
+        if nrm < 1e-6 {
+            continue;
+        }
+        v /= nrm;
+        m += v * v.transpose();
+    }
+    let eig = SymmetricEigen::new(m);
+    let mut best = 0;
+    for i in 1..3 {
+        if eig.eigenvalues[i] > eig.eigenvalues[best] {
+            best = i;
+        }
+    }
+    let e = eig.eigenvectors.column(best);
+    let v = Vector3::new(e[0], e[1], e[2]).normalize();
+    [v[0] as f32, v[1] as f32, v[2] as f32]
+}
+
+/// Dominant *horizontal* wall direction as the peak of a mod-90° orientation
+/// histogram (circular mean of 4θ). Unlike an eigenvector, this stays stable
+/// when the two perpendicular wall directions have equal support — walls at θ
+/// and θ+90° reinforce the *same* Manhattan peak instead of cancelling into a
+/// diagonal.
+fn dominant_horizontal(normals: &[[f32; 3]], up: [f32; 3]) -> [f32; 3] {
+    let a = if up[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+    let mut e1 = cross3(up, a);
+    let e1n = (e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]).sqrt();
+    e1 = [e1[0] / e1n, e1[1] / e1n, e1[2] / e1n];
+    let e2 = cross3(up, e1); // unit: up ⟂ e1, both unit
+    let (mut c, mut s) = (0.0f64, 0.0f64);
+    for &n in normals {
+        if n == [0.0; 3] {
+            continue;
+        }
+        let du = dot3(n, up);
+        let h = [n[0] - up[0] * du, n[1] - up[1] * du, n[2] - up[2] * du];
+        let x = dot3(h, e1) as f64;
+        let y = dot3(h, e2) as f64;
+        let w = (x * x + y * y).sqrt(); // horizontal magnitude (floors weigh ~0)
+        if w < 1e-4 {
+            continue;
+        }
+        let th = y.atan2(x);
+        c += w * (4.0 * th).cos();
+        s += w * (4.0 * th).sin();
+    }
+    let phi = (s.atan2(c) / 4.0) as f32;
+    let (cp, sp) = (phi.cos(), phi.sin());
+    [
+        e1[0] * cp + e2[0] * sp,
+        e1[1] * cp + e2[1] * sp,
+        e1[2] * cp + e2[2] * sp,
+    ]
+}
+
+#[inline]
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// Cluster 1-D projections into planes by density peaks. Histograms the values
+/// (bin = `dist`), takes local-maximum bins with ≥ `min_support` as plane
+/// centers (merging centers closer than `dist`), then assigns each value to its
+/// nearest center within `dist`. Returns `(center, member_indices)` per plane.
+/// Robust to sparse stray points that would chain single-linkage clusters.
+fn cluster_1d_peaks(mut items: Vec<(f32, usize)>, dist: f32, min_support: usize) -> Vec<(f32, Vec<usize>)> {
+    if items.len() < min_support {
+        return vec![];
+    }
+    items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let (lo, hi) = (items[0].0, items[items.len() - 1].0);
+    let w = dist.max(1e-6);
+    let nb = ((hi - lo) / w) as usize + 1;
+    let mut counts = vec![0usize; nb];
+    for &(p, _) in &items {
+        counts[((p - lo) / w) as usize] += 1;
+    }
+    // Local-maximum bins with enough support → candidate centers.
+    let mut centers: Vec<f32> = Vec::new();
+    for i in 0..nb {
+        let c = counts[i];
+        if c >= min_support
+            && (i == 0 || c >= counts[i - 1])
+            && (i + 1 == nb || c >= counts[i + 1])
+        {
+            let center = lo + (i as f32 + 0.5) * w;
+            // Merge with the previous center if within `dist`.
+            if centers.last().map(|&p| center - p < dist).unwrap_or(false) {
+                continue;
+            }
+            centers.push(center);
+        }
+    }
+    if centers.is_empty() {
+        return vec![];
+    }
+    let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); centers.len()];
+    let mut sums = vec![0.0f32; centers.len()];
+    for &(p, idx) in &items {
+        let mut bi = 0;
+        let mut bd = f32::MAX;
+        for (ci, &c) in centers.iter().enumerate() {
+            let d = (p - c).abs();
+            if d < bd {
+                bd = d;
+                bi = ci;
+            }
+        }
+        if bd <= dist {
+            buckets[bi].push(idx);
+            sums[bi] += p;
+        }
+    }
+    buckets
+        .into_iter()
+        .enumerate()
+        .filter(|(_, b)| b.len() >= min_support)
+        .map(|(ci, b)| (sums[ci] / b.len() as f32, b))
+        .collect()
+}
+
+#[inline]
+fn cross3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+impl PlaneEstimator for ManhattanPlanes {
+    fn estimate_with_progress(
+        &self,
+        pts: &[[f32; 3]],
+        on_progress: &mut dyn FnMut(f32, &str),
+    ) -> Vec<Plane> {
+        let n = pts.len();
+        if n < 3 {
+            return vec![];
+        }
+
+        // 1. Per-point normals.
+        on_progress(0.0, "Estimating normals");
+        let cell = estimate_cell_size(pts);
+        let grid = build_grid(pts, cell);
+        let normals: Vec<[f32; 3]> = (0..n)
+            .map(|i| {
+                let nb = knn(pts, i, self.k, cell, &grid);
+                if nb.len() < 3 {
+                    [0.0; 3]
+                } else {
+                    pca_normal_and_curvature(pts, &nb).map(|(nv, _)| nv).unwrap_or([0.0; 3])
+                }
+            })
+            .collect();
+
+        // 2. Orthogonal frame from normal statistics.
+        on_progress(0.5, "Estimating frame");
+        let up = dominant_direction(&normals, None);
+        let h1 = dominant_horizontal(&normals, up);
+        let mut h2 = cross3(up, h1);
+        let h2n = (h2[0] * h2[0] + h2[1] * h2[1] + h2[2] * h2[2]).sqrt();
+        if h2n > 1e-6 {
+            h2 = [h2[0] / h2n, h2[1] / h2n, h2[2] / h2n];
+        }
+        let axes = [up, h1, h2];
+
+        // 3. Orientation vote: assign each point to the axis its normal matches.
+        on_progress(0.6, "Extracting planes");
+        let cos_t = self.angle_thresh.cos();
+        let mut groups: [Vec<(f32, usize)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        for i in 0..n {
+            let nv = normals[i];
+            if nv == [0.0; 3] {
+                continue;
+            }
+            let d = [dot3(nv, axes[0]).abs(), dot3(nv, axes[1]).abs(), dot3(nv, axes[2]).abs()];
+            let a = if d[0] >= d[1] && d[0] >= d[2] {
+                0
+            } else if d[1] >= d[2] {
+                1
+            } else {
+                2
+            };
+            if d[a] < cos_t {
+                continue;
+            }
+            groups[a].push((dot3(pts[i], axes[a]), i));
+        }
+
+        // 4. Cluster projections along each axis into parallel planes by DENSITY
+        //    peaks (not single-linkage gaps, which would chain distinct floors
+        //    together through sparse stray points).
+        let mut planes: Vec<Plane> = Vec::new();
+        for a in 0..3 {
+            let g = std::mem::take(&mut groups[a]);
+            for (center, idx) in cluster_1d_peaks(g, self.dist_thresh, self.min_support) {
+                planes.push((axes[a], -center, idx));
+            }
+        }
+
+        on_progress(1.0, "Done");
+        planes.sort_unstable_by(|a, b| b.2.len().cmp(&a.2.len()));
+        planes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,6 +506,41 @@ mod tests {
         for (a, b) in via_trait.iter().zip(via_free.iter()) {
             assert_eq!(a.2, b.2);
         }
+    }
+
+    #[test]
+    fn manhattan_finds_orthogonal_planes() {
+        // A box corner: floor (z=0), and two perpendicular walls (x=0, y=0).
+        // Greedy peeling would over-pick the largest; Manhattan must return
+        // planes in all THREE orientations.
+        let mut pts = Vec::new();
+        let mut s: u64 = 3;
+        let mut rnd = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((s >> 40) as f32 / (1u64 << 24) as f32)
+        };
+        for _ in 0..1500 { pts.push([rnd(), rnd(), 0.01 * rnd()]); } // z=0 floor (big)
+        for _ in 0..600 { pts.push([0.01 * rnd(), rnd(), rnd()]); } // x=0 wall
+        for _ in 0..600 { pts.push([rnd(), 0.01 * rnd(), rnd()]); } // y=0 wall
+
+        let est = ManhattanPlanes {
+            k: 20,
+            dist_thresh: 0.05,
+            angle_thresh: 30f32.to_radians(),
+            min_support: 100,
+        };
+        let planes = est.estimate(&pts);
+        assert!(planes.len() >= 3, "want ≥3 planes across orientations, got {}", planes.len());
+        // Normals should span all three axes (up to sign), not one direction.
+        let axis_of = |n: &[f32; 3]| {
+            let a = [n[0].abs(), n[1].abs(), n[2].abs()];
+            if a[0] >= a[1] && a[0] >= a[2] { 0 } else if a[1] >= a[2] { 1 } else { 2 }
+        };
+        let mut seen = [false; 3];
+        for p in &planes {
+            seen[axis_of(&p.0)] = true;
+        }
+        assert!(seen.iter().all(|&s| s), "planes should cover all 3 axes, got {seen:?}");
     }
 
     #[test]

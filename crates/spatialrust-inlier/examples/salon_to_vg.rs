@@ -9,7 +9,7 @@ use std::io::Write;
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
 use spatialrust_inlier::RansacMode;
-use spatialrust_inlier::{GlobalPlanePeeling, PlaneEstimator, RegionGrowing};
+use spatialrust_inlier::{GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator, RegionGrowing};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -49,15 +49,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let method = args.get(7).map(String::as_str).unwrap_or("rg");
     let dist_thresh = diag * dist_factor;
     let planes = match method {
-        "peel" => GlobalPlanePeeling {
+        // "peel" = distance-only; "peeln" = with the normal-consensus anti-cut gate.
+        "peel" | "peeln" => GlobalPlanePeeling {
             k: 20,
-            normal_consensus: false,
+            normal_consensus: method == "peeln",
             dist_thresh,
             angle_thresh: angle_deg.to_radians(),
             min_support: min_cluster,
             max_planes: 60,
             max_iterations: 1000,
             confidence: 0.99,
+        }
+        .estimate(&pts),
+        "manh" => ManhattanPlanes {
+            k: 20,
+            dist_thresh,
+            angle_thresh: angle_deg.to_radians(),
+            min_support: min_cluster,
         }
         .estimate(&pts),
         _ => RegionGrowing {

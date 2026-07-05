@@ -99,6 +99,8 @@ pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, classify_pl
 #[cfg(feature = "segmentation")]
 pub use region_growing::RansacMode;
 #[cfg(feature = "segmentation")]
-pub use plane_estimation::{GlobalPlanePeeling, Plane, PlaneEstimator, RegionGrowing};
+pub use plane_estimation::{
+    GlobalPlanePeeling, ManhattanPlanes, Plane, PlaneEstimator, RegionGrowing,
+};
 #[cfg(feature = "segmentation")]
 pub use plane_ops::GrowArgs;
