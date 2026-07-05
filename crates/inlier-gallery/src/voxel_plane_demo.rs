@@ -355,6 +355,9 @@ pub struct VoxelPlaneState {
     pub dist_thresh: f32,
     pub ransac_mode: RansacMode,
     pub plane_method: PlaneMethod,
+    /// Estimated up direction (dominant plane normal); used to tell walls from
+    /// floors so the dollhouse only hides walls.
+    pub up_dir: [f32; 3],
     /// sigma_max for MAGSAC++ (multiples of dist_thresh; UI shows the multiplier)
     pub sigma_factor: f32,
     /// MetaSAC max iterations (MSAC + MAGSAC++)
@@ -434,6 +437,7 @@ impl Default for VoxelPlaneState {
             dist_thresh: 0.08,
             ransac_mode: RansacMode::Simple,
             plane_method: PlaneMethod::Manhattan,
+            up_dir: [0.0, 1.0, 0.0],
             sigma_factor: 1.5,
             max_iterations: 1000,
             confidence: 0.99,
@@ -1067,7 +1071,12 @@ fn voxel_plane_scene(
             min_support: min_cluster, max_planes: 60, max_iterations: max_iters, confidence: conf,
         }),
         PlaneMethod::Manhattan => Box::new(ManhattanPlanes {
-            k, dist_thresh: dist, angle_thresh: angle, min_support: min_cluster,
+            k, dist_thresh: dist,
+            // Orientation-vote tolerance: the region-growing angle slider (often
+            // ~10°) is far too tight here and leaves whole regions unassigned, so
+            // use a wider default (points within 35° of a frame axis count).
+            angle_thresh: angle.max(35f32.to_radians()),
+            min_support: min_cluster,
         }),
     };
     spawn_compute(move || {
@@ -1084,6 +1093,31 @@ fn voxel_plane_scene(
     state.status = "Segmenting…".into();
 }
 
+/// Estimate the up direction as the dominant plane normal (floors/ceilings have
+/// the most support), via the largest eigenvector of Σ count·nnᵀ. Used to tell
+/// walls from floors for the dollhouse.
+fn estimate_up(planes: &[([f32; 3], f32, Vec<usize>)]) -> [f32; 3] {
+    use nalgebra::{Matrix3, SymmetricEigen, Vector3};
+    let mut m = Matrix3::<f64>::zeros();
+    for (n, _, idx) in planes {
+        let v = Vector3::new(n[0] as f64, n[1] as f64, n[2] as f64);
+        m += v * v.transpose() * idx.len() as f64;
+    }
+    if m.trace() < 1e-9 {
+        return [0.0, 1.0, 0.0];
+    }
+    let eig = SymmetricEigen::new(m);
+    let mut best = 0;
+    for i in 1..3 {
+        if eig.eigenvalues[i] > eig.eigenvalues[best] {
+            best = i;
+        }
+    }
+    let e = eig.eigenvectors.column(best);
+    let v = Vector3::new(e[0], e[1], e[2]).normalize();
+    [v[0] as f32, v[1] as f32, v[2] as f32]
+}
+
 /// Turn a finished segmentation into rendered entities and status. Runs on the
 /// main thread (touches `Commands`/`Assets`) once the background job delivers.
 #[allow(clippy::too_many_arguments)]
@@ -1096,6 +1130,7 @@ fn finish_segmentation(
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) {
     state.raw_planes = planes;
+    state.up_dir = estimate_up(&state.raw_planes);
     state.all_pts_cache = all_pts.clone();
     let point_size = state.point_size;
 
@@ -1364,8 +1399,12 @@ fn dollhouse_system(
     let Ok(cam_tf) = cam_query.single() else { return };
     let cam_pos = cam_tf.translation;
     let cos_thresh = state.dollhouse_angle.to_radians().cos();
+    let up = bevy::math::Vec3::from(state.up_dir);
 
     for (i, &(normal, _, _, centroid, is_exterior)) in state.detected.iter().enumerate() {
+        // Only hide WALLS (roughly vertical planes); keep floors/ceilings so the
+        // scene stays legible. |normal·up| ~1 for floors, ~0 for walls.
+        if bevy::math::Vec3::from(normal).dot(up).abs() > 0.5 { continue; }
         // Exterior-only mode: skip interior planes entirely (leave them always visible).
         if state.dollhouse_exterior_only && !is_exterior { continue; }
 
