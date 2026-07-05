@@ -8,11 +8,16 @@
 //!   dense, uniformly sampled clouds; fragments on holey / variable-density
 //!   scans (e.g. deep-learning point clouds) because growing relies on local
 //!   connectivity, which breaks across gaps.
-//!
-//! Future methods (e.g. global normal-consensus plane peeling for disjoint
-//! points) implement the same trait and slot in without touching callers.
+//! - [`GlobalPlanePeeling`] — global dominant-plane extraction with a
+//!   normal-consensus filter. Ignores connectivity, so disjoint / holey wall
+//!   points still land in one plane; gives high coverage and few large planes,
+//!   which is what downstream classification (e.g. dollhouse exterior/interior)
+//!   needs.
 
+use crate::plane::fit_plane_msac;
 use crate::region_growing::{region_growing_ransac_with_progress, RansacMode};
+use crate::spatial_grid::{build_grid, estimate_cell_size, knn};
+use crate::normals::pca_normal_and_curvature;
 
 /// One planar segment: `(unit_normal, plane_offset_d, inlier_indices)`, where a
 /// point `p` on the plane satisfies `normal · p + d ≈ 0`. Indices refer to the
@@ -82,6 +87,130 @@ impl PlaneEstimator for RegionGrowing {
     }
 }
 
+/// Global dominant-plane peeling with a normal-consensus filter.
+///
+/// Repeatedly fits the single most-supported plane over *all* remaining points
+/// (MSAC), keeps as inliers only those points whose own normal agrees with the
+/// plane normal (rejecting points from transverse surfaces that merely fall in
+/// the slab), removes them, and repeats. Because the fit is global, a wall
+/// broken into disjoint pieces by missing data still becomes one plane — unlike
+/// region growing. Produces few large planes with high coverage.
+#[derive(Debug, Clone)]
+pub struct GlobalPlanePeeling {
+    /// Neighbourhood size for per-point normal estimation.
+    pub k: usize,
+    /// Point-to-plane inlier distance threshold.
+    pub dist_thresh: f32,
+    /// If true, exclude points whose (valid) normal is more than `angle_thresh`
+    /// from the plane normal — an anti-cutting filter. Costs a per-point normal
+    /// pass and, on clouds with unreliable normals (variable density / noise),
+    /// hurts coverage. Default to `false`: membership is then purely by
+    /// distance, and MSAC's dominant-plane selection avoids cutting planes.
+    pub normal_consensus: bool,
+    /// Max angle (radians) from the plane normal, used only when
+    /// `normal_consensus` is true.
+    pub angle_thresh: f32,
+    /// Stop peeling once the best plane has fewer than this many inliers (also
+    /// the minimum to keep a plane).
+    pub min_support: usize,
+    /// Hard cap on the number of planes.
+    pub max_planes: usize,
+    /// MSAC iteration budget per plane fit.
+    pub max_iterations: usize,
+    /// MSAC confidence.
+    pub confidence: f64,
+}
+
+impl PlaneEstimator for GlobalPlanePeeling {
+    fn estimate_with_progress(
+        &self,
+        pts: &[[f32; 3]],
+        on_progress: &mut dyn FnMut(f32, &str),
+    ) -> Vec<Plane> {
+        let n = pts.len();
+        if n < 3 {
+            return vec![];
+        }
+
+        // Per-point normals only when the anti-cutting gate is enabled.
+        let normals: Vec<[f32; 3]> = if self.normal_consensus {
+            on_progress(0.0, "Estimating normals");
+            let cell = estimate_cell_size(pts);
+            let grid = build_grid(pts, cell);
+            (0..n)
+                .map(|i| {
+                    let nb = knn(pts, i, self.k, cell, &grid);
+                    if nb.len() < 3 {
+                        [0.0; 3]
+                    } else {
+                        pca_normal_and_curvature(pts, &nb).map(|(nv, _)| nv).unwrap_or([0.0; 3])
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        on_progress(0.2, "Peeling planes");
+
+        let cos_t = self.angle_thresh.cos();
+        let mut remaining: Vec<usize> = (0..n).collect();
+        let mut planes: Vec<Plane> = Vec::new();
+
+        while planes.len() < self.max_planes && remaining.len() >= self.min_support {
+            // Fit the dominant plane over ALL remaining points.
+            let sub: Vec<[f32; 3]> = remaining.iter().map(|&i| pts[i]).collect();
+            let settings = Some(inlier::MetasacSettings {
+                max_iterations: self.max_iterations,
+                confidence: self.confidence,
+                ..inlier::MetasacSettings::default()
+            });
+            let Some((nrm, d)) =
+                fit_plane_msac(&sub, self.dist_thresh as f64, settings).map(|(nv, dv, _)| (nv, dv))
+            else {
+                break;
+            };
+
+            // Membership is distance-based (so points with bad/missing normals in
+            // sparse regions still get assigned → high coverage). The normal gate
+            // only *excludes* points whose normal is valid AND confidently
+            // transverse to the plane — i.e. they belong to a crossing surface,
+            // not this one. This keeps the anti-cutting behaviour where normals
+            // are reliable without sacrificing coverage where they aren't.
+            let (mut inliers, mut keep) = (Vec::new(), Vec::new());
+            for &i in &remaining {
+                let p = pts[i];
+                let dist = (nrm[0] * p[0] + nrm[1] * p[1] + nrm[2] * p[2] + d).abs();
+                // Anti-cutting gate: reject only points with a valid normal that
+                // is confidently transverse to the plane. Off by default.
+                let transverse = if self.normal_consensus {
+                    let nv = normals[i];
+                    let dot = (nv[0] * nrm[0] + nv[1] * nrm[1] + nv[2] * nrm[2]).abs();
+                    nv != [0.0; 3] && dot < cos_t
+                } else {
+                    false
+                };
+                if dist < self.dist_thresh && !transverse {
+                    inliers.push(i);
+                } else {
+                    keep.push(i);
+                }
+            }
+
+            // If the dominant plane no longer has real support, stop.
+            if inliers.len() < self.min_support {
+                break;
+            }
+            planes.push((nrm, d, inliers));
+            remaining = keep;
+            on_progress(0.2 + 0.8 * (1.0 - remaining.len() as f32 / n as f32), "Peeling planes");
+        }
+
+        on_progress(1.0, "Done");
+        planes.sort_unstable_by(|a, b| b.2.len().cmp(&a.2.len()));
+        planes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +253,45 @@ mod tests {
         for (a, b) in via_trait.iter().zip(via_free.iter()) {
             assert_eq!(a.2, b.2);
         }
+    }
+
+    #[test]
+    fn global_peeling_covers_disjoint_planes() {
+        // Two coplanar patches separated by a gap (a "holey wall") plus a
+        // perpendicular wall. Region growing would split the gapped plane;
+        // global peeling must recover it as ONE plane and cover most points.
+        let mut pts = Vec::new();
+        let mut s: u64 = 7;
+        let mut rnd = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((s >> 40) as f32 / (1u64 << 24) as f32) - 0.5
+        };
+        // z=0 plane, two patches with a gap in x (disjoint).
+        for _ in 0..400 { pts.push([rnd() * 0.4 - 0.6, rnd(), 0.01 * rnd()]); }
+        for _ in 0..400 { pts.push([rnd() * 0.4 + 0.6, rnd(), 0.01 * rnd()]); }
+        // x=1 perpendicular wall.
+        for _ in 0..400 { pts.push([1.0 + 0.01 * rnd(), rnd(), rnd()]); }
+
+        let est = GlobalPlanePeeling {
+            k: 20,
+            normal_consensus: false,
+            dist_thresh: 0.05,
+            angle_thresh: 20f32.to_radians(),
+            min_support: 50,
+            max_planes: 10,
+            max_iterations: 500,
+            confidence: 0.99,
+        };
+        let planes = est.estimate(&pts);
+        assert!(planes.len() >= 2, "want ≥2 planes, got {}", planes.len());
+        // The gapped z=0 plane should be a single segment spanning both patches.
+        let biggest = &planes[0];
+        assert!(
+            biggest.2.len() >= 700,
+            "largest plane should unify both disjoint patches (~800), got {}",
+            biggest.2.len()
+        );
+        let covered: usize = planes.iter().map(|p| p.2.len()).sum();
+        assert!(covered as f32 / pts.len() as f32 > 0.8, "coverage {covered}/{}", pts.len());
     }
 }
