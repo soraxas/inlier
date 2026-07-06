@@ -12,6 +12,7 @@ use std::io::Write;
 
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
+use spatialrust_inlier::plane_ops::merge_planes;
 use spatialrust_inlier::{
     assign_storeys_columnwise, compute_normals, estimate_frame_from_normals, find_storeys,
     refine_up_from_normals, ManhattanPlanes, PlaneEstimator,
@@ -118,38 +119,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_support: 300,
         }
         .estimate(&sub);
-        // Walls (normal ⟂ up), remapped to global indices, with plane (n, d).
-        struct Wall {
-            gidx: Vec<usize>,
-            n: [f32; 3],
-            d: f32, // plane offset: n·p + d = 0
-        }
-        let mut walls: Vec<Wall> = Vec::new();
-        for (n, _d, local) in planes {
-            if dot(n, up).abs() >= 0.5 {
-                continue; // skip floors/ceilings
-            }
-            let gidx: Vec<usize> = local.iter().map(|&li| storey_idx[li]).collect();
-            let mut cen = [0.0f32; 3];
-            for &g in &gidx {
-                for k in 0..3 {
-                    cen[k] += pts[g][k];
-                }
-            }
-            let m = gidx.len() as f32;
-            let cen = [cen[0] / m, cen[1] / m, cen[2] / m];
-            walls.push(Wall { gidx, n, d: -dot(n, cen) });
-        }
+        // Keep walls (normal ⟂ up), remapped to global indices.
+        let raw: Vec<([f32; 3], f32, Vec<usize>)> = planes
+            .into_iter()
+            .filter(|(n, _, _)| dot(*n, up).abs() < 0.5)
+            .map(|(n, d, local)| (n, d, local.iter().map(|&li| storey_idx[li]).collect()))
+            .collect();
+        // Coplanar-merge: consolidate the parallel wall bands (same normal, close
+        // offset) that MSAC's thin dist_thresh splits into slivers. Distinct
+        // walls (front/back) are far apart in offset so stay separate.
+        let walls = merge_planes(&raw, &pts, 15f32.to_radians(), diag * 0.03, 200);
+
         // Exterior = wall with the STOREY's points (almost) all on one side —
         // it lies on the footprint boundary. Interior partitions have points on
         // both sides. Restricting to this storey's points uses the per-floor
         // footprint, so it handles L-shapes / courtyards.
         let margin = diag * 0.02;
         let (mut ne, mut ni) = (0, 0);
-        for w in walls {
+        for (n, d, gidx) in walls {
             let (mut pos, mut neg) = (0u32, 0u32);
             for &g in storey_idx {
-                let s = dot(w.n, pts[g]) + w.d;
+                let s = dot(n, pts[g]) + d;
                 if s > margin {
                     pos += 1;
                 } else if s < -margin {
@@ -165,9 +155,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ni += 1;
                 [0.30, 0.60, 0.92] // interior blue
             };
-            wall_groups.push((color, w.gidx));
+            wall_groups.push((color, gidx));
         }
-        eprintln!("  storey {si}: {} walls ({ne} exterior, {ni} interior)", ne + ni);
+        eprintln!(
+            "  storey {si}: {} walls after merge (from {raw_n}) ({ne} exterior, {ni} interior)",
+            ne + ni,
+            raw_n = raw.len()
+        );
     }
     let wg: Vec<([f32; 3], &[usize])> =
         wall_groups.iter().map(|(c, v)| (*c, v.as_slice())).collect();
