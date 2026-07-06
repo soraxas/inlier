@@ -480,6 +480,67 @@ pub fn find_storeys(
     bounds.windows(2).map(|b| (b[0], b[1])).collect()
 }
 
+/// Per-column (2.5-D) storey assignment. A global height split mislabels the
+/// region with no upper level — there, the ground *ceiling* falls in the upper
+/// band and reads as "upper." Fix: bin the footprint (h1,h2) into cells and, in
+/// each cell, only keep a storey band if it is genuinely occupied there
+/// (≥ `min_occ_frac` of the cell's points). Each point is then capped to the
+/// highest occupied band at or below its global band — so a ground-only column
+/// stays all-ground, and the upper storey appears only under the upper room.
+/// Returns a storey index per point (0 = lowest).
+pub fn assign_storeys_columnwise(
+    pts: &[[f32; 3]],
+    up: [f32; 3],
+    h1: [f32; 3],
+    h2: [f32; 3],
+    storeys: &[(f32, f32)],
+    cell: f32,
+    min_occ_frac: f32,
+) -> Vec<usize> {
+    use std::collections::HashMap;
+    let nb = storeys.len().max(1);
+    if storeys.len() <= 1 {
+        return vec![0; pts.len()];
+    }
+    let band_of = |h: f32| -> usize {
+        for (i, &(a, b)) in storeys.iter().enumerate() {
+            if h >= a && h < b {
+                return i;
+            }
+        }
+        if h < storeys[0].0 { 0 } else { nb - 1 }
+    };
+    let cell = cell.max(1e-6);
+    let key = |p: &[f32; 3]| {
+        ((dot3(*p, h1) / cell).floor() as i64, (dot3(*p, h2) / cell).floor() as i64)
+    };
+    let bands: Vec<usize> = pts.iter().map(|p| band_of(dot3(*p, up))).collect();
+
+    // Per-cell band counts.
+    let mut counts: HashMap<(i64, i64), Vec<u32>> = HashMap::new();
+    for (p, &bd) in pts.iter().zip(&bands) {
+        counts.entry(key(p)).or_insert_with(|| vec![0; nb])[bd] += 1;
+    }
+    // Per-cell occupancy mask (≥ frac of the cell's points).
+    let occ: HashMap<(i64, i64), Vec<bool>> = counts
+        .iter()
+        .map(|(k, v)| {
+            let total: u32 = v.iter().sum();
+            let thr = (min_occ_frac * total as f32).max(1.0);
+            (*k, v.iter().map(|&c| c as f32 >= thr).collect())
+        })
+        .collect();
+
+    // Cap each point to the highest occupied band ≤ its band.
+    pts.iter()
+        .zip(&bands)
+        .map(|(p, &bd)| {
+            let o = &occ[&key(p)];
+            (0..=bd).rev().find(|&i| o[i]).unwrap_or(0)
+        })
+        .collect()
+}
+
 /// horizontal normal.
 fn dominant_direction(normals: &[[f32; 3]], up: Option<[f32; 3]>) -> [f32; 3] {
     use nalgebra::{Matrix3, SymmetricEigen, Vector3};
@@ -726,6 +787,37 @@ mod tests {
         for (a, b) in via_trait.iter().zip(via_free.iter()) {
             assert_eq!(a.2, b.2);
         }
+    }
+
+    #[test]
+    fn columnwise_storeys_no_leak_into_empty_columns() {
+        // Ground level (z∈[0,1]) over the full plan x∈[-2,2]; upper level
+        // (z∈[2,3]) only over x<0. A global height split would label any high
+        // point on x>0 as "upper"; per-column must cap x>0 to ground.
+        let mut pts = Vec::new();
+        let mut s: u64 = 5;
+        let mut rnd = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 40) as f32 / (1u64 << 24) as f32
+        };
+        for _ in 0..3000 { pts.push([rnd() * 4.0 - 2.0, rnd() * 4.0 - 2.0, rnd()]); } // ground, all x
+        for _ in 0..1500 { pts.push([rnd() * 2.0 - 2.0, rnd() * 4.0 - 2.0, 2.0 + rnd()]); } // upper, x<0
+        // A few stray high points on x>0 (e.g. ceiling grazing) — must NOT be "upper".
+        for _ in 0..40 { pts.push([rnd() * 2.0, rnd() * 4.0 - 2.0, 2.0 + rnd()]); }
+
+        let storeys = [(-0.5f32, 1.5f32), (1.5, 3.5)];
+        let labels = assign_storeys_columnwise(
+            &pts, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], &storeys, 0.5, 0.2,
+        );
+        // Every "upper" label must sit on x<0 (the real upper-room footprint).
+        for (p, &lab) in pts.iter().zip(&labels) {
+            if lab == 1 {
+                assert!(p[0] < 0.2, "upper label leaked to x>0 at {p:?}");
+            }
+        }
+        // The genuine upper room (x<0, z>2) is labeled upper.
+        let upper = labels.iter().filter(|&&l| l == 1).count();
+        assert!(upper > 1000, "expected the x<0 upper room labeled upper, got {upper}");
     }
 
     #[test]

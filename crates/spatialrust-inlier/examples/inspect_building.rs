@@ -13,8 +13,8 @@ use std::io::Write;
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
 use spatialrust_inlier::{
-    compute_normals, estimate_frame_from_normals, find_storeys, refine_up_from_normals,
-    ManhattanPlanes, PlaneEstimator,
+    assign_storeys_columnwise, compute_normals, estimate_frame_from_normals, find_storeys,
+    refine_up_from_normals, ManhattanPlanes, PlaneEstimator,
 };
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -88,22 +88,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Stage 2: aligned.
     write_vg(&format!("{outdir}/02_aligned.vg"), &aligned, &[([0.6, 0.6, 0.6], &all)])?;
 
-    // Split into storeys.
+    // Split into storeys, then refine to per-column (2.5-D) labels so a
+    // ground-only column can't leak into the upper storey.
     let storeys = find_storeys(&pts, up, 0.25, diag * 0.05);
     eprintln!("{} storeys: {storeys:?}", storeys.len());
+    let labels = assign_storeys_columnwise(&pts, up, h1, h2, &storeys, diag * 0.03, 0.15);
     let palette = [[0.9, 0.4, 0.2], [0.2, 0.6, 0.9], [0.3, 0.85, 0.3], [0.8, 0.3, 0.9]];
-    let mut storey_groups: Vec<([f32; 3], Vec<usize>)> = Vec::new();
-    let mut per_storey_idx: Vec<Vec<usize>> = Vec::new();
-    for (si, &(a, b)) in storeys.iter().enumerate() {
-        let idx: Vec<usize> = (0..pts.len())
-            .filter(|&i| {
-                let h = dot(pts[i], up);
-                h >= a && h < b
-            })
-            .collect();
-        storey_groups.push((palette[si % palette.len()], idx.clone()));
-        per_storey_idx.push(idx);
+    let mut per_storey_idx: Vec<Vec<usize>> = vec![Vec::new(); storeys.len().max(1)];
+    for (i, &s) in labels.iter().enumerate() {
+        per_storey_idx[s].push(i);
     }
+    let storey_groups: Vec<([f32; 3], Vec<usize>)> = per_storey_idx
+        .iter()
+        .enumerate()
+        .map(|(si, idx)| (palette[si % palette.len()], idx.clone()))
+        .collect();
     let sg: Vec<([f32; 3], &[usize])> =
         storey_groups.iter().map(|(c, v)| (*c, v.as_slice())).collect();
     write_vg(&format!("{outdir}/03_storeys.vg"), &aligned, &sg)?;
