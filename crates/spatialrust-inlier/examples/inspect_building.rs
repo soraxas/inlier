@@ -138,16 +138,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // notch still tests correctly. Points beyond the wall's span are ignored.
         let margin = diag * 0.02;
         let span = diag * 0.03; // slack beyond the wall's extent
+        let expand = diag * 0.01; // slab half-thickness for coverage fill
         let (mut ne, mut ni) = (0, 0);
-        for (n, d, gidx) in walls {
-            // In-plane direction t = up × n, and this wall's extent along t.
+        for (n, d, gidx0) in walls {
+            // In-plane direction t = up × n, and this wall's extent from the
+            // confident merged inliers.
             let t = unit(cross(up, n));
             let (mut tlo, mut thi) = (f32::MAX, f32::MIN);
-            for &g in &gidx {
+            for &g in &gidx0 {
                 let tp = dot(pts[g], t);
                 tlo = tlo.min(tp);
                 thi = thi.max(tp);
             }
+            // Slab-expand: absorb every storey point within `expand` of the wall
+            // plane AND inside its footprint span, so the wall renders full
+            // (fills the gray points RANSAC left out).
+            let gidx: Vec<usize> = storey_idx
+                .iter()
+                .copied()
+                .filter(|&g| {
+                    (dot(n, pts[g]) + d).abs() < expand && {
+                        let tp = dot(pts[g], t);
+                        tp >= tlo - expand && tp <= thi + expand
+                    }
+                })
+                .collect();
             let (mut pos, mut neg) = (0u32, 0u32);
             for &g in storey_idx {
                 let tp = dot(pts[g], t);
