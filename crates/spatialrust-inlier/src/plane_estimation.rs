@@ -288,6 +288,54 @@ pub fn estimate_frame(pts: &[[f32; 3]], k: usize) -> Frame {
     estimate_frame_from_normals(&compute_normals(pts, k))
 }
 
+/// Refine up to true gravity as the *consensus normal of horizontal surfaces*.
+/// Iteratively: keep normals within `cone` of the current up (floors/ceilings,
+/// excluding walls), set up to their dominant direction (largest eigenvector of
+/// Σ nnᵀ), repeat. Converges to the floor/ceiling normal — the direction along
+/// which floors are truly flat — which histogram-sharpness search can miss.
+pub fn refine_up_from_normals(normals: &[[f32; 3]], up0: [f32; 3]) -> [f32; 3] {
+    use nalgebra::{Matrix3, SymmetricEigen, Vector3};
+    let cone = 25f32.to_radians().cos();
+    let mut up = up0;
+    for _ in 0..6 {
+        let mut m = Matrix3::<f64>::zeros();
+        for &nv in normals {
+            if nv == [0.0; 3] {
+                continue;
+            }
+            let v = Vector3::new(nv[0] as f64, nv[1] as f64, nv[2] as f64).normalize();
+            let dot = (v[0] as f32 * up[0] + v[1] as f32 * up[1] + v[2] as f32 * up[2]).abs();
+            if dot < cone {
+                continue; // skip wall (transverse) normals
+            }
+            m += v * v.transpose();
+        }
+        if m.trace() < 1e-9 {
+            break;
+        }
+        let eig = SymmetricEigen::new(m);
+        let mut best = 0;
+        for i in 1..3 {
+            if eig.eigenvalues[i] > eig.eigenvalues[best] {
+                best = i;
+            }
+        }
+        let e = eig.eigenvectors.column(best);
+        let mut new_up = Vector3::new(e[0], e[1], e[2]).normalize();
+        // Keep the original hemisphere.
+        if new_up.dot(&Vector3::new(up0[0] as f64, up0[1] as f64, up0[2] as f64)) < 0.0 {
+            new_up = -new_up;
+        }
+        let nu = [new_up[0] as f32, new_up[1] as f32, new_up[2] as f32];
+        let change = 1.0 - (nu[0] * up[0] + nu[1] * up[1] + nu[2] * up[2]).abs();
+        up = nu;
+        if change < 1e-5 {
+            break;
+        }
+    }
+    up
+}
+
 /// Refine an up estimate to true gravity by maximizing height-histogram
 /// *sharpness* (Σ count²): the direction along which floors/ceilings collapse
 /// to the tallest peaks is gravity. Robust to noisy per-point normals — a small

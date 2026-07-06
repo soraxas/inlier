@@ -12,7 +12,10 @@ use std::io::Write;
 
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
-use spatialrust_inlier::{estimate_frame, find_storeys, refine_up, ManhattanPlanes, PlaneEstimator};
+use spatialrust_inlier::{
+    compute_normals, estimate_frame_from_normals, find_storeys, refine_up_from_normals,
+    ManhattanPlanes, PlaneEstimator,
+};
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -52,9 +55,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let all: Vec<usize> = (0..pts.len()).collect();
     write_vg(&format!("{outdir}/01_original.vg"), &pts, &[([0.6, 0.6, 0.6], &all)])?;
 
-    // Align: gravity + Manhattan frame.
-    let frame = estimate_frame(&pts, 20);
-    let up = refine_up(&pts, frame.up);
+    // Align: gravity + Manhattan frame. up = consensus normal of horizontal
+    // surfaces (floors/ceilings), which makes the floors actually flat.
+    let normals = compute_normals(&pts, 20);
+    let frame = estimate_frame_from_normals(&normals);
+    let up = refine_up_from_normals(&normals, frame.up);
     let h1 = unit([
         frame.h1[0] - up[0] * dot(frame.h1, up),
         frame.h1[1] - up[1] * dot(frame.h1, up),
