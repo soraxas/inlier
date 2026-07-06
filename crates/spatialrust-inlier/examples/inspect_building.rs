@@ -15,7 +15,7 @@ use spatialrust_inlier::io::read_point_cloud_file;
 use spatialrust_inlier::plane_ops::merge_planes;
 use spatialrust_inlier::{
     assign_storeys_columnwise, compute_normals, estimate_frame_from_normals, find_storeys,
-    refine_up_from_normals, ManhattanPlanes, PlaneEstimator,
+    refine_up_from_normals, smooth_storey_labels, ManhattanPlanes, PlaneEstimator,
 };
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -93,7 +93,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ground-only column can't leak into the upper storey.
     let storeys = find_storeys(&pts, up, 0.25, diag * 0.05);
     eprintln!("{} storeys: {storeys:?}", storeys.len());
-    let labels = assign_storeys_columnwise(&pts, up, h1, h2, &storeys, diag * 0.03, 0.15);
+    let labels0 = assign_storeys_columnwise(&pts, up, h1, h2, &storeys, diag * 0.03, 0.15);
+    // Region-growing-style smoothing to flip isolated boundary points.
+    let labels = smooth_storey_labels(&pts, &labels0, 16, 2);
     let palette = [[0.9, 0.4, 0.2], [0.2, 0.6, 0.9], [0.3, 0.85, 0.3], [0.8, 0.3, 0.9]];
     let mut per_storey_idx: Vec<Vec<usize>> = vec![Vec::new(); storeys.len().max(1)];
     for (i, &s) in labels.iter().enumerate() {

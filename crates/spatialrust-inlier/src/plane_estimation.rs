@@ -541,6 +541,38 @@ pub fn assign_storeys_columnwise(
         .collect()
 }
 
+/// Smooth storey labels by spatial majority vote (a region-growing-style pass):
+/// each point takes the most common label among its k nearest neighbours,
+/// iterated `iters` times. Flips isolated boundary points to match their
+/// neighbourhood — reducing salt-and-pepper storey bleed at the seam — while a
+/// small `k` preserves the true level boundary.
+pub fn smooth_storey_labels(
+    pts: &[[f32; 3]],
+    labels: &[usize],
+    k: usize,
+    iters: usize,
+) -> Vec<usize> {
+    use std::collections::HashMap;
+    let cell = estimate_cell_size(pts);
+    let grid = build_grid(pts, cell);
+    let mut cur = labels.to_vec();
+    for _ in 0..iters {
+        let next: Vec<usize> = (0..pts.len())
+            .map(|i| {
+                let nb = knn(pts, i, k, cell, &grid);
+                let mut counts: HashMap<usize, u32> = HashMap::new();
+                *counts.entry(cur[i]).or_insert(0) += 1;
+                for &j in &nb {
+                    *counts.entry(cur[j]).or_insert(0) += 1;
+                }
+                counts.into_iter().max_by_key(|&(_, c)| c).map(|(l, _)| l).unwrap_or(cur[i])
+            })
+            .collect();
+        cur = next;
+    }
+    cur
+}
+
 /// horizontal normal.
 fn dominant_direction(normals: &[[f32; 3]], up: Option<[f32; 3]>) -> [f32; 3] {
     use nalgebra::{Matrix3, SymmetricEigen, Vector3};
@@ -787,6 +819,24 @@ mod tests {
         for (a, b) in via_trait.iter().zip(via_free.iter()) {
             assert_eq!(a.2, b.2);
         }
+    }
+
+    #[test]
+    fn smooth_flips_isolated_labels() {
+        // Dense grid, all label 0 except one interior stray label-1 point.
+        let mut pts = Vec::new();
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    pts.push([x as f32, y as f32, z as f32]);
+                }
+            }
+        }
+        let mut labels = vec![0usize; pts.len()];
+        let stray = pts.iter().position(|p| *p == [4.0, 4.0, 4.0]).unwrap();
+        labels[stray] = 1;
+        let out = smooth_storey_labels(&pts, &labels, 8, 1);
+        assert_eq!(out[stray], 0, "isolated label should flip to its neighbourhood");
     }
 
     #[test]
