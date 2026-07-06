@@ -4,6 +4,26 @@
 
 gallery-html := "crates/inlier-gallery/index.html"
 
+# Run the building floor-split pipeline on a point cloud (.ply).
+# With inspect=1, dump 6-face visualisations of each stage
+# (01_original, 02_aligned, 03_storeys, 04_walls) into <outdir> and open them.
+#   just building SALON.ply
+#   just building combined_pcd_both_floors_ds10.ply out 1
+building input outdir="building-out" inspect="0":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p "{{outdir}}"
+  cargo run --release -q -p spatialrust-inlier --example inspect_building \
+    --features io,segmentation -- "{{input}}" "{{outdir}}"
+  if [ "{{inspect}}" != "0" ]; then
+    for s in 01_original 02_aligned 03_storeys 04_walls; do
+      uv run --no-project --with matplotlib --with numpy \
+        python scripts/render6.py "{{outdir}}/$s.vg" "{{outdir}}/$s.png" "$s"
+    done
+    echo "inspect images: {{outdir}}/*.png"
+    [ "$(uname)" = "Darwin" ] && open "{{outdir}}"/*.png || true
+  fi
+
 # One-time: install the wasm target and trunk (browser build toolchain).
 # Run this once before `wasm-dev` / `wasm-build`.
 wasm-setup:

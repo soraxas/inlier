@@ -181,3 +181,7 @@ examples/assets/
 
 # Large sample point cloud (bundled by trunk at build time, not versioned)
 SALON.ply
+
+# Pipeline inspection outputs
+building-out/
+inspect-out/
