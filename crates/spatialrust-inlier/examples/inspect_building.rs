@@ -10,12 +10,13 @@
 
 use std::io::Write;
 
+use spatialrust_inlier::auto_tune::auto_tune_settings;
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
 use spatialrust_inlier::plane_ops::merge_planes;
 use spatialrust_inlier::{
-    assign_storeys_columnwise, compute_normals, estimate_frame_from_normals, find_storeys,
-    refine_up_from_normals, smooth_storey_labels, ManhattanPlanes, PlaneEstimator,
+    assign_storeys_columnwise, build_footprint2d, compute_normals, estimate_frame_from_normals,
+    find_storeys, refine_up_from_normals, smooth_storey_labels, ManhattanPlanes, PlaneEstimator,
 };
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -111,14 +112,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_vg(&format!("{outdir}/03_storeys.vg"), &aligned, &sg)?;
 
     // Per-floor walls + exterior classification.
+    // Data-adaptive parameters from measured noise σ + point spacing (replaces
+    // the earlier diag-relative guesses; generalises across densities/sensors).
+    let tuned = auto_tune_settings(&pts);
+    eprintln!("{}", tuned.description);
+    let expand = diag * 0.01; // slab half-thickness for coverage fill
+    let fp_cell = diag * 0.015; // footprint occupancy cell (a few point-spacings)
+
     let mut wall_groups: Vec<([f32; 3], Vec<usize>)> = Vec::new();
     for (si, storey_idx) in per_storey_idx.iter().enumerate() {
         let sub: Vec<[f32; 3]> = storey_idx.iter().map(|&i| pts[i]).collect();
         let planes = ManhattanPlanes {
             k: 20,
-            dist_thresh: diag * 0.006,
-            angle_thresh: 35f32.to_radians(),
-            min_support: 300,
+            dist_thresh: tuned.dist_thresh,
+            // Orientation-vote tolerance: keep it loose (region-vote, not region-
+            // grow) but let noisier clouds widen it.
+            angle_thresh: tuned.angle_thresh.max(30.0).to_radians(),
+            min_support: tuned.min_cluster_size,
         }
         .estimate(&sub);
         // Keep walls (normal ⟂ up), remapped to global indices.
@@ -130,18 +140,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Coplanar-merge: consolidate the parallel wall bands (same normal, close
         // offset) that MSAC's thin dist_thresh splits into slivers. Distinct
         // walls (front/back) are far apart in offset so stay separate.
-        let walls = merge_planes(&raw, &pts, 15f32.to_radians(), diag * 0.03, 200);
+        let walls = merge_planes(
+            &raw,
+            &pts,
+            tuned.merge_angle_thresh.to_radians(),
+            tuned.merge_dist_thresh,
+            tuned.merge_min_pts,
+        );
 
-        // Exterior = wall with the storey's points (almost) all on ONE side —
-        // it lies on the footprint boundary; interior partitions have rooms on
-        // both sides. LOCALISED to the wall's own footprint extent (along its
-        // in-plane direction t): a short interior wall then sees both of its
-        // adjacent rooms instead of the whole building, and a wall in a concave
-        // notch still tests correctly. Points beyond the wall's span are ignored.
-        let margin = diag * 0.02;
-        let span = diag * 0.03; // slack beyond the wall's extent
-        let expand = diag * 0.01; // slab half-thickness for coverage fill
+        // Exterior via a footprint flood-fill: build this storey's 2-D occupancy
+        // grid (aligned x=h1, y=h2), flood the exterior empty space from the grid
+        // border. A wall is exterior iff it borders that exterior region;
+        // interior partitions and enclosed-courtyard walls do not. Handles
+        // concave/L-shaped footprints, which the old side-test could not.
+        let fp_pts: Vec<(f32, f32)> =
+            storey_idx.iter().map(|&g| (aligned[g][0], aligned[g][1])).collect();
+        // No morphological closing by default: on these all-points grids it made
+        // outer scan-noise block the flood and lost real exterior walls. Closing
+        // (>0) is available for cleaner clouds where gap-leaks dominate instead.
+        let fp = build_footprint2d(&fp_pts, fp_cell, 0);
+
         let (mut ne, mut ni) = (0, 0);
+        let raw_n = raw.len();
         for (n, d, gidx0) in walls {
             // In-plane direction t = up × n, and this wall's extent from the
             // confident merged inliers.
@@ -165,21 +185,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 })
                 .collect();
-            let (mut pos, mut neg) = (0u32, 0u32);
-            for &g in storey_idx {
-                let tp = dot(pts[g], t);
-                if tp < tlo - span || tp > thi + span {
-                    continue; // outside this wall's footprint span
-                }
-                let s = dot(n, pts[g]) + d;
-                if s > margin {
-                    pos += 1;
-                } else if s < -margin {
-                    neg += 1;
-                }
-            }
-            let (mn, mx) = (pos.min(neg), pos.max(neg));
-            let exterior = mx > 0 && (mn as f32) < 0.12 * mx as f32;
+            // Footprint boundary test: project the wall's points to aligned 2-D,
+            // and its normal to (h1, h2).
+            let wall2d: Vec<(f32, f32)> =
+                gidx.iter().map(|&g| (aligned[g][0], aligned[g][1])).collect();
+            let (a, b) = (dot(n, h1), dot(n, h2));
+            let m = (a * a + b * b).sqrt().max(1e-9);
+            let exterior = fp.wall_is_exterior(&wall2d, (a / m, b / m));
             let color = if exterior {
                 ne += 1;
                 [0.92, 0.22, 0.22] // exterior red
@@ -191,8 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         eprintln!(
             "  storey {si}: {} walls after merge (from {raw_n}) ({ne} exterior, {ni} interior)",
-            ne + ni,
-            raw_n = raw.len()
+            ne + ni
         );
     }
     let wg: Vec<([f32; 3], &[usize])> =
@@ -208,16 +219,28 @@ fn voxel_downsample(pts: &[[f32; 3]], voxel: f32) -> Vec<[f32; 3]> {
     let key = |p: &[f32; 3]| {
         ((p[0] / voxel).floor() as i64, (p[1] / voxel).floor() as i64, (p[2] / voxel).floor() as i64)
     };
-    let mut acc: HashMap<(i64, i64, i64), ([f64; 3], u32)> = HashMap::new();
+    // Preserve first-insertion (scan) order so the output is deterministic:
+    // HashMap iteration order is randomised per run, and any point-order change
+    // ripples through kNN ties, clustering, and merges, making results
+    // non-reproducible. (Sorting by voxel key is also deterministic but slabs
+    // the points spatially, which starves the per-axis plane clustering.)
+    let mut slot: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut cells: Vec<([f64; 3], u32)> = Vec::new();
     for p in pts {
-        let e = acc.entry(key(p)).or_insert(([0.0; 3], 0));
+        let idx = *slot.entry(key(p)).or_insert_with(|| {
+            cells.push(([0.0; 3], 0));
+            cells.len() - 1
+        });
         for k in 0..3 {
-            e.0[k] += p[k] as f64;
+            cells[idx].0[k] += p[k] as f64;
         }
-        e.1 += 1;
+        cells[idx].1 += 1;
     }
-    acc.into_values()
-        .map(|(s, n)| [(s[0] / n as f64) as f32, (s[1] / n as f64) as f32, (s[2] / n as f64) as f32])
+    cells
+        .into_iter()
+        .map(|(s, n)| {
+            [(s[0] / n as f64) as f32, (s[1] / n as f64) as f32, (s[2] / n as f64) as f32]
+        })
         .collect()
 }
 

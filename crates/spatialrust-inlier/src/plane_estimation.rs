@@ -573,6 +573,131 @@ pub fn smooth_storey_labels(
     cur
 }
 
+/// A storey's 2-D footprint occupancy grid, plus the border-reachable *exterior*
+/// empty space (flood-filled from the grid edge through empty cells). Enclosed
+/// empty regions (interior rooms, courtyards) are NOT reached, so they read as
+/// interior. Used to classify exterior walls robustly on concave footprints.
+pub struct Footprint2D {
+    ext: Vec<bool>,
+    nx: usize,
+    ny: usize,
+    cell: f32,
+    ox: f32,
+    oy: f32,
+    reach: f32,
+}
+
+/// Build a footprint occupancy grid from 2-D points and flood-fill the exterior.
+///
+/// `close_iters` dilates the occupancy by that many cells before flooding
+/// (morphological closing) — this seals doorway/scan gaps up to `2·close_iters`
+/// cells wide so the exterior flood can't leak into the interior through holes
+/// in a holey (deep-learning) cloud. Enclosed regions (interior rooms, real
+/// courtyards) stay unflooded and therefore read as interior.
+pub fn build_footprint2d(pts: &[(f32, f32)], cell: f32, close_iters: usize) -> Footprint2D {
+    let cell = cell.max(1e-6);
+    let (mut minx, mut miny) = (f32::MAX, f32::MAX);
+    let (mut maxx, mut maxy) = (f32::MIN, f32::MIN);
+    for &(x, y) in pts {
+        minx = minx.min(x);
+        miny = miny.min(y);
+        maxx = maxx.max(x);
+        maxy = maxy.max(y);
+    }
+    // Pad the border by the dilation width + 1 so the flood always has a free
+    // border ring to seed from.
+    let pad = close_iters + 1;
+    let (ox, oy) = (minx - cell * pad as f32, miny - cell * pad as f32);
+    let nx = ((maxx - minx) / cell).ceil() as usize + 2 * pad + 1;
+    let ny = ((maxy - miny) / cell).ceil() as usize + 2 * pad + 1;
+    let at = |i: usize, j: usize| j * nx + i;
+    let mut occ = vec![false; nx * ny];
+    for &(x, y) in pts {
+        let i = ((x - ox) / cell) as usize;
+        let j = ((y - oy) / cell) as usize;
+        if i < nx && j < ny {
+            occ[at(i, j)] = true;
+        }
+    }
+    // Morphological dilation: seal gaps so the flood can't leak through holes.
+    for _ in 0..close_iters {
+        let prev = occ.clone();
+        for j in 0..ny {
+            for i in 0..nx {
+                if prev[at(i, j)] {
+                    continue;
+                }
+                let hit = (i > 0 && prev[at(i - 1, j)])
+                    || (i + 1 < nx && prev[at(i + 1, j)])
+                    || (j > 0 && prev[at(i, j - 1)])
+                    || (j + 1 < ny && prev[at(i, j + 1)]);
+                if hit {
+                    occ[at(i, j)] = true;
+                }
+            }
+        }
+    }
+    // Flood empty cells from the border (4-connectivity).
+    let mut ext = vec![false; nx * ny];
+    let mut q = std::collections::VecDeque::new();
+    let mut seed = |i: usize, j: usize, ext: &mut Vec<bool>, q: &mut std::collections::VecDeque<(usize, usize)>| {
+        if !occ[at(i, j)] && !ext[at(i, j)] {
+            ext[at(i, j)] = true;
+            q.push_back((i, j));
+        }
+    };
+    for i in 0..nx {
+        seed(i, 0, &mut ext, &mut q);
+        seed(i, ny - 1, &mut ext, &mut q);
+    }
+    for j in 0..ny {
+        seed(0, j, &mut ext, &mut q);
+        seed(nx - 1, j, &mut ext, &mut q);
+    }
+    while let Some((i, j)) = q.pop_front() {
+        for (a, b) in [(i.wrapping_sub(1), j), (i + 1, j), (i, j.wrapping_sub(1)), (i, j + 1)] {
+            if a < nx && b < ny && !occ[at(a, b)] && !ext[at(a, b)] {
+                ext[at(a, b)] = true;
+                q.push_back((a, b));
+            }
+        }
+    }
+    // A wall probe must clear the dilation collar (close_iters cells) plus a
+    // base 3-cell reach to sit in the flooded exterior.
+    let reach = cell * (close_iters as f32 + 3.0);
+    Footprint2D { ext, nx, ny, cell, ox, oy, reach }
+}
+
+impl Footprint2D {
+    fn is_ext(&self, x: f32, y: f32) -> bool {
+        let i = ((x - self.ox) / self.cell).floor() as isize;
+        let j = ((y - self.oy) / self.cell).floor() as isize;
+        if i < 0 || j < 0 || i as usize >= self.nx || j as usize >= self.ny {
+            return true; // beyond the padded grid = outside
+        }
+        self.ext[j as usize * self.nx + i as usize]
+    }
+
+    /// A wall is exterior if a fair fraction of its footprint points sit on the
+    /// boundary — exterior empty space on one side, not the other. Interior
+    /// partitions have interior/occupied on both sides; courtyard walls border
+    /// enclosed (non-exterior) empty space, so they read interior too.
+    pub fn wall_is_exterior(&self, wall_pts: &[(f32, f32)], n: (f32, f32)) -> bool {
+        if wall_pts.is_empty() {
+            return false;
+        }
+        let mut border = 0usize;
+        for &(x, y) in wall_pts {
+            let pos = self.is_ext(x + n.0 * self.reach, y + n.1 * self.reach);
+            let neg = self.is_ext(x - n.0 * self.reach, y - n.1 * self.reach);
+            if pos != neg {
+                border += 1;
+            }
+        }
+        border as f32 / wall_pts.len() as f32 > 0.3
+    }
+}
+
 /// horizontal normal.
 fn dominant_direction(normals: &[[f32; 3]], up: Option<[f32; 3]>) -> [f32; 3] {
     use nalgebra::{Matrix3, SymmetricEigen, Vector3};
@@ -974,5 +1099,27 @@ mod tests {
         );
         let covered: usize = planes.iter().map(|p| p.2.len()).sum();
         assert!(covered as f32 / pts.len() as f32 > 0.8, "coverage {covered}/{}", pts.len());
+    }
+
+    #[test]
+    fn footprint_separates_exterior_and_interior_walls() {
+        // A solid (filled) unit-square footprint = one room full of points.
+        let mut fp_pts = Vec::new();
+        let mut y = 0.0;
+        while y <= 1.0 {
+            let mut x = 0.0;
+            while x <= 1.0 {
+                fp_pts.push((x, y));
+                x += 0.05;
+            }
+            y += 0.05;
+        }
+        let fp = build_footprint2d(&fp_pts, 0.1, 0);
+        // Left edge wall: exterior empty on one side, room on the other.
+        let left: Vec<(f32, f32)> = (0..20).map(|i| (0.0, i as f32 * 0.05)).collect();
+        assert!(fp.wall_is_exterior(&left, (1.0, 0.0)), "outer edge must read exterior");
+        // Interior partition down the middle: room on both sides.
+        let mid: Vec<(f32, f32)> = (0..20).map(|i| (0.5, i as f32 * 0.05)).collect();
+        assert!(!fp.wall_is_exterior(&mid, (1.0, 0.0)), "interior partition must read interior");
     }
 }

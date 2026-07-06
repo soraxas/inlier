@@ -100,9 +100,10 @@ pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, classify_pl
 pub use region_growing::RansacMode;
 #[cfg(feature = "segmentation")]
 pub use plane_estimation::{
-    assign_storeys_columnwise, compute_normals, estimate_frame, estimate_frame_from_normals,
-    find_storeys, refine_up, refine_up_from_normals, smooth_storey_labels, Frame,
-    GlobalPlanePeeling, ManhattanPlanes, Plane, PlaneEstimator, RegionGrowing,
+    assign_storeys_columnwise, build_footprint2d, compute_normals, estimate_frame,
+    estimate_frame_from_normals, find_storeys, refine_up, refine_up_from_normals,
+    smooth_storey_labels, Footprint2D, Frame, GlobalPlanePeeling, ManhattanPlanes, Plane,
+    PlaneEstimator, RegionGrowing,
 };
 #[cfg(feature = "segmentation")]
 pub use plane_ops::GrowArgs;

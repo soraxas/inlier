@@ -46,6 +46,10 @@ pub struct TunedSettings {
     pub merge_min_pts: usize,
     /// Max point-to-plane distance for grow step (= `dist_thresh × 2`).
     pub grow_dist_thresh: f32,
+    /// Median per-point plane residual — the measured sensor noise floor (metres).
+    pub noise_sigma: f32,
+    /// Median nearest-neighbour distance — the measured point spacing (metres).
+    pub point_spacing: f32,
     /// Human-readable summary for display in the status bar.
     pub description: String,
 }
@@ -65,29 +69,33 @@ pub struct TunedSettings {
 /// ```
 pub fn auto_tune_settings(pts: &[[f32; 3]]) -> TunedSettings {
     let n = pts.len();
-    // Stride to at most 2000 samples for speed.
+    // Build the grid on the FULL cloud so nearest-neighbour distances are real;
+    // only the *queries* are strided (≤2000) for speed. (Striding the cloud
+    // itself before k-NN would inflate spacing by ~√stride and wreck every
+    // derived threshold — that was the old bug.)
     let stride = (n / 2000).max(1);
-    let samples: Vec<[f32; 3]> = pts.iter().step_by(stride).cloned().collect();
-    let ns = samples.len();
-
-    let cell_size = estimate_cell_size(&samples);
-    let grid = build_grid(&samples, cell_size);
+    let cell_size = estimate_cell_size(pts);
+    let grid = build_grid(pts, cell_size);
 
     let k = 20usize;
-    let mut residuals: Vec<f32> = Vec::with_capacity(ns);
-    let mut nn_dists: Vec<f32> = Vec::with_capacity(ns);
+    let mut residuals: Vec<f32> = Vec::with_capacity(2000);
+    let mut nn_dists: Vec<f32> = Vec::with_capacity(2000);
 
-    for i in 0..ns {
-        let neighbors = knn(&samples, i, k, cell_size, &grid);
+    for i in (0..n).step_by(stride) {
+        let neighbors = knn(pts, i, k, cell_size, &grid);
         if neighbors.len() < 6 {
             continue;
         }
 
-        // Nearest-neighbour distance (proxy for point spacing).
-        let p = samples[i];
+        // Nearest-neighbour distance (proxy for point spacing). knn includes the
+        // query itself at distance 0, so take the smallest *positive* distance.
+        let p = pts[i];
         let mut min_d = f32::MAX;
         for &j in &neighbors {
-            let q = samples[j];
+            if j == i {
+                continue;
+            }
+            let q = pts[j];
             let d = ((p[0] - q[0]).powi(2)
                 + (p[1] - q[1]).powi(2)
                 + (p[2] - q[2]).powi(2))
@@ -101,12 +109,12 @@ pub fn auto_tune_settings(pts: &[[f32; 3]]) -> TunedSettings {
         }
 
         // Local plane residual.
-        if let Some((normal, _)) = pca_normal_and_curvature(&samples, &neighbors) {
-            let cx = neighbors.iter().map(|&j| samples[j][0]).sum::<f32>()
+        if let Some((normal, _)) = pca_normal_and_curvature(pts, &neighbors) {
+            let cx = neighbors.iter().map(|&j| pts[j][0]).sum::<f32>()
                 / neighbors.len() as f32;
-            let cy = neighbors.iter().map(|&j| samples[j][1]).sum::<f32>()
+            let cy = neighbors.iter().map(|&j| pts[j][1]).sum::<f32>()
                 / neighbors.len() as f32;
-            let cz = neighbors.iter().map(|&j| samples[j][2]).sum::<f32>()
+            let cz = neighbors.iter().map(|&j| pts[j][2]).sum::<f32>()
                 / neighbors.len() as f32;
             let d = -(normal[0] * cx + normal[1] * cy + normal[2] * cz);
             let res = (normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2] + d).abs();
@@ -146,6 +154,8 @@ pub fn auto_tune_settings(pts: &[[f32; 3]]) -> TunedSettings {
         merge_dist_thresh,
         merge_min_pts,
         grow_dist_thresh,
+        noise_sigma,
+        point_spacing,
         description: format!(
             "Auto-tune: noise_σ={noise_sigma:.4}m  spacing={point_spacing:.4}m \
              → dist={dist_thresh:.3}  angle={angle_thresh:.1}°  \
@@ -169,5 +179,43 @@ mod tests {
         assert!(t.grow_dist_thresh >= t.dist_thresh, "grow must be >= seg dist");
         assert!(t.merge_dist_thresh >= t.dist_thresh, "merge must be >= seg dist");
         assert!(!t.description.is_empty());
+    }
+
+    /// Regression guard for the striding bug: on a large cloud the query is
+    /// strided (>2000 points → stride > 1), but k-NN must run against the FULL
+    /// cloud. The old code built the grid on the strided subset, which inflated
+    /// `point_spacing` many-fold. A scrambled storage order makes that failure
+    /// mode bite (adjacent-in-memory points are far apart in space), so the
+    /// estimate must be both correct AND invariant to input order.
+    #[test]
+    fn point_spacing_is_correct_on_large_scrambled_cloud() {
+        // 40×40×40 grid at 0.1 m spacing (64k points, well past the 2000 stride
+        // threshold). A genuine 3-D volume so estimate_cell_size is sane; a
+        // spatially-random subset of it would read a spacing of ~0.3 m, ~3× the
+        // truth — which the bug produced and this guards against.
+        const S: f32 = 0.1;
+        const W: usize = 40;
+        let mut grid: Vec<[f32; 3]> = Vec::with_capacity(W * W * W);
+        for z in 0..W {
+            for r in 0..W {
+                for c in 0..W {
+                    grid.push([c as f32 * S, r as f32 * S, z as f32 * S]);
+                }
+            }
+        }
+        // Scramble storage order with a stride coprime to the length, so
+        // consecutive stored points are spatially scattered.
+        let n = grid.len();
+        let step = 2087usize; // coprime to n
+        let scrambled: Vec<[f32; 3]> = (0..n).map(|i| grid[(i * step) % n]).collect();
+
+        for (label, cloud) in [("natural", &grid), ("scrambled", &scrambled)] {
+            let t = auto_tune_settings(cloud);
+            assert!(
+                (0.05..0.20).contains(&t.point_spacing),
+                "{label}: point_spacing {:.3} should be ~{S} (was the striding bug back?)",
+                t.point_spacing
+            );
+        }
     }
 }
