@@ -119,11 +119,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_support: 300,
         }
         .estimate(&sub);
-        // Walls (normal ⟂ up), remapped to global indices, with centroid + axis.
+        // Walls (normal ⟂ up), remapped to global indices, with plane (n, d).
         struct Wall {
             gidx: Vec<usize>,
-            axis: usize,   // 0 = h1, 1 = h2
-            off: f32,      // centroid projection on that axis
+            n: [f32; 3],
+            d: f32, // plane offset: n·p + d = 0
         }
         let mut walls: Vec<Wall> = Vec::new();
         for (n, _d, local) in planes {
@@ -139,25 +139,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let m = gidx.len() as f32;
             let cen = [cen[0] / m, cen[1] / m, cen[2] / m];
-            let axis = if dot(n, h1).abs() >= dot(n, h2).abs() { 0 } else { 1 };
-            let off = if axis == 0 { dot(cen, h1) } else { dot(cen, h2) };
-            walls.push(Wall { gidx, axis, off });
+            walls.push(Wall { gidx, n, d: -dot(n, cen) });
         }
-        // Exterior = extreme centroid offset per axis (outermost walls).
-        let mut exterior = vec![false; walls.len()];
-        for ax in 0..2 {
-            let ids: Vec<usize> = (0..walls.len()).filter(|&i| walls[i].axis == ax).collect();
-            if let (Some(&mn), Some(&mx)) = (
-                ids.iter().min_by(|&&a, &&b| walls[a].off.total_cmp(&walls[b].off)),
-                ids.iter().max_by(|&&a, &&b| walls[a].off.total_cmp(&walls[b].off)),
-            ) {
-                exterior[mn] = true;
-                exterior[mx] = true;
-            }
-        }
+        // Exterior = wall with the STOREY's points (almost) all on one side —
+        // it lies on the footprint boundary. Interior partitions have points on
+        // both sides. Restricting to this storey's points uses the per-floor
+        // footprint, so it handles L-shapes / courtyards.
+        let margin = diag * 0.02;
         let (mut ne, mut ni) = (0, 0);
-        for (i, w) in walls.into_iter().enumerate() {
-            let color = if exterior[i] {
+        for w in walls {
+            let (mut pos, mut neg) = (0u32, 0u32);
+            for &g in storey_idx {
+                let s = dot(w.n, pts[g]) + w.d;
+                if s > margin {
+                    pos += 1;
+                } else if s < -margin {
+                    neg += 1;
+                }
+            }
+            let (mn, mx) = (pos.min(neg), pos.max(neg));
+            let exterior = mx > 0 && (mn as f32) < 0.12 * mx as f32;
+            let color = if exterior {
                 ne += 1;
                 [0.92, 0.22, 0.22] // exterior red
             } else {
