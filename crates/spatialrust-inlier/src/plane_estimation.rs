@@ -380,52 +380,56 @@ pub fn find_storeys(
         let b = (((h - lo) / w) as usize).min(nb - 1);
         counts[b] += 1.0;
     }
-    // Light smoothing.
-    let mut sm = counts.clone();
-    for i in 1..nb - 1 {
-        sm[i] = (counts[i - 1] + counts[i] + counts[i + 1]) / 3.0;
+    // Heavy smoothing (window ≈ min_height): merges each level's internal
+    // structure (floor / sparse interior / ceiling) into ONE hump, so only
+    // level-to-level transitions survive. Without this, the floor→interior drop
+    // inside a single room would look like a level boundary.
+    let wh = ((min_height / w) as usize).clamp(3, nb / 2);
+    let mut hs_sm = vec![0.0f32; nb];
+    for i in 0..nb {
+        let a = i.saturating_sub(wh / 2);
+        let b = (i + wh / 2 + 1).min(nb);
+        hs_sm[i] = counts[a..b].iter().sum::<f32>() / (b - a).max(1) as f32;
     }
-    let peak_max = sm.iter().cloned().fold(0.0f32, f32::max).max(1.0);
+    let peak = hs_sm.iter().cloned().fold(0.0f32, f32::max).max(1.0);
 
-    // Candidate split bins: a bin below `min_prominence` × the smaller of the
-    // tallest peaks on each side (a deep valley separating dense regions).
-    // Room interiors are also low-density, so we collapse each contiguous
-    // low-density RUN to its single deepest bin — one split per valley, not one
-    // per bin — and require levels ≥ min_height, which drops within-room dips.
-    let mut cand: Vec<(f32, f32)> = Vec::new(); // (height, density)
-    for i in 1..nb - 1 {
-        let left = sm[..i].iter().cloned().fold(0.0f32, f32::max);
-        let right = sm[i + 1..].iter().cloned().fold(0.0f32, f32::max);
-        let flank = left.min(right);
-        if flank > 0.05 * peak_max && sm[i] < min_prominence * flank {
-            cand.push((lo + (i as f32 + 0.5) * w, sm[i]));
+    // Level boundaries are where density DROPS going up — leaving a dense level
+    // into an empty gap OR stepping down to a sparser (smaller-footprint) level.
+    // A drop handles both the "valley" and the "step" case; within-level
+    // structure has no drop after heavy smoothing. Entry/exit near the top and
+    // bottom extremes are excluded.
+    let g = (wh / 2).max(1);
+    let edge = ((min_height / w) as usize).max(1);
+    let mut drop = vec![0.0f32; nb];
+    for i in g..nb - g {
+        drop[i] = hs_sm[i - g] - hs_sm[i + g];
+    }
+    let mut cand: Vec<(f32, f32)> = Vec::new(); // (height, drop magnitude)
+    for i in edge.max(1)..nb.saturating_sub(edge).min(nb - 1) {
+        if drop[i] > min_prominence * peak && drop[i] >= drop[i - 1] && drop[i] >= drop[i + 1] {
+            cand.push((lo + (i as f32 + 0.5) * w, drop[i]));
         }
     }
-    // Collapse candidates within min_height into one split (the deepest).
+    // Greedily accept the steepest drops as splits, requiring every resulting
+    // level to be ≥ min_height (each split ≥ min_height from the extremes and
+    // from already-accepted splits). This guarantees valid levels by
+    // construction — no band is ever dropped.
+    cand.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     let mut splits: Vec<f32> = Vec::new();
-    let mut j = 0;
-    while j < cand.len() {
-        let mut k = j;
-        let mut best = cand[j];
-        while k + 1 < cand.len() && cand[k + 1].0 - cand[j].0 < min_height {
-            k += 1;
-            if cand[k].1 < best.1 {
-                best = cand[k];
-            }
+    for (h, _) in cand {
+        if h - lo >= min_height
+            && hi - h >= min_height
+            && splits.iter().all(|&s| (s - h).abs() >= min_height)
+        {
+            splits.push(h);
         }
-        splits.push(best.0);
-        j = k + 1;
     }
+    splits.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-    // Build levels between consecutive splits; keep only those ≥ min_height.
     let mut bounds = vec![lo];
     bounds.extend(splits);
     bounds.push(hi);
-    bounds
-        .windows(2)
-        .map(|b| (b[0], b[1]))
-        .filter(|(a, b)| b - a >= min_height)
-        .collect()
+    bounds.windows(2).map(|b| (b[0], b[1])).collect()
 }
 
 /// horizontal normal.
@@ -699,10 +703,12 @@ mod tests {
         slab(&mut pts, 5.5, 6.0, 2000, &mut rnd);   // ceiling 2
         slab(&mut pts, 4.5, 5.5, 1300, &mut rnd);   // walls 2
 
-        let storeys = find_storeys(&pts, [0.0, 0.0, 1.0], 0.12, 1.0);
+        // min_height ≈ room scale: heavy-smooth merges each level's internal
+        // floor/interior/ceiling structure, and nearby drops collapse to one.
+        let storeys = find_storeys(&pts, [0.0, 0.0, 1.0], 0.2, 2.0);
         assert_eq!(storeys.len(), 2, "expected 2 storeys, got {storeys:?}");
-        // Split falls inside the empty neck z∈[3,4].
-        assert!((2.9..4.1).contains(&storeys[0].1), "split should be in the neck: {storeys:?}");
+        // Split falls at/near the neck z∈[3,4].
+        assert!((2.5..4.1).contains(&storeys[0].1), "split should be near the neck: {storeys:?}");
     }
 
     #[test]
