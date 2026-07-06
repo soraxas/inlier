@@ -9,7 +9,10 @@ use std::io::Write;
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
 use spatialrust_inlier::RansacMode;
-use spatialrust_inlier::{GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator, RegionGrowing};
+use spatialrust_inlier::{
+    estimate_frame, find_storeys, refine_up, GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator,
+    RegionGrowing,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -61,6 +64,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             confidence: 0.99,
         }
         .estimate(&pts),
+        "storeys" => {
+            let frame = estimate_frame(&pts, 20);
+            let up = refine_up(&pts, frame.up);
+            eprintln!("normal-up={:?}  refined-up={:?}", frame.up, up);
+            let storeys = find_storeys(&pts, up, 0.25, diag * 0.05);
+            eprintln!("{} storeys: {:?}", storeys.len(), storeys);
+            storeys
+                .iter()
+                .map(|&(a, b)| {
+                    let idx: Vec<usize> = (0..pts.len())
+                        .filter(|&i| {
+                            let h = pts[i][0] * up[0] + pts[i][1] * up[1] + pts[i][2] * up[2];
+                            h >= a && h < b
+                        })
+                        .collect();
+                    (up, -(a + b) / 2.0, idx)
+                })
+                .collect()
+        }
         "manh" => ManhattanPlanes {
             k: 20,
             dist_thresh,

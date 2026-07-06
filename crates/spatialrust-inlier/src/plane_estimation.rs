@@ -243,6 +243,191 @@ pub struct ManhattanPlanes {
 /// Dominant direction of a set of normals via the largest eigenvector of
 /// `Σ vvᵀ`. With `up=None`, `v = n` → the most common normal (≈ up). With
 /// `up=Some`, `v` is the component of `n` orthogonal to `up` → the dominant
+/// An orthonormal building frame: `up` (gravity, dominant normal), `h1`/`h2`
+/// the two horizontal wall directions. Project a point onto an axis with a dot
+/// product; no need to materialize a rotated cloud.
+#[derive(Debug, Clone, Copy)]
+pub struct Frame {
+    pub up: [f32; 3],
+    pub h1: [f32; 3],
+    pub h2: [f32; 3],
+}
+
+/// Per-point normals via kNN PCA (unit; `[0;3]` where a point has < 3 neighbours).
+pub fn compute_normals(pts: &[[f32; 3]], k: usize) -> Vec<[f32; 3]> {
+    let cell = estimate_cell_size(pts);
+    let grid = build_grid(pts, cell);
+    (0..pts.len())
+        .map(|i| {
+            let nb = knn(pts, i, k, cell, &grid);
+            if nb.len() < 3 {
+                [0.0; 3]
+            } else {
+                pca_normal_and_curvature(pts, &nb).map(|(nv, _)| nv).unwrap_or([0.0; 3])
+            }
+        })
+        .collect()
+}
+
+/// Estimate the orthogonal building frame from point normals: `up` = dominant
+/// normal (floors/ceilings dominate); `h1` = dominant horizontal wall direction
+/// (mod-90° angle histogram); `h2 = up × h1`.
+pub fn estimate_frame_from_normals(normals: &[[f32; 3]]) -> Frame {
+    let up = dominant_direction(normals, None);
+    let h1 = dominant_horizontal(normals, up);
+    let mut h2 = cross3(up, h1);
+    let n = (h2[0] * h2[0] + h2[1] * h2[1] + h2[2] * h2[2]).sqrt();
+    if n > 1e-6 {
+        h2 = [h2[0] / n, h2[1] / n, h2[2] / n];
+    }
+    Frame { up, h1, h2 }
+}
+
+/// Estimate the building frame directly from a point cloud (`k` = normal kNN).
+pub fn estimate_frame(pts: &[[f32; 3]], k: usize) -> Frame {
+    estimate_frame_from_normals(&compute_normals(pts, k))
+}
+
+/// Refine an up estimate to true gravity by maximizing height-histogram
+/// *sharpness* (Σ count²): the direction along which floors/ceilings collapse
+/// to the tallest peaks is gravity. Robust to noisy per-point normals — a small
+/// tilt in the normal-based up smears the histogram, and this corrects it.
+/// Searches a ±12° grid around `up0`.
+pub fn refine_up(pts: &[[f32; 3]], up0: [f32; 3]) -> [f32; 3] {
+    if pts.len() < 3 {
+        return up0;
+    }
+    let a = if up0[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+    let mut t1 = cross3(up0, a);
+    let n1 = (t1[0] * t1[0] + t1[1] * t1[1] + t1[2] * t1[2]).sqrt();
+    t1 = [t1[0] / n1, t1[1] / n1, t1[2] / n1];
+    let t2 = cross3(up0, t1); // unit
+
+    let sharpness = |u: [f32; 3]| -> f64 {
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for p in pts {
+            let h = dot3(*p, u);
+            lo = lo.min(h);
+            hi = hi.max(h);
+        }
+        let nb = 200usize;
+        let w = (hi - lo) / nb as f32;
+        if w < 1e-9 {
+            return 0.0;
+        }
+        let mut c = vec![0.0f64; nb];
+        for p in pts {
+            let b = (((dot3(*p, u) - lo) / w) as usize).min(nb - 1);
+            c[b] += 1.0;
+        }
+        c.iter().map(|x| x * x).sum()
+    };
+
+    let step = 2f32.to_radians();
+    let (mut best_u, mut best_s) = (up0, sharpness(up0));
+    for i in -6..=6 {
+        for j in -6..=6 {
+            let (a1, a2) = (i as f32 * step, j as f32 * step);
+            let mut u = [
+                up0[0] + t1[0] * a1 + t2[0] * a2,
+                up0[1] + t1[1] * a1 + t2[1] * a2,
+                up0[2] + t1[2] * a1 + t2[2] * a2,
+            ];
+            let un = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+            u = [u[0] / un, u[1] / un, u[2] / un];
+            let s = sharpness(u);
+            if s > best_s {
+                best_s = s;
+                best_u = u;
+            }
+        }
+    }
+    best_u
+}
+
+/// Split a cloud into storeys (vertical levels) via a density histogram along
+/// `up`. Floors/ceilings are high-density peaks; a *prominent valley* between
+/// them (empty space between one level's ceiling and the next level's floor)
+/// separates levels. Returns each level's `(min_height, max_height)` along `up`.
+///
+/// `min_prominence` (0..1): a valley splits levels only if its density drops
+/// below this fraction of the smaller flanking peak. `min_height` drops levels
+/// thinner than this (in the cloud's units).
+pub fn find_storeys(
+    pts: &[[f32; 3]],
+    up: [f32; 3],
+    min_prominence: f32,
+    min_height: f32,
+) -> Vec<(f32, f32)> {
+    let n = pts.len();
+    if n == 0 {
+        return vec![];
+    }
+    let hs: Vec<f32> = pts.iter().map(|p| dot3(*p, up)).collect();
+    let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+    for &h in &hs {
+        lo = lo.min(h);
+        hi = hi.max(h);
+    }
+    let range = hi - lo;
+    if range < min_height {
+        return vec![(lo, hi)];
+    }
+    let nb = 200usize;
+    let w = range / nb as f32;
+    let mut counts = vec![0.0f32; nb];
+    for &h in &hs {
+        let b = (((h - lo) / w) as usize).min(nb - 1);
+        counts[b] += 1.0;
+    }
+    // Light smoothing.
+    let mut sm = counts.clone();
+    for i in 1..nb - 1 {
+        sm[i] = (counts[i - 1] + counts[i] + counts[i + 1]) / 3.0;
+    }
+    let peak_max = sm.iter().cloned().fold(0.0f32, f32::max).max(1.0);
+
+    // Candidate split bins: a bin below `min_prominence` × the smaller of the
+    // tallest peaks on each side (a deep valley separating dense regions).
+    // Room interiors are also low-density, so we collapse each contiguous
+    // low-density RUN to its single deepest bin — one split per valley, not one
+    // per bin — and require levels ≥ min_height, which drops within-room dips.
+    let mut cand: Vec<(f32, f32)> = Vec::new(); // (height, density)
+    for i in 1..nb - 1 {
+        let left = sm[..i].iter().cloned().fold(0.0f32, f32::max);
+        let right = sm[i + 1..].iter().cloned().fold(0.0f32, f32::max);
+        let flank = left.min(right);
+        if flank > 0.05 * peak_max && sm[i] < min_prominence * flank {
+            cand.push((lo + (i as f32 + 0.5) * w, sm[i]));
+        }
+    }
+    // Collapse candidates within min_height into one split (the deepest).
+    let mut splits: Vec<f32> = Vec::new();
+    let mut j = 0;
+    while j < cand.len() {
+        let mut k = j;
+        let mut best = cand[j];
+        while k + 1 < cand.len() && cand[k + 1].0 - cand[j].0 < min_height {
+            k += 1;
+            if cand[k].1 < best.1 {
+                best = cand[k];
+            }
+        }
+        splits.push(best.0);
+        j = k + 1;
+    }
+
+    // Build levels between consecutive splits; keep only those ≥ min_height.
+    let mut bounds = vec![lo];
+    bounds.extend(splits);
+    bounds.push(hi);
+    bounds
+        .windows(2)
+        .map(|b| (b[0], b[1]))
+        .filter(|(a, b)| b - a >= min_height)
+        .collect()
+}
+
 /// horizontal normal.
 fn dominant_direction(normals: &[[f32; 3]], up: Option<[f32; 3]>) -> [f32; 3] {
     use nalgebra::{Matrix3, SymmetricEigen, Vector3};
@@ -400,29 +585,12 @@ impl PlaneEstimator for ManhattanPlanes {
 
         // 1. Per-point normals.
         on_progress(0.0, "Estimating normals");
-        let cell = estimate_cell_size(pts);
-        let grid = build_grid(pts, cell);
-        let normals: Vec<[f32; 3]> = (0..n)
-            .map(|i| {
-                let nb = knn(pts, i, self.k, cell, &grid);
-                if nb.len() < 3 {
-                    [0.0; 3]
-                } else {
-                    pca_normal_and_curvature(pts, &nb).map(|(nv, _)| nv).unwrap_or([0.0; 3])
-                }
-            })
-            .collect();
+        let normals = compute_normals(pts, self.k);
 
         // 2. Orthogonal frame from normal statistics.
         on_progress(0.5, "Estimating frame");
-        let up = dominant_direction(&normals, None);
-        let h1 = dominant_horizontal(&normals, up);
-        let mut h2 = cross3(up, h1);
-        let h2n = (h2[0] * h2[0] + h2[1] * h2[1] + h2[2] * h2[2]).sqrt();
-        if h2n > 1e-6 {
-            h2 = [h2[0] / h2n, h2[1] / h2n, h2[2] / h2n];
-        }
-        let axes = [up, h1, h2];
+        let frame = estimate_frame_from_normals(&normals);
+        let axes = [frame.up, frame.h1, frame.h2];
 
         // 3. Orientation vote: assign each point to the axis its normal matches.
         on_progress(0.6, "Extracting planes");
@@ -506,6 +674,35 @@ mod tests {
         for (a, b) in via_trait.iter().zip(via_free.iter()) {
             assert_eq!(a.2, b.2);
         }
+    }
+
+    #[test]
+    fn find_storeys_splits_two_levels() {
+        // Two stacked levels separated by an empty neck (as when the upper level
+        // has a smaller footprint). Level 1: floor/ceiling slabs at z∈[0,.5] and
+        // [2.5,3] with dense walls between; EMPTY neck z∈[3,4]; level 2:
+        // [4,4.5] and [5.5,6] with walls. The neck is the only near-empty valley.
+        let mut pts = Vec::new();
+        let mut s: u64 = 11;
+        let mut rnd = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 40) as f32 / (1u64 << 24) as f32
+        };
+        let mut slab = |pts: &mut Vec<[f32; 3]>, z0: f32, z1: f32, n: usize, rnd: &mut dyn FnMut() -> f32| {
+            for _ in 0..n { pts.push([rnd() * 4.0, rnd() * 4.0, z0 + (z1 - z0) * rnd()]); }
+        };
+        slab(&mut pts, 0.0, 0.5, 2000, &mut rnd);   // floor 1
+        slab(&mut pts, 2.5, 3.0, 2000, &mut rnd);   // ceiling 1
+        slab(&mut pts, 0.5, 2.5, 2600, &mut rnd);   // walls 1 (dense interior)
+        // empty neck z∈[3,4]
+        slab(&mut pts, 4.0, 4.5, 2000, &mut rnd);   // floor 2
+        slab(&mut pts, 5.5, 6.0, 2000, &mut rnd);   // ceiling 2
+        slab(&mut pts, 4.5, 5.5, 1300, &mut rnd);   // walls 2
+
+        let storeys = find_storeys(&pts, [0.0, 0.0, 1.0], 0.12, 1.0);
+        assert_eq!(storeys.len(), 2, "expected 2 storeys, got {storeys:?}");
+        // Split falls inside the empty neck z∈[3,4].
+        assert!((2.9..4.1).contains(&storeys[0].1), "split should be in the neck: {storeys:?}");
     }
 
     #[test]
