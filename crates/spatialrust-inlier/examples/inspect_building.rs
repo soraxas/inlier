@@ -130,15 +130,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // walls (front/back) are far apart in offset so stay separate.
         let walls = merge_planes(&raw, &pts, 15f32.to_radians(), diag * 0.03, 200);
 
-        // Exterior = wall with the STOREY's points (almost) all on one side —
-        // it lies on the footprint boundary. Interior partitions have points on
-        // both sides. Restricting to this storey's points uses the per-floor
-        // footprint, so it handles L-shapes / courtyards.
+        // Exterior = wall with the storey's points (almost) all on ONE side —
+        // it lies on the footprint boundary; interior partitions have rooms on
+        // both sides. LOCALISED to the wall's own footprint extent (along its
+        // in-plane direction t): a short interior wall then sees both of its
+        // adjacent rooms instead of the whole building, and a wall in a concave
+        // notch still tests correctly. Points beyond the wall's span are ignored.
         let margin = diag * 0.02;
+        let span = diag * 0.03; // slack beyond the wall's extent
         let (mut ne, mut ni) = (0, 0);
         for (n, d, gidx) in walls {
+            // In-plane direction t = up × n, and this wall's extent along t.
+            let t = unit(cross(up, n));
+            let (mut tlo, mut thi) = (f32::MAX, f32::MIN);
+            for &g in &gidx {
+                let tp = dot(pts[g], t);
+                tlo = tlo.min(tp);
+                thi = thi.max(tp);
+            }
             let (mut pos, mut neg) = (0u32, 0u32);
             for &g in storey_idx {
+                let tp = dot(pts[g], t);
+                if tp < tlo - span || tp > thi + span {
+                    continue; // outside this wall's footprint span
+                }
                 let s = dot(n, pts[g]) + d;
                 if s > margin {
                     pos += 1;
