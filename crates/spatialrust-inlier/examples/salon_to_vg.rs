@@ -83,6 +83,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .collect()
         }
+        "building" => {
+            // Full pipeline: align → split storeys → per-storey walls.
+            let frame = estimate_frame(&pts, 20);
+            let up = refine_up(&pts, frame.up);
+            let storeys = find_storeys(&pts, up, 0.25, diag * 0.05);
+            eprintln!("aligned up={up:?}; {} storeys: {storeys:?}", storeys.len());
+            let mut out = Vec::new();
+            for (si, &(a, b)) in storeys.iter().enumerate() {
+                let idx: Vec<usize> = (0..pts.len())
+                    .filter(|&i| {
+                        let h = pts[i][0] * up[0] + pts[i][1] * up[1] + pts[i][2] * up[2];
+                        h >= a && h < b
+                    })
+                    .collect();
+                let sub: Vec<[f32; 3]> = idx.iter().map(|&i| pts[i]).collect();
+                let planes = ManhattanPlanes {
+                    k: 20,
+                    dist_thresh,
+                    angle_thresh: 35f32.to_radians(),
+                    min_support: min_cluster,
+                }
+                .estimate(&sub);
+                let mut walls = 0;
+                for (nrm, d, local) in planes {
+                    // Keep walls (normal ⟂ up); remap local indices to global.
+                    if (nrm[0] * up[0] + nrm[1] * up[1] + nrm[2] * up[2]).abs() < 0.5 {
+                        walls += 1;
+                        out.push((nrm, d, local.iter().map(|&li| idx[li]).collect()));
+                    }
+                }
+                eprintln!("  storey {si} (h {a:.2}..{b:.2}): {} pts, {walls} walls", idx.len());
+            }
+            out
+        }
         "manh" => ManhattanPlanes {
             k: 20,
             dist_thresh,
