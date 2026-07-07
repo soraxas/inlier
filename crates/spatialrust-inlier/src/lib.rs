@@ -60,6 +60,10 @@ pub mod plane_ops;
 /// High-level pipeline API for the dollhouse cutaway effect.
 pub mod dollhouse;
 
+#[cfg(feature = "segmentation")]
+/// Full building reconstruction: align → storeys → per-floor walls → exterior.
+pub mod building;
+
 // ── Existing optional feature modules ─────────────────────────────────────────
 #[cfg(feature = "io")]
 pub mod io;
@@ -96,6 +100,8 @@ pub use registration::InlierRegistration;
 // Pipeline API re-exports for convenience.
 #[cfg(feature = "segmentation")]
 pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, classify_plane, segment_for_dollhouse};
+#[cfg(feature = "segmentation")]
+pub use building::{reconstruct_building, BuildingParams, BuildingScene, BuildingWall};
 #[cfg(feature = "segmentation")]
 pub use region_growing::RansacMode;
 #[cfg(feature = "segmentation")]
