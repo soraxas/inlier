@@ -210,13 +210,24 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
             .filter(|(n, _, _)| dot(*n, up).abs() < 0.5)
             .map(|(n, d, local)| (n, d, local.iter().map(|&li| storey_idx[li]).collect()))
             .collect();
-        let merged = merge_planes(
+        // Coplanar-merge parallel wall fragments. Cap the offset distance to a
+        // small building-relative value: auto-tune's dist×3 becomes ~0.47 m on a
+        // noisy cloud, which chains *distinct* walls into one blob whose PCA
+        // refit then flips horizontal. merge should only join slivers of the SAME
+        // wall (a few cm apart), so cap at diag·0.015.
+        let merge_dist = tuned.merge_dist_thresh.min(diag * 0.015);
+        // Safety net: merge's PCA refit can still flip a group's normal toward
+        // up; drop any merged plane that came out non-vertical (a bad fit).
+        let merged: Vec<([f32; 3], f32, Vec<usize>)> = merge_planes(
             &raw_walls,
             &pts,
             tuned.merge_angle_thresh.to_radians(),
-            tuned.merge_dist_thresh,
+            merge_dist,
             tuned.merge_min_pts,
-        );
+        )
+        .into_iter()
+        .filter(|(n, _, _)| dot(*n, up).abs() < 0.5)
+        .collect();
 
         // Footprint of this storey (aligned x=h1, y=h2) + exterior flood-fill.
         let fp_pts: Vec<(f32, f32)> =
