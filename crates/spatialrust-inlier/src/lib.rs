@@ -101,7 +101,10 @@ pub use registration::InlierRegistration;
 #[cfg(feature = "segmentation")]
 pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, classify_plane, segment_for_dollhouse};
 #[cfg(feature = "segmentation")]
-pub use building::{reconstruct_building, BuildingParams, BuildingScene, BuildingWall};
+pub use building::{
+    align_and_split, reconstruct_building, AlignedCloud, BuildingParams, BuildingScene,
+    BuildingWall, Orientation,
+};
 #[cfg(feature = "segmentation")]
 pub use region_growing::RansacMode;
 #[cfg(feature = "segmentation")]

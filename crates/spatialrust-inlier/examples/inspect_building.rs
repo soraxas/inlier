@@ -14,7 +14,7 @@ use std::io::Write;
 
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
-use spatialrust_inlier::{reconstruct_building, BuildingParams};
+use spatialrust_inlier::{reconstruct_building, BuildingParams, Orientation};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -61,27 +61,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         storey_groups.iter().map(|(c, v)| (*c, v.as_slice())).collect();
     write_vg(&format!("{outdir}/03_storeys.vg"), &scene.aligned, &sg)?;
 
-    // Stage 4: aligned, walls coloured red = exterior / blue = interior.
-    let (mut ne, mut ni) = (0, 0);
-    let wall_groups: Vec<([f32; 3], Vec<usize>)> = scene
-        .walls
-        .iter()
-        .map(|w| {
-            let color = if w.is_exterior {
+    // Stage 4: the conservative structural mask — floor/ceiling + exterior/
+    // interior walls, each coloured by kind. Everything not in a confident plane
+    // stays gray (unassigned) and is left visible by the dollhouse.
+    let (mut ne, mut ni, mut nf, mut nc) = (0, 0, 0, 0);
+    let assigned: std::collections::HashSet<usize> =
+        scene.walls.iter().flat_map(|w| w.inlier_indices.iter().copied()).collect();
+    let leftover: Vec<usize> = (0..scene.points.len()).filter(|i| !assigned.contains(i)).collect();
+    let mut groups: Vec<([f32; 3], Vec<usize>)> = vec![([0.45, 0.45, 0.45], leftover)]; // ambiguous → gray
+    for w in &scene.walls {
+        let color = match w.orientation {
+            Orientation::Wall if w.is_exterior => {
                 ne += 1;
-                [0.92, 0.22, 0.22]
-            } else {
+                [0.92, 0.22, 0.22] // exterior wall red
+            }
+            Orientation::Wall => {
                 ni += 1;
-                [0.30, 0.60, 0.92]
-            };
-            (color, w.inlier_indices.clone())
-        })
-        .collect();
-    let wg: Vec<([f32; 3], &[usize])> =
-        wall_groups.iter().map(|(c, v)| (*c, v.as_slice())).collect();
+                [0.30, 0.60, 0.92] // interior wall blue
+            }
+            Orientation::Floor => {
+                nf += 1;
+                [0.85, 0.70, 0.25] // floor amber
+            }
+            Orientation::Ceiling => {
+                nc += 1;
+                [0.55, 0.35, 0.85] // ceiling purple
+            }
+        };
+        groups.push((color, w.inlier_indices.clone()));
+    }
+    let wg: Vec<([f32; 3], &[usize])> = groups.iter().map(|(c, v)| (*c, v.as_slice())).collect();
     write_vg(&format!("{outdir}/04_walls.vg"), &scene.aligned, &wg)?;
 
-    eprintln!("  {ne} exterior, {ni} interior walls — wrote 4 stages to {outdir}/");
+    eprintln!(
+        "  structure: {ne} exterior + {ni} interior walls, {nf} floor, {nc} ceiling — wrote 4 stages to {outdir}/"
+    );
     Ok(())
 }
 

@@ -60,20 +60,39 @@ impl Default for BuildingParams {
     }
 }
 
-/// One exterior/interior-classified wall of a storey.
+/// Which structural surface a detected plane is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Orientation {
+    /// Vertical (normal ⟂ up).
+    Wall,
+    /// Lowest horizontal plane of a storey.
+    Floor,
+    /// Highest horizontal plane of a storey.
+    Ceiling,
+}
+
+/// One confident structural plane (wall / floor / ceiling) of a storey.
+///
+/// This is the **conservative structural mask**: only dominant, well-supported
+/// planes become elements, so a dollhouse can hide camera-facing structure while
+/// everything ambiguous (furniture, small patches) stays visible. Named
+/// `BuildingWall` for continuity, but `orientation` distinguishes the kind.
 #[derive(Debug, Clone)]
 pub struct BuildingWall {
-    /// Wall normal in the original frame (horizontal; sign is arbitrary — the
-    /// consumer canonicalises it inward for the dollhouse test).
+    /// Plane normal in the original frame (sign arbitrary — the consumer
+    /// canonicalises it inward for the dollhouse test).
     pub normal: [f32; 3],
-    /// Plane offset: `normal · p + d ≈ 0` on the wall.
+    /// Plane offset: `normal · p + d ≈ 0` on the surface.
     pub d: f32,
     /// Indices into [`BuildingScene::points`].
     pub inlier_indices: Vec<usize>,
-    /// `true` if the wall lies on the storey's outer footprint boundary.
+    /// Walls: `true` if on the storey's outer footprint boundary. Floor/ceiling
+    /// are always exterior structure.
     pub is_exterior: bool,
-    /// Which storey (0 = ground) this wall belongs to.
+    /// Which storey (0 = ground) this element belongs to.
     pub storey: usize,
+    /// Wall / Floor / Ceiling.
+    pub orientation: Orientation,
 }
 
 /// Output of [`reconstruct_building`].
@@ -124,11 +143,27 @@ pub fn voxel_downsample(pts: &[[f32; 3]], voxel: f32) -> Vec<[f32; 3]> {
         .collect()
 }
 
-/// Run the full building pipeline on a raw point cloud.
-///
-/// Never panics; returns an empty-walls scene for degenerate input.
-pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> BuildingScene {
-    // Bounding box + diagonal (the scale unit for all relative thresholds).
+/// Shared front half of both the wall pipeline and the shell classifier:
+/// downsample → gravity/Manhattan frame → align → split storeys. Factored out so
+/// [`reconstruct_building`] and [`classify_shell`] can never drift apart.
+pub struct AlignedCloud {
+    /// Downsampled cloud, original coordinates.
+    pub points: Vec<[f32; 3]>,
+    /// `points` in the aligned frame (x=h1, y=h2, z=up).
+    pub aligned: Vec<[f32; 3]>,
+    /// Frame axes in the original coordinate system.
+    pub up: [f32; 3],
+    pub h1: [f32; 3],
+    pub h2: [f32; 3],
+    /// Per-point storey label and storey count.
+    pub storey_labels: Vec<usize>,
+    pub n_storeys: usize,
+    /// Bounding-box diagonal (scale unit for relative thresholds).
+    pub diag: f32,
+}
+
+/// Downsample, estimate the gravity/Manhattan frame, align, and split storeys.
+pub fn align_and_split(raw: &[[f32; 3]], params: &BuildingParams) -> AlignedCloud {
     let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
     for p in raw {
         for k in 0..3 {
@@ -138,21 +173,21 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
     }
     let diag =
         ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
-    let pts = voxel_downsample(raw, diag / params.voxel_div.max(1.0));
-    let empty = BuildingScene {
-        aligned: pts.clone(),
-        storey_labels: vec![0; pts.len()],
-        walls: vec![],
-        up: [0.0, 0.0, 1.0],
-        n_storeys: 0,
-        points: pts.clone(),
-    };
+    let pts = voxel_downsample(raw, (diag / params.voxel_div.max(1.0)).max(1e-6));
     if pts.len() < 8 || diag <= 0.0 {
-        return empty;
+        return AlignedCloud {
+            aligned: pts.clone(),
+            storey_labels: vec![0; pts.len()],
+            up: [0.0, 0.0, 1.0],
+            h1: [1.0, 0.0, 0.0],
+            h2: [0.0, 1.0, 0.0],
+            n_storeys: 0,
+            diag,
+            points: pts,
+        };
     }
 
-    // Align: gravity + Manhattan frame. up = consensus normal of horizontal
-    // surfaces (floors/ceilings) so the floors come out flat.
+    // up = consensus normal of horizontal surfaces (floors/ceilings).
     let normals = compute_normals(&pts, params.k);
     let frame = estimate_frame_from_normals(&normals);
     let up = refine_up_from_normals(&normals, frame.up);
@@ -179,11 +214,30 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
         })
         .collect();
 
-    // Storeys: density-drop split → per-column 2.5-D labels → kNN smoothing.
     let storeys = find_storeys(&pts, up, params.min_prominence, diag * 0.05);
     let labels0 = assign_storeys_columnwise(&pts, up, h1, h2, &storeys, diag * 0.03, 0.15);
     let storey_labels = smooth_storey_labels(&pts, &labels0, 16, 2);
     let n_storeys = storeys.len().max(1);
+
+    AlignedCloud { points: pts, aligned, up, h1, h2, storey_labels, n_storeys, diag }
+}
+
+/// Run the full building pipeline on a raw point cloud.
+///
+/// Never panics; returns an empty-walls scene for degenerate input.
+pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> BuildingScene {
+    let AlignedCloud { points: pts, aligned, up, h1, h2, storey_labels, n_storeys, diag } =
+        align_and_split(raw, params);
+    if n_storeys == 0 {
+        return BuildingScene {
+            aligned,
+            storey_labels,
+            walls: vec![],
+            up,
+            n_storeys: 0,
+            points: pts,
+        };
+    }
     let mut per_storey: Vec<Vec<usize>> = vec![Vec::new(); n_storeys];
     for (i, &s) in storey_labels.iter().enumerate() {
         per_storey[s].push(i);
@@ -204,12 +258,18 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
             min_support: tuned.min_cluster_size,
         }
         .estimate(&sub);
-        // Keep walls (normal ⟂ up), remap local → global indices.
-        let raw_walls: Vec<([f32; 3], f32, Vec<usize>)> = planes
-            .into_iter()
-            .filter(|(n, _, _)| dot(*n, up).abs() < 0.5)
-            .map(|(n, d, local)| (n, d, local.iter().map(|&li| storey_idx[li]).collect()))
-            .collect();
+        // Split into vertical (wall) and horizontal (floor/ceiling) planes,
+        // remapped to global indices.
+        let mut raw_walls: Vec<([f32; 3], f32, Vec<usize>)> = Vec::new();
+        let mut horizontals: Vec<([f32; 3], f32, Vec<usize>)> = Vec::new();
+        for (n, d, local) in planes {
+            let gl: Vec<usize> = local.iter().map(|&li| storey_idx[li]).collect();
+            if dot(n, up).abs() < 0.5 {
+                raw_walls.push((n, d, gl));
+            } else {
+                horizontals.push((n, d, gl));
+            }
+        }
         // Coplanar-merge parallel wall fragments. Cap the offset distance to a
         // small building-relative value: auto-tune's dist×3 becomes ~0.47 m on a
         // noisy cloud, which chains *distinct* walls into one blob whose PCA
@@ -261,7 +321,58 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
             let (a, b) = (dot(n, h1), dot(n, h2));
             let m = (a * a + b * b).sqrt().max(1e-9);
             let is_exterior = fp.wall_is_exterior(&wall2d, (a / m, b / m));
-            walls.push(BuildingWall { normal: n, d, inlier_indices: gidx, is_exterior, storey: si });
+            walls.push(BuildingWall {
+                normal: n,
+                d,
+                inlier_indices: gidx,
+                is_exterior,
+                storey: si,
+                orientation: Orientation::Wall,
+            });
+        }
+
+        // Floor + ceiling: the lowest and highest horizontal planes of the
+        // storey (conservative — mid-height horizontals like tabletops are left
+        // as ambiguous/visible). Slab-expand along up to cover the full surface.
+        if !horizontals.is_empty() {
+            let height = |gl: &[usize]| {
+                gl.iter().map(|&g| aligned[g][2]).sum::<f32>() / gl.len().max(1) as f32
+            };
+            let (mut lo_i, mut hi_i) = (0usize, 0usize);
+            let (mut lo_h, mut hi_h) = (f32::MAX, f32::MIN);
+            for (i, (_, _, gl)) in horizontals.iter().enumerate() {
+                let hgt = height(gl);
+                if hgt < lo_h {
+                    lo_h = hgt;
+                    lo_i = i;
+                }
+                if hgt > hi_h {
+                    hi_h = hgt;
+                    hi_i = i;
+                }
+            }
+            let mut done = std::collections::HashSet::new();
+            for (idx, orientation) in
+                [(lo_i, Orientation::Floor), (hi_i, Orientation::Ceiling)]
+            {
+                if !done.insert(idx) {
+                    continue; // only one horizontal plane → don't double-add it
+                }
+                let (n, d, _) = &horizontals[idx];
+                let gidx: Vec<usize> = storey_idx
+                    .iter()
+                    .copied()
+                    .filter(|&g| (dot(*n, pts[g]) + d).abs() < expand * 1.5)
+                    .collect();
+                walls.push(BuildingWall {
+                    normal: *n,
+                    d: *d,
+                    inlier_indices: gidx,
+                    is_exterior: true, // floor/ceiling are outer structure
+                    storey: si,
+                    orientation,
+                });
+            }
         }
     }
 
@@ -310,12 +421,27 @@ mod tests {
         assert!(scene.n_storeys >= 1);
         // up should be near vertical (±z).
         assert!(scene.up[2].abs() > 0.8, "up not vertical: {:?}", scene.up);
-        // Walls, if any, must be vertical and index in range.
+        // Each element's orientation must match its normal, and indices in range.
         for w in &scene.walls {
-            assert!(dot(w.normal, scene.up).abs() < 0.6, "wall not vertical");
+            let vert = dot(w.normal, scene.up).abs();
+            match w.orientation {
+                Orientation::Wall => assert!(vert < 0.6, "wall not vertical: {vert}"),
+                Orientation::Floor | Orientation::Ceiling => {
+                    assert!(vert > 0.6, "floor/ceiling not horizontal: {vert}")
+                }
+            }
             for &i in &w.inlier_indices {
                 assert!(i < scene.points.len());
             }
         }
+        // The box has a dominant floor and ceiling → both should be detected.
+        assert!(
+            scene.walls.iter().any(|w| w.orientation == Orientation::Floor),
+            "no floor detected"
+        );
+        assert!(
+            scene.walls.iter().any(|w| w.orientation == Orientation::Ceiling),
+            "no ceiling detected"
+        );
     }
 }

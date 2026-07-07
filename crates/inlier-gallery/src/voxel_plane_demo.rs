@@ -1474,11 +1474,15 @@ fn dollhouse_system(
     let cam_pos = cam_tf.translation;
     let cos_thresh = state.dollhouse_angle.to_radians().cos();
     let up = bevy::math::Vec3::from(state.up_dir);
+    // Building mode returns floor+ceiling as confident structure, and its
+    // canonical inward normals make the camera-facing test hide the ceiling
+    // (camera above) while keeping the floor visible — so DON'T skip horizontals
+    // there. Other methods still keep floors/ceilings visible for legibility.
+    let building = !state.building_exterior.is_empty();
 
     for (i, &(normal, _, _, centroid, is_exterior)) in state.detected.iter().enumerate() {
-        // Only hide WALLS (roughly vertical planes); keep floors/ceilings so the
-        // scene stays legible. |normal·up| ~1 for floors, ~0 for walls.
-        if bevy::math::Vec3::from(normal).dot(up).abs() > 0.5 { continue; }
+        // Non-building: only hide roughly-vertical walls (|normal·up| ~0).
+        if !building && bevy::math::Vec3::from(normal).dot(up).abs() > 0.5 { continue; }
         // Exterior-only mode: skip interior planes entirely (leave them always visible).
         if state.dollhouse_exterior_only && !is_exterior { continue; }
 
