@@ -189,6 +189,7 @@ use spatialrust_inlier::{
     plane_estimation::{GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator, RegionGrowing},
     plane_ops::{merge_planes, grow_planes, GrowArgs},
     dollhouse::classify_plane,
+    building::{reconstruct_building, BuildingParams},
 };
 
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -197,15 +198,29 @@ use std::sync::{Arc, Mutex};
 /// A plane result: (unit normal, plane offset d, inlier indices into all_pts).
 type PlaneVec = Vec<([f32; 3], f32, Vec<usize>)>;
 
-/// An in-flight background segmentation. The heavy `region_growing_ransac` runs
-/// off the render thread so the UI keeps painting and can show live progress.
+/// Delivered by the background segmentation once it finishes.
+struct SegOut {
+    planes: PlaneVec,
+    /// The point set the plane indices refer to (== loaded_pts for estimator
+    /// methods; the downsampled cloud for the Building method).
+    all_pts: Vec<[f32; 3]>,
+    /// `Some` only for the Building method: (per-plane exterior flags from the
+    /// footprint classifier, estimated up). Carrying these lets the dollhouse use
+    /// the footprint exterior + the true up instead of `classify_plane`'s
+    /// side-test + `estimate_up` (which would return a horizontal vector, since
+    /// building planes are walls only).
+    building: Option<(Vec<bool>, [f32; 3])>,
+}
+
+/// An in-flight background segmentation. The heavy compute runs off the render
+/// thread so the UI keeps painting and can show live progress.
 struct SegJob {
     /// (fraction in [0,1], phase label), updated by the compute thread.
     progress: Arc<Mutex<(f32, String)>>,
-    /// Delivers (planes, all_pts) once the compute finishes. Wrapped in a Mutex
-    /// so `SegJob` is `Sync` (a bevy Resource requirement); `mpsc::Receiver` is
+    /// Delivers the result once the compute finishes. Wrapped in a Mutex so
+    /// `SegJob` is `Sync` (a bevy Resource requirement); `mpsc::Receiver` is
     /// `Send` but not `Sync`.
-    rx: Mutex<Receiver<(PlaneVec, Vec<[f32; 3]>)>>,
+    rx: Mutex<Receiver<SegOut>>,
 }
 
 /// Run `f` off the render thread when the platform supports it, so segmentation
@@ -257,6 +272,10 @@ pub enum PlaneMethod {
     /// Manhattan-frame extraction — planes in all orientations. Best for
     /// buildings; feeds the dollhouse clean, correctly-oriented walls.
     Manhattan,
+    /// Full building pipeline: align → split storeys → per-floor walls →
+    /// footprint-based exterior classification. Downsamples internally and
+    /// returns walls with exterior labels the dollhouse uses directly.
+    Building,
 }
 
 impl PlaneMethod {
@@ -265,6 +284,7 @@ impl PlaneMethod {
             PlaneMethod::RegionGrowing => "Region-grow",
             PlaneMethod::Peeling => "Peeling",
             PlaneMethod::Manhattan => "Manhattan",
+            PlaneMethod::Building => "Building",
         }
     }
 }
@@ -410,6 +430,11 @@ pub struct VoxelPlaneState {
     pub merged_planes: Vec<([f32; 3], f32, Vec<usize>)>,
     /// (normal, d, count, centroid, is_exterior) — centroid+exterior flag for dollhouse.
     pub detected: Vec<([f32; 3], f32, usize, [f32; 3], bool)>,
+    /// Per-`raw_planes` exterior override from the Building method's footprint
+    /// classifier. INVARIANT: these labels belong to the CURRENT `detected`;
+    /// empty means "use classify_plane's side-test". Set only in the building
+    /// Segment path; cleared in every non-building regen (Segment/Merge/Grow).
+    pub building_exterior: Vec<bool>,
     pub show_plane_list: bool,
     /// Entity handles (pts cloud + alpha mesh) for each detected plane.
     pub plane_entities: Vec<[Option<Entity>; 2]>,
@@ -478,6 +503,7 @@ impl Default for VoxelPlaneState {
             needs_run: true,
             status: String::new(),
             detected: vec![],
+            building_exterior: vec![],
             show_plane_list: true,
             plane_entities: vec![],
             plane_visible: vec![],
@@ -518,7 +544,7 @@ fn voxel_plane_ui(mut contexts: EguiContexts, mut state: ResMut<VoxelPlaneState>
             // Plane-estimation method selector.
             ui.horizontal(|ui| {
                 ui.label("Method:");
-                for m in [PlaneMethod::RegionGrowing, PlaneMethod::Peeling, PlaneMethod::Manhattan] {
+                for m in [PlaneMethod::RegionGrowing, PlaneMethod::Peeling, PlaneMethod::Manhattan, PlaneMethod::Building] {
                     ui.selectable_value(&mut state.plane_method, m, m.label());
                 }
             });
@@ -908,8 +934,9 @@ fn voxel_plane_scene(
             let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
             spawn_planes(&merged, &all_pts_c, &mut commands,
                 &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
-                &mut det, &mut ents, &mut vis);
+                None, &mut det, &mut ents, &mut vis);
             state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
+            state.building_exterior.clear(); // merge re-runs side-test; labels no longer belong to detected
             state.merged_planes = merged;
             state.leftover_pts_cache = leftover.clone();
             state.leftover_entity = if !leftover.is_empty() {
@@ -967,8 +994,9 @@ fn voxel_plane_scene(
             let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
             spawn_planes(&grown, &all_pts_c, &mut commands,
                 &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
-                &mut det, &mut ents, &mut vis);
+                None, &mut det, &mut ents, &mut vis);
             state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
+            state.building_exterior.clear(); // grow re-runs side-test; labels no longer belong to detected
             state.merged_planes = grown;
             state.leftover_pts_cache = leftover.clone();
             state.leftover_entity = if !leftover.is_empty() {
@@ -1012,10 +1040,10 @@ fn voxel_plane_scene(
         }
         let received = state.seg_job.as_ref().unwrap().rx.lock().unwrap().try_recv();
         match received {
-            Ok((planes, all_pts)) => {
+            Ok(out) => {
                 state.seg_job = None;
                 state.seg_active = false;
-                finish_segmentation(&mut state, planes, all_pts,
+                finish_segmentation(&mut state, out,
                     &mut commands, &mut meshes, &mut materials);
             }
             Err(TryRecvError::Empty) => {} // still computing; keep the frame alive
@@ -1035,6 +1063,7 @@ fn voxel_plane_scene(
     state.detected.clear();
     state.raw_planes.clear();
     state.merged_planes.clear();
+    state.building_exterior.clear(); // finish_segmentation repopulates for Building
 
     let all_pts: Vec<[f32; 3]> = match state.point_source {
         PointSource::Synthetic => synthetic_multi_plane(
@@ -1059,34 +1088,55 @@ fn voxel_plane_scene(
     let progress = Arc::new(Mutex::new((0.0f32, String::new())));
     let (tx, rx) = mpsc::channel();
     let prog = progress.clone();
-    // Plane-estimation method (currently region-growing; other PlaneEstimator
-    // impls can be selected here once added).
-    let estimator: Box<dyn PlaneEstimator + Send> = match state.plane_method {
-        PlaneMethod::RegionGrowing => Box::new(RegionGrowing {
-            k, angle_thresh: angle, min_cluster_size: min_cluster, dist_thresh: dist,
-            mode, sigma_max, max_iterations: max_iters, confidence: conf,
-        }),
-        PlaneMethod::Peeling => Box::new(GlobalPlanePeeling {
-            k, normal_consensus: false, dist_thresh: dist, angle_thresh: angle,
-            min_support: min_cluster, max_planes: 60, max_iterations: max_iters, confidence: conf,
-        }),
-        PlaneMethod::Manhattan => Box::new(ManhattanPlanes {
-            k, dist_thresh: dist,
-            // Orientation-vote tolerance: the region-growing angle slider (often
-            // ~10°) is far too tight here and leaves whole regions unassigned, so
-            // use a wider default (points within 35° of a frame axis count).
-            angle_thresh: angle.max(35f32.to_radians()),
-            min_support: min_cluster,
-        }),
-    };
-    spawn_compute(move || {
-        let planes = estimator.estimate_with_progress(&all_pts, &mut |f, phase| {
+    if state.plane_method == PlaneMethod::Building {
+        // Full building pipeline: downsamples internally and returns walls with
+        // footprint-based exterior labels + the estimated up. The plane indices
+        // refer to the returned (downsampled) points, which become all_pts.
+        spawn_compute(move || {
             if let Ok(mut g) = prog.lock() {
-                *g = (f, phase.to_string());
+                *g = (0.5, "Building: align → storeys → walls".into());
             }
+            let scene = reconstruct_building(&all_pts, &BuildingParams::default());
+            let mut planes = Vec::with_capacity(scene.walls.len());
+            let mut exterior = Vec::with_capacity(scene.walls.len());
+            for w in &scene.walls {
+                planes.push((w.normal, w.d, w.inlier_indices.clone()));
+                exterior.push(w.is_exterior);
+            }
+            let _ = tx.send(SegOut {
+                planes,
+                all_pts: scene.points,
+                building: Some((exterior, scene.up)),
+            });
         });
-        let _ = tx.send((planes, all_pts));
-    });
+    } else {
+        let estimator: Box<dyn PlaneEstimator + Send> = match state.plane_method {
+            PlaneMethod::RegionGrowing => Box::new(RegionGrowing {
+                k, angle_thresh: angle, min_cluster_size: min_cluster, dist_thresh: dist,
+                mode, sigma_max, max_iterations: max_iters, confidence: conf,
+            }),
+            PlaneMethod::Peeling => Box::new(GlobalPlanePeeling {
+                k, normal_consensus: false, dist_thresh: dist, angle_thresh: angle,
+                min_support: min_cluster, max_planes: 60, max_iterations: max_iters, confidence: conf,
+            }),
+            // Manhattan (and any non-building fallback): orientation-vote
+            // tolerance widened — the region-growing angle slider (~10°) is far
+            // too tight here and leaves whole regions unassigned.
+            _ => Box::new(ManhattanPlanes {
+                k, dist_thresh: dist,
+                angle_thresh: angle.max(35f32.to_radians()),
+                min_support: min_cluster,
+            }),
+        };
+        spawn_compute(move || {
+            let planes = estimator.estimate_with_progress(&all_pts, &mut |f, phase| {
+                if let Ok(mut g) = prog.lock() {
+                    *g = (f, phase.to_string());
+                }
+            });
+            let _ = tx.send(SegOut { planes, all_pts, building: None });
+        });
+    }
     state.seg_job = Some(SegJob { progress, rx: Mutex::new(rx) });
     state.seg_active = true;
     state.seg_progress = 0.0;
@@ -1123,14 +1173,27 @@ fn estimate_up(planes: &[([f32; 3], f32, Vec<usize>)]) -> [f32; 3] {
 #[allow(clippy::too_many_arguments)]
 fn finish_segmentation(
     state: &mut VoxelPlaneState,
-    planes: PlaneVec,
-    all_pts: Vec<[f32; 3]>,
+    out: SegOut,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) {
+    let SegOut { planes, all_pts, building } = out;
     state.raw_planes = planes;
-    state.up_dir = estimate_up(&state.raw_planes);
+    // Building walls are all vertical, so estimate_up (dominant plane normal)
+    // would return a horizontal vector and break the dollhouse wall filter — use
+    // the pipeline's up instead. Also set the exterior override; clear it for
+    // estimator methods so spawn_planes falls back to the side-test.
+    match &building {
+        Some((exterior, up)) => {
+            state.up_dir = *up;
+            state.building_exterior = exterior.clone();
+        }
+        None => {
+            state.up_dir = estimate_up(&state.raw_planes);
+            state.building_exterior.clear();
+        }
+    }
     state.all_pts_cache = all_pts.clone();
     let point_size = state.point_size;
 
@@ -1145,10 +1208,14 @@ fn finish_segmentation(
     let exterior_thresh = state.dollhouse_exterior_thresh;
     let dist_thresh = state.dist_thresh;
     let color_mode = state.plane_color_mode;
-    let plane_colors = state.loaded_colors.clone();
+    // Building's all_pts is the downsampled cloud, so full-res loaded_colors
+    // wouldn't index-match — force palette by passing no colors.
+    let plane_colors = if building.is_some() { Vec::new() } else { state.loaded_colors.clone() };
+    let exterior_override = building.as_ref().map(|(e, _)| e.clone());
     let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
     spawn_planes(&raw_planes_clone, &all_pts, commands,
         meshes, materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
+        exterior_override.as_deref(),
         &mut det, &mut ents, &mut vis);
     state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
 
@@ -1184,6 +1251,9 @@ fn spawn_planes(
     dist_thresh: f32,   // used to exclude near-plane points from exterior count
     color_mode: PlaneColorMode,
     plane_colors: &[[u8; 3]], // original per-point RGB, indexed like all_pts (empty = none)
+    // Per-plane exterior labels (Building method's footprint classifier). When
+    // Some, overrides classify_plane's side-test; when None, the side-test wins.
+    exterior_override: Option<&[bool]>,
     detected: &mut Vec<([f32;3], f32, usize, [f32;3], bool)>,
     plane_entities: &mut Vec<[Option<Entity>;2]>,
     plane_visible: &mut Vec<bool>,
@@ -1202,8 +1272,12 @@ fn spawn_planes(
         // library helper — the same code path `segment_for_dollhouse` runs, so
         // the interactive Segment→Merge→Grow steps stay in sync with the lib.
         // margin excludes the near-plane band (canonicalize_margin_factor = 3.0).
-        let (canonical_normal, canonical_d, centroid, is_exterior) =
+        let (canonical_normal, canonical_d, centroid, side_exterior) =
             classify_plane(*normal, *d, inliers, all_pts, dist_thresh * 3.0, exterior_thresh);
+        // Prefer the footprint exterior label when the Building method supplied one.
+        let is_exterior = exterior_override
+            .and_then(|o| o.get(pi).copied())
+            .unwrap_or(side_exterior);
 
         detected.push((canonical_normal, canonical_d, pts3d.len(), centroid, is_exterior));
 
