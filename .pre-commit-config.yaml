@@ -23,7 +23,7 @@ repos:
       - id: detect-private-key
       - id: check-executables-have-shebangs
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: v0.24.1
+    rev: v0.25
     hooks:
       - id: validate-pyproject
   - repo: https://github.com/shellcheck-py/shellcheck-py
@@ -53,12 +53,12 @@ repos:
         entry: cargo clippy --all-targets --all-features -- -D warnings
 
   - repo: https://github.com/biomejs/pre-commit
-    rev: v2.3.10
+    rev: v2.5.3
     hooks:
       - id: biome-check
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.9
+    rev: v0.15.21
     hooks:
       - id: ruff-format
       - id: ruff-check
