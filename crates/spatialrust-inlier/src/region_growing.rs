@@ -239,7 +239,7 @@ pub fn region_growing_ransac_with_progress(
         };
 
         let (normal, d) = match fit {
-            Some(nd) => nd,
+            Some(and) => and,
             None => continue,
         };
 
@@ -324,7 +324,7 @@ pub fn ransac_plane_simple(
         }
 
         let (normal, d) = match fit_plane_3pts(pts[i0], pts[i1], pts[i2]) {
-            Some(nd) => nd,
+            Some(and) => and,
             None => continue,
         };
 

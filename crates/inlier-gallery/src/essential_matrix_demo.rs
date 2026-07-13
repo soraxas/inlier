@@ -133,7 +133,7 @@ fn essential_matrix_ui(
             }
             if ui
                 .add(egui::Slider::new(&mut state.sampson_threshold, 0.0001..=0.5)
-                    .text("Sampson thr.")
+                    .text("Sampson the.")
                     .logarithmic(true))
                 .changed()
             {
@@ -152,7 +152,7 @@ fn essential_matrix_ui(
             ui.label(format!("Trans norm: {:.4}", state.translation_norm));
 
             ui.separator();
-            ui.colored_label(egui::Color32::LIGHT_BLUE, "Confusion (Sampson < thr → inlier)");
+            ui.colored_label(egui::Color32::LIGHT_BLUE, "Confusion (Sampson < the → inlier)");
             egui::Grid::new("em_confusion").num_columns(2).show(ui, |ui| {
                 ui.colored_label(egui::Color32::GREEN, format!("TP {:3}", state.conf_tp));
                 ui.colored_label(egui::Color32::RED,   format!("FP {:3}", state.conf_fp));
@@ -269,9 +269,9 @@ fn essential_matrix_scene(
     let est_inlier: Vec<bool> = match state.algo {
         RansacAlgo::Simple | RansacAlgo::Msac => {
             // Threshold Sampson error against the user's slider.
-            let thr = state.sampson_threshold;
+            let the = state.sampson_threshold;
             all_p1.iter().zip(all_p2.iter())
-                .map(|(&p1, &p2)| sampson_error(&f_mat, p1, p2) < thr)
+                .map(|(&p1, &p2)| sampson_error(&f_mat, p1, p2) < the)
                 .collect()
         }
         RansacAlgo::Magsac | RansacAlgo::MagsacPP => {

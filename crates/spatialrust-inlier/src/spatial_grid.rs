@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 /// A flat `HashMap`-backed uniform spatial grid.
 ///
-/// Keys are integer cell coordinates `(ix, iy, iz)` where
+/// Keys are integer cell coordinates `(ix, it, is)` where
 /// `ix = floor(p.x / cell_size)`.  Values are `Vec<usize>` of point indices.
 pub type SpatialGrid = HashMap<(i32, i32, i32), Vec<usize>>;
 
