@@ -572,11 +572,12 @@ fn upper_incomplete_gamma(a: f64, x: f64) -> f64 {
     gamma_fn(a) - lower_incomplete_gamma(a, x)
 }
 
-/// MAGSAC-style scoring: uses a soft inlier/outlier threshold with marginalization.
+/// MAGSAC (v1) scoring: marginalizes over the noise scale σ ∈ (0, σ_max] using
+/// the incomplete gamma function computed via series/continued-fraction expansion.
 ///
-/// This implementation uses an improved approximation of MAGSAC's marginalization
-/// approach. A full MAGSAC implementation would use incomplete gamma functions
-/// from special function libraries (like boost::math in C++).
+/// This is the original MAGSAC formulation. For the σ-consensus++ refinement
+/// (MAGSAC++), use [`SigmaConsensusScoring`] instead — it caches the IG integrals
+/// in a LUT and implements the ρ weight function from the MAGSAC++ paper.
 pub struct MagsacScoring<M, F>
 where
     F: Fn(&DataMatrix, &M, usize) -> f64,
@@ -632,17 +633,15 @@ where
 
             let residual_norm = r_sq / two_sigma_max_sq;
 
-            // Approximate lower incomplete gamma: γ(a, x) = Γ(a) - Γ(a, x)
-            // For small x: γ(a, x) ≈ x^a / a * (1 - x/(a+1) + ...)
+            // Lower incomplete gamma via γ(a, x) = Γ(a) - Γ(a, x)
             let gamma_a = gamma_fn(n_plus_1_per_2);
             let upper_gamma_lower = upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
             let lower_gamma = gamma_a - upper_gamma_lower;
 
-            // Upper incomplete gamma approximation
             let upper_gamma = upper_incomplete_gamma(n_minus_1_per_2, residual_norm);
             let value0 = upper_incomplete_gamma(n_minus_1_per_2, 0.0);
 
-            // MAGSAC loss formula (simplified)
+            // MAGSAC loss formula
             sigma_max_sq / 2.0 * lower_gamma + sigma_max_sq / 4.0 * (upper_gamma - value0)
         } else {
             // Outlier: fixed loss
@@ -695,7 +694,15 @@ where
     }
 }
 
-/// σ-consensus++ (MAGSAC++) style scoring using closed-form weights/ρ with optional priors.
+/// MAGSAC++ scoring via σ-consensus++: implements the ρ weight function from the
+/// MAGSAC++ paper (Barath et al., CVPR 2020) with `k_quantile = 3.64` (≈ 0.99
+/// chi quantile). IG integrals are computed once per (dof, k) pair and cached in
+/// a LUT for speed. Supports per-point priors.
+///
+/// This is the recommended scoring function for PnP and other pose estimation
+/// tasks. Pair with [`GraphCutLocalOptimizer`] and [`ProgressiveNapsacSampler`]
+/// for full GC-RANSAC with MAGSAC++ scoring (state of the art for low inlier
+/// ratios, e.g. relocalization).
 pub struct SigmaConsensusScoring<M, F>
 where
     F: Fn(&DataMatrix, &M, usize) -> f64,
