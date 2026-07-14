@@ -6,9 +6,11 @@ so the caller encodes semantics (storey / exterior-wall) via colour.
 
 Usage: render6.py <input.vg> <output.png> [title]
 """
+
 import sys
 import numpy as np
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -17,28 +19,48 @@ title = sys.argv[3] if len(sys.argv) > 3 else vg
 
 toks = open(vg).read().split()
 i = 0
+
+
 def nx():
     global i
-    v = toks[i]; i += 1; return v
+    v = toks[i]
+    i += 1
+    return v
 
-assert nx() == "num_points:"; N = int(nx())
+
+assert nx() == "num_points:"
+N = int(nx())
 P = np.array([[float(nx()), float(nx()), float(nx())] for _ in range(N)])
 assert nx() == "num_colors:"
-for _ in range(int(nx())): nx(); nx(); nx()
+for _ in range(int(nx())):
+    nx()
+    nx()
+    nx()
 assert nx() == "num_normals:"
-for _ in range(int(nx())): nx(); nx(); nx()
-assert nx() == "num_groups:"; G = int(nx())
+for _ in range(int(nx())):
+    nx()
+    nx()
+    nx()
+assert nx() == "num_groups:"
+G = int(nx())
 
 col = np.tile([0.45, 0.45, 0.45], (N, 1))  # ungrouped = grey
 for _ in range(G):
-    nx(); nx()                    # group_type: t
-    nx(); npar = int(nx()); nx()  # num_group_parameters: n + label
+    nx()
+    nx()  # group_type: t
+    nx()
+    npar = int(nx())
+    nx()  # num_group_parameters: n + label
     params = [float(nx()) for _ in range(npar)]
-    nx(); nx()                    # group_label: L
-    nx(); r, g, b = float(nx()), float(nx()), float(nx())  # group_color: r g b
-    nx(); K = int(nx())           # group_num_point: K
+    nx()
+    nx()  # group_label: L
+    nx()
+    r, g, b = float(nx()), float(nx()), float(nx())  # group_color: r g b
+    nx()
+    K = int(nx())  # group_num_point: K
     idx = np.array([int(nx()) for _ in range(K)], dtype=np.int64)
-    nx(); nx()                    # num_children: 0
+    nx()
+    nx()  # num_children: 0
     if K:
         col[idx] = [r, g, b]
 print(f"{N} pts, {G} groups")
@@ -49,8 +71,14 @@ r = (hi - lo).max() / 2 + 1e-6
 rng = np.random.default_rng(0)
 s = rng.choice(N, min(N, 130000), replace=False)
 
-views = [("TOP (floor plan)", 90, -90), ("BOTTOM", -90, -90),
-         ("FRONT", 0, -90), ("BACK", 0, 90), ("RIGHT", 0, 0), ("LEFT", 0, 180)]
+views = [
+    ("TOP (floor plan)", 90, -90),
+    ("BOTTOM", -90, -90),
+    ("FRONT", 0, -90),
+    ("BACK", 0, 90),
+    ("RIGHT", 0, 0),
+    ("LEFT", 0, 180),
+]
 fig = plt.figure(figsize=(18, 11), facecolor="#111")
 for k, (name, el, az) in enumerate(views):
     ax = fig.add_subplot(2, 3, k + 1, projection="3d", facecolor="#111")
