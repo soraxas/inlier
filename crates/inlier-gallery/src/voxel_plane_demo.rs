@@ -174,22 +174,23 @@
 //! an intermediate neighbour get absorbed in later passes, while the plane is continually
 //! refit to its expanded inlier set so the normal and offset stay accurate.
 use bevy::prelude::*;
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use crate::plane_demo::{cloud_xyz, make_alpha_shape_mesh, make_cloud_mesh};
 use crate::AppDemo;
-use crate::plane_demo::{make_cloud_mesh, make_alpha_shape_mesh, cloud_xyz};
 use crate::OrbitCamera;
 use spatialrust_inlier::{
-    fit_plane_msac, fit_plane_magsac_raw, MetasacSettings,
-    io::read_point_cloud_file,
-    spatial_grid::{estimate_cell_size, build_grid, knn},
-    normals::{pca_normal_and_curvature, normalize3, cross3, fit_plane_3pts, fit_plane_ls},
     auto_tune::{auto_tune_settings, TunedSettings},
-    region_growing::{region_growing_ransac, RansacMode},
-    plane_estimation::{GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator, RegionGrowing},
-    plane_ops::{merge_planes, grow_planes, GrowArgs},
-    dollhouse::classify_plane,
     building::{reconstruct_building, BuildingParams},
+    dollhouse::classify_plane,
+    fit_plane_magsac_raw, fit_plane_msac,
+    io::read_point_cloud_file,
+    normals::{cross3, fit_plane_3pts, fit_plane_ls, normalize3, pca_normal_and_curvature},
+    plane_estimation::{GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator, RegionGrowing},
+    plane_ops::{grow_planes, merge_planes, GrowArgs},
+    region_growing::{region_growing_ransac, RansacMode},
+    spatial_grid::{build_grid, estimate_cell_size, knn},
+    MetasacSettings,
 };
 
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -251,8 +252,14 @@ impl Plugin for VoxelPlanePlugin {
                 EguiPrimaryContextPass,
                 voxel_plane_ui.run_if(in_state(AppDemo::VoxelPlane)),
             )
-            .add_systems(Update, voxel_plane_scene.run_if(in_state(AppDemo::VoxelPlane)))
-            .add_systems(Update, dollhouse_system.run_if(in_state(AppDemo::VoxelPlane)));
+            .add_systems(
+                Update,
+                voxel_plane_scene.run_if(in_state(AppDemo::VoxelPlane)),
+            )
+            .add_systems(
+                Update,
+                dollhouse_system.run_if(in_state(AppDemo::VoxelPlane)),
+            );
     }
 }
 
@@ -305,7 +312,13 @@ impl PlaneColorMode {
     /// skipped for synthetic/RGB-less clouds where it would silently fall back.
     fn next(self, has_rgb: bool) -> Self {
         match self {
-            PlaneColorMode::Palette => if has_rgb { PlaneColorMode::Original } else { PlaneColorMode::Gray },
+            PlaneColorMode::Palette => {
+                if has_rgb {
+                    PlaneColorMode::Original
+                } else {
+                    PlaneColorMode::Gray
+                }
+            }
             PlaneColorMode::Original => PlaneColorMode::Gray,
             PlaneColorMode::Gray => PlaneColorMode::Palette,
         }
@@ -325,13 +338,13 @@ const MAX_PLANES: usize = 8;
 
 const PT_COLORS: [[f32; 3]; MAX_PLANES] = [
     [0.05, 0.85, 0.15],
-    [0.9,  0.75, 0.05],
-    [0.05, 0.7,  0.9 ],
-    [0.9,  0.3,  0.05],
-    [0.7,  0.05, 0.9 ],
-    [0.9,  0.05, 0.4 ],
-    [0.05, 0.5,  0.3 ],
-    [0.5,  0.5,  0.05],
+    [0.9, 0.75, 0.05],
+    [0.05, 0.7, 0.9],
+    [0.9, 0.3, 0.05],
+    [0.7, 0.05, 0.9],
+    [0.9, 0.05, 0.4],
+    [0.05, 0.5, 0.3],
+    [0.5, 0.5, 0.05],
 ];
 
 const MESH_COLORS: [[f32; 4]; MAX_PLANES] = [
@@ -369,7 +382,7 @@ pub struct VoxelPlaneState {
     // Step 1
     pub k_neighbors: usize,
     // Step 2
-    pub angle_thresh: f32,       // degrees in UI, radians internally
+    pub angle_thresh: f32, // degrees in UI, radians internally
     pub min_cluster_size: usize,
     // Step 3
     pub dist_thresh: f32,
@@ -391,38 +404,38 @@ pub struct VoxelPlaneState {
     #[cfg(target_arch = "wasm32")]
     pub fetch: std::sync::Arc<std::sync::Mutex<Fetch>>,
     pub loaded_pts: Vec<[f32; 3]>,
-    pub loaded_colors: Vec<[u8; 3]>,  // empty = no color data in file
+    pub loaded_colors: Vec<[u8; 3]>, // empty = no color data in file
     pub show_rgb: bool,
     // runtime
     /// In-flight background segmentation (None when idle). Not in Default.
     pub seg_job: Option<SegJob>,
-    pub seg_active: bool,     // a segmentation is running (drives the progress bar)
-    pub seg_progress: f32,    // last reported fraction in [0,1]
-    pub needs_reload: bool,   // show raw cloud, clear segmentation
-    pub needs_run: bool,      // run segmentation on loaded_pts
-    pub needs_merge: bool,    // re-run merge on existing raw_planes
-    pub needs_grow: bool,     // absorb unassigned points into nearest plane
-    pub needs_auto: bool,     // estimate good settings from point cloud statistics
-    pub needs_recolor: bool,  // recolor leftover/background cloud without clearing segmentation
+    pub seg_active: bool,  // a segmentation is running (drives the progress bar)
+    pub seg_progress: f32, // last reported fraction in [0,1]
+    pub needs_reload: bool, // show raw cloud, clear segmentation
+    pub needs_run: bool,   // run segmentation on loaded_pts
+    pub needs_merge: bool, // re-run merge on existing raw_planes
+    pub needs_grow: bool,  // absorb unassigned points into nearest plane
+    pub needs_auto: bool,  // estimate good settings from point cloud statistics
+    pub needs_recolor: bool, // recolor leftover/background cloud without clearing segmentation
     pub leftover_entity: Option<Entity>, // the unassigned/background cloud entity
     pub leftover_pts_cache: Vec<[f32; 3]>, // unassigned points for recolor
     // Merge step parameters
-    pub merge_angle_thresh: f32,  // degrees: normals closer than this → same direction
-    pub merge_dist_thresh: f32,   // same plane if |d_i - d_j| < this
-    pub merge_min_pts: usize,     // drop merged plane if fewer than this many inliers
+    pub merge_angle_thresh: f32, // degrees: normals closer than this → same direction
+    pub merge_dist_thresh: f32,  // same plane if |d_i - d_j| < this
+    pub merge_min_pts: usize,    // drop merged plane if fewer than this many inliers
     // Grow step
-    pub grow_dist_thresh: f32,    // max point-to-plane dist to absorb
-    pub grow_max_iters: usize,    // iterate grow+refit until convergence
-    pub grow_use_normal: bool,    // filter: local normal must agree with plane normal
-    pub grow_normal_angle: f32,   // degrees: max allowed angle between point normal and plane normal
+    pub grow_dist_thresh: f32,       // max point-to-plane dist to absorb
+    pub grow_max_iters: usize,       // iterate grow+refit until convergence
+    pub grow_use_normal: bool,       // filter: local normal must agree with plane normal
+    pub grow_normal_angle: f32, // degrees: max allowed angle between point normal and plane normal
     pub grow_use_curvature: bool, // filter: skip high-curvature points (edges, furniture curves)
-    pub grow_max_curvature: f32,  // max local curvature to allow absorption
+    pub grow_max_curvature: f32, // max local curvature to allow absorption
     pub grow_use_connectivity: bool, // filter: point must neighbor an existing inlier
     // Dollhouse
-    pub dollhouse_mode: bool,     // per-frame: hide camera-facing planes
-    pub dollhouse_angle: f32,     // degrees: cone half-angle for "facing"
-    pub dollhouse_exterior_only: bool,   // only hide planes classified as exterior surface
-    pub dollhouse_exterior_thresh: f32,  // fraction of cloud on outward side; below = exterior
+    pub dollhouse_mode: bool, // per-frame: hide camera-facing planes
+    pub dollhouse_angle: f32, // degrees: cone half-angle for "facing"
+    pub dollhouse_exterior_only: bool, // only hide planes classified as exterior surface
+    pub dollhouse_exterior_thresh: f32, // fraction of cloud on outward side; below = exterior
     pub status: String,
     /// Raw segmentation output (before merge); inlier indices into all_pts.
     pub raw_planes: Vec<([f32; 3], f32, Vec<usize>)>,
@@ -441,7 +454,7 @@ pub struct VoxelPlaneState {
     /// Per-plane visibility toggle (index matches detected).
     pub plane_visible: Vec<bool>,
     pub visibility_dirty: bool,
-    pub plane_color_mode: PlaneColorMode,  // how plane inlier points are colored
+    pub plane_color_mode: PlaneColorMode, // how plane inlier points are colored
     /// Points used by all detected planes (for unassigned leftover rendering after merge).
     pub all_pts_cache: Vec<[f32; 3]>,
 }
@@ -517,11 +530,15 @@ impl Default for VoxelPlaneState {
 struct VpEntity;
 
 fn on_enter(mut s: ResMut<VoxelPlaneState>) {
-    if s.point_source == PointSource::Synthetic { s.needs_run = true; }
+    if s.point_source == PointSource::Synthetic {
+        s.needs_run = true;
+    }
 }
 
 fn on_exit(mut commands: Commands, q: Query<Entity, With<VpEntity>>) {
-    for e in &q { commands.entity(e).despawn(); }
+    for e in &q {
+        commands.entity(e).despawn();
+    }
 }
 
 fn voxel_plane_ui(mut contexts: EguiContexts, mut state: ResMut<VoxelPlaneState>) {
@@ -822,7 +839,11 @@ fn voxel_plane_scene(
         state.visibility_dirty = false;
         for (i, entities) in state.plane_entities.iter().enumerate() {
             let visible = state.plane_visible.get(i).copied().unwrap_or(true);
-            let v = if visible { Visibility::Inherited } else { Visibility::Hidden };
+            let v = if visible {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
             for &opt_e in entities.iter() {
                 if let Some(e) = opt_e {
                     if let Ok(mut vis) = vis_query.get_mut(e) {
@@ -846,7 +867,9 @@ fn voxel_plane_scene(
                 // Build color array for leftover pts by matching positions to loaded_pts indices.
                 // Since leftover_pts_cache stores actual [f32;3] positions, we need the original
                 // index to look up color. Instead, rebuild leftover indices from all_pts_cache.
-                let assigned_set: std::collections::HashSet<usize> = state.plane_entities.iter()
+                let assigned_set: std::collections::HashSet<usize> = state
+                    .plane_entities
+                    .iter()
                     .flat_map(|_| std::iter::empty::<usize>()) // placeholder — use merged/raw inliers
                     .collect();
                 // Simpler: build assigned from detected planes via all_pts_cache positions.
@@ -858,13 +881,24 @@ fn voxel_plane_scene(
                     &state.raw_planes
                 };
                 for (_, _, inliers) in source_planes {
-                    for &i in inliers { if i < inlier_flags.len() { inlier_flags[i] = true; } }
+                    for &i in inliers {
+                        if i < inlier_flags.len() {
+                            inlier_flags[i] = true;
+                        }
+                    }
                 }
                 let leftover_indices: Vec<usize> = (0..state.all_pts_cache.len())
                     .filter(|&i| !inlier_flags[i])
                     .collect();
-                let colors: Vec<[u8;3]> = leftover_indices.iter()
-                    .map(|&i| state.loaded_colors.get(i).copied().unwrap_or([180,180,180]))
+                let colors: Vec<[u8; 3]> = leftover_indices
+                    .iter()
+                    .map(|&i| {
+                        state
+                            .loaded_colors
+                            .get(i)
+                            .copied()
+                            .unwrap_or([180, 180, 180])
+                    })
                     .collect();
                 make_cloud_mesh_rgb(&pts, &colors, point_size)
             } else {
@@ -872,12 +906,18 @@ fn voxel_plane_scene(
             };
             commands.entity(e).insert(Mesh3d(meshes.add(new_mesh)));
             // Update material color too (gray vs white for RGB).
-            let base_color = if use_rgb { Color::WHITE } else { Color::srgb(0.45, 0.45, 0.45) };
-            commands.entity(e).insert(MeshMaterial3d(materials.add(StandardMaterial {
-                base_color,
-                unlit: true,
-                ..default()
-            })));
+            let base_color = if use_rgb {
+                Color::WHITE
+            } else {
+                Color::srgb(0.45, 0.45, 0.45)
+            };
+            commands
+                .entity(e)
+                .insert(MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color,
+                    unlit: true,
+                    ..default()
+                })));
         }
         return;
     }
@@ -885,7 +925,9 @@ fn voxel_plane_scene(
     // Show raw cloud after load, before segmentation.
     if state.needs_reload {
         state.needs_reload = false;
-        for e in &existing { commands.entity(e).despawn(); }
+        for e in &existing {
+            commands.entity(e).despawn();
+        }
         let pts = state.loaded_pts.clone();
         let use_rgb = state.show_rgb && !state.loaded_colors.is_empty();
         let mesh = if use_rgb {
@@ -917,14 +959,27 @@ fn voxel_plane_scene(
                 state.merge_dist_thresh,
                 state.merge_min_pts,
             );
-            for e in &existing { commands.entity(e).despawn(); }
+            for e in &existing {
+                commands.entity(e).despawn();
+            }
             let all_pts_c = state.all_pts_cache.clone();
             let point_size = state.point_size;
             let n_total = all_pts_c.len();
-            let leftover: Vec<[f32;3]> = {
+            let leftover: Vec<[f32; 3]> = {
                 let mut used = vec![false; n_total];
-                for (_, _, inliers) in &merged { for &i in inliers { if i < used.len() { used[i] = true; } } }
-                all_pts_c.iter().enumerate().filter(|&(i,_)| !used[i]).map(|(_,&p)| p).collect()
+                for (_, _, inliers) in &merged {
+                    for &i in inliers {
+                        if i < used.len() {
+                            used[i] = true;
+                        }
+                    }
+                }
+                all_pts_c
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| !used[i])
+                    .map(|(_, &p)| p)
+                    .collect()
             };
             let n_merged = merged.len();
             let exterior_thresh = state.dollhouse_exterior_thresh;
@@ -932,22 +987,52 @@ fn voxel_plane_scene(
             let color_mode = state.plane_color_mode;
             let plane_colors = state.loaded_colors.clone();
             let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
-            spawn_planes(&merged, &all_pts_c, &mut commands,
-                &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
-                None, &mut det, &mut ents, &mut vis);
-            state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
+            spawn_planes(
+                &merged,
+                &all_pts_c,
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                point_size,
+                exterior_thresh,
+                dist_thresh,
+                color_mode,
+                &plane_colors,
+                None,
+                &mut det,
+                &mut ents,
+                &mut vis,
+            );
+            state.detected = det;
+            state.plane_entities = ents;
+            state.plane_visible = vis;
             state.building_exterior.clear(); // merge re-runs side-test; labels no longer belong to detected
             state.merged_planes = merged;
             state.leftover_pts_cache = leftover.clone();
             state.leftover_entity = if !leftover.is_empty() {
-                Some(commands.spawn((
-                    Mesh3d(meshes.add(make_cloud_mesh(&leftover, point_size))),
-                    MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.45,0.45,0.45), unlit: true, ..default() })),
-                    Transform::default(), VpEntity,
-                )).id())
-            } else { None };
-            state.status = format!("{} pts | {} planes after merge | {} unassigned",
-                n_total, n_merged, leftover.len());
+                Some(
+                    commands
+                        .spawn((
+                            Mesh3d(meshes.add(make_cloud_mesh(&leftover, point_size))),
+                            MeshMaterial3d(materials.add(StandardMaterial {
+                                base_color: Color::srgb(0.45, 0.45, 0.45),
+                                unlit: true,
+                                ..default()
+                            })),
+                            Transform::default(),
+                            VpEntity,
+                        ))
+                        .id(),
+                )
+            } else {
+                None
+            };
+            state.status = format!(
+                "{} pts | {} planes after merge | {} unassigned",
+                n_total,
+                n_merged,
+                leftover.len()
+            );
         }
         return;
     }
@@ -958,7 +1043,11 @@ fn voxel_plane_scene(
         let source = if !state.merged_planes.is_empty() {
             state.merged_planes.clone()
         } else {
-            state.raw_planes.iter().map(|(n,d,v)| (*n,*d,v.clone())).collect()
+            state
+                .raw_planes
+                .iter()
+                .map(|(n, d, v)| (*n, *d, v.clone()))
+                .collect()
         };
         if !source.is_empty() {
             let max_iters = state.grow_max_iters;
@@ -972,19 +1061,34 @@ fn voxel_plane_scene(
             };
             let mut grown = grow_planes(&source, &state.all_pts_cache, &grow_args);
             for _ in 1..max_iters {
-                let prev_count: usize = grown.iter().map(|(_,_,v)| v.len()).sum();
+                let prev_count: usize = grown.iter().map(|(_, _, v)| v.len()).sum();
                 grown = grow_planes(&grown, &state.all_pts_cache, &grow_args);
-                let new_count: usize = grown.iter().map(|(_,_,v)| v.len()).sum();
-                if new_count == prev_count { break; }
+                let new_count: usize = grown.iter().map(|(_, _, v)| v.len()).sum();
+                if new_count == prev_count {
+                    break;
+                }
             }
-            for e in &existing { commands.entity(e).despawn(); }
+            for e in &existing {
+                commands.entity(e).despawn();
+            }
             let all_pts_c = state.all_pts_cache.clone();
             let point_size = state.point_size;
             let n_total = all_pts_c.len();
-            let leftover: Vec<[f32;3]> = {
+            let leftover: Vec<[f32; 3]> = {
                 let mut used = vec![false; n_total];
-                for (_, _, inliers) in &grown { for &i in inliers { if i < used.len() { used[i] = true; } } }
-                all_pts_c.iter().enumerate().filter(|&(i,_)| !used[i]).map(|(_,&p)| p).collect()
+                for (_, _, inliers) in &grown {
+                    for &i in inliers {
+                        if i < used.len() {
+                            used[i] = true;
+                        }
+                    }
+                }
+                all_pts_c
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| !used[i])
+                    .map(|(_, &p)| p)
+                    .collect()
             };
             let n_grown = grown.len();
             let exterior_thresh = state.dollhouse_exterior_thresh;
@@ -992,22 +1096,52 @@ fn voxel_plane_scene(
             let color_mode = state.plane_color_mode;
             let plane_colors = state.loaded_colors.clone();
             let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
-            spawn_planes(&grown, &all_pts_c, &mut commands,
-                &mut meshes, &mut materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
-                None, &mut det, &mut ents, &mut vis);
-            state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
+            spawn_planes(
+                &grown,
+                &all_pts_c,
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                point_size,
+                exterior_thresh,
+                dist_thresh,
+                color_mode,
+                &plane_colors,
+                None,
+                &mut det,
+                &mut ents,
+                &mut vis,
+            );
+            state.detected = det;
+            state.plane_entities = ents;
+            state.plane_visible = vis;
             state.building_exterior.clear(); // grow re-runs side-test; labels no longer belong to detected
             state.merged_planes = grown;
             state.leftover_pts_cache = leftover.clone();
             state.leftover_entity = if !leftover.is_empty() {
-                Some(commands.spawn((
-                    Mesh3d(meshes.add(make_cloud_mesh(&leftover, point_size))),
-                    MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.45,0.45,0.45), unlit: true, ..default() })),
-                    Transform::default(), VpEntity,
-                )).id())
-            } else { None };
-            state.status = format!("{} pts | {} planes after grow | {} unassigned",
-                n_total, n_grown, leftover.len());
+                Some(
+                    commands
+                        .spawn((
+                            Mesh3d(meshes.add(make_cloud_mesh(&leftover, point_size))),
+                            MeshMaterial3d(materials.add(StandardMaterial {
+                                base_color: Color::srgb(0.45, 0.45, 0.45),
+                                unlit: true,
+                                ..default()
+                            })),
+                            Transform::default(),
+                            VpEntity,
+                        ))
+                        .id(),
+                )
+            } else {
+                None
+            };
+            state.status = format!(
+                "{} pts | {} planes after grow | {} unassigned",
+                n_total,
+                n_grown,
+                leftover.len()
+            );
         }
         return;
     }
@@ -1017,13 +1151,13 @@ fn voxel_plane_scene(
         state.needs_auto = false;
         if !state.loaded_pts.is_empty() {
             let tuned = auto_tune_settings(&state.loaded_pts);
-            state.dist_thresh        = tuned.dist_thresh;
-            state.angle_thresh       = tuned.angle_thresh;
-            state.min_cluster_size   = tuned.min_cluster_size;
+            state.dist_thresh = tuned.dist_thresh;
+            state.angle_thresh = tuned.angle_thresh;
+            state.min_cluster_size = tuned.min_cluster_size;
             state.merge_angle_thresh = tuned.merge_angle_thresh;
-            state.merge_dist_thresh  = tuned.merge_dist_thresh;
-            state.merge_min_pts      = tuned.merge_min_pts;
-            state.grow_dist_thresh   = tuned.grow_dist_thresh;
+            state.merge_dist_thresh = tuned.merge_dist_thresh;
+            state.merge_min_pts = tuned.merge_min_pts;
+            state.grow_dist_thresh = tuned.grow_dist_thresh;
             state.status = tuned.description;
         }
         return;
@@ -1032,19 +1166,27 @@ fn voxel_plane_scene(
     // Poll an in-flight background segmentation started on a previous frame.
     if state.seg_job.is_some() {
         // Snapshot progress (owned) before mutating state, to end the borrow.
-        let prog = state.seg_job.as_ref()
+        let prog = state
+            .seg_job
+            .as_ref()
             .and_then(|j| j.progress.lock().ok().map(|p| (p.0, p.1.clone())));
         if let Some((frac, phase)) = prog {
             state.seg_progress = frac;
             state.status = format!("Segmenting… {:.0}% — {}", frac * 100.0, phase);
         }
-        let received = state.seg_job.as_ref().unwrap().rx.lock().unwrap().try_recv();
+        let received = state
+            .seg_job
+            .as_ref()
+            .unwrap()
+            .rx
+            .lock()
+            .unwrap()
+            .try_recv();
         match received {
             Ok(out) => {
                 state.seg_job = None;
                 state.seg_active = false;
-                finish_segmentation(&mut state, out,
-                    &mut commands, &mut meshes, &mut materials);
+                finish_segmentation(&mut state, out, &mut commands, &mut meshes, &mut materials);
             }
             Err(TryRecvError::Empty) => {} // still computing; keep the frame alive
             Err(TryRecvError::Disconnected) => {
@@ -1056,10 +1198,14 @@ fn voxel_plane_scene(
         return;
     }
 
-    if !state.needs_run { return; }
+    if !state.needs_run {
+        return;
+    }
     state.needs_run = false;
 
-    for e in &existing { commands.entity(e).despawn(); }
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
     state.detected.clear();
     state.raw_planes.clear();
     state.merged_planes.clear();
@@ -1067,7 +1213,11 @@ fn voxel_plane_scene(
 
     let all_pts: Vec<[f32; 3]> = match state.point_source {
         PointSource::Synthetic => synthetic_multi_plane(
-            state.n_planes, state.n_inliers, state.noise_std, state.n_outliers, state.seed,
+            state.n_planes,
+            state.n_inliers,
+            state.noise_std,
+            state.n_outliers,
+            state.seed,
         ),
         PointSource::File => {
             if state.loaded_pts.is_empty() {
@@ -1082,8 +1232,13 @@ fn voxel_plane_scene(
     // frame by the poll block above, so the UI keeps painting the progress bar.
     let sigma_max = (state.dist_thresh * state.sigma_factor) as f64;
     let (k, angle, min_cluster, dist, mode, max_iters, conf) = (
-        state.k_neighbors, state.angle_thresh.to_radians(), state.min_cluster_size,
-        state.dist_thresh, state.ransac_mode, state.max_iterations, state.confidence,
+        state.k_neighbors,
+        state.angle_thresh.to_radians(),
+        state.min_cluster_size,
+        state.dist_thresh,
+        state.ransac_mode,
+        state.max_iterations,
+        state.confidence,
     );
     let progress = Arc::new(Mutex::new((0.0f32, String::new())));
     let (tx, rx) = mpsc::channel();
@@ -1112,18 +1267,31 @@ fn voxel_plane_scene(
     } else {
         let estimator: Box<dyn PlaneEstimator + Send> = match state.plane_method {
             PlaneMethod::RegionGrowing => Box::new(RegionGrowing {
-                k, angle_thresh: angle, min_cluster_size: min_cluster, dist_thresh: dist,
-                mode, sigma_max, max_iterations: max_iters, confidence: conf,
+                k,
+                angle_thresh: angle,
+                min_cluster_size: min_cluster,
+                dist_thresh: dist,
+                mode,
+                sigma_max,
+                max_iterations: max_iters,
+                confidence: conf,
             }),
             PlaneMethod::Peeling => Box::new(GlobalPlanePeeling {
-                k, normal_consensus: false, dist_thresh: dist, angle_thresh: angle,
-                min_support: min_cluster, max_planes: 60, max_iterations: max_iters, confidence: conf,
+                k,
+                normal_consensus: false,
+                dist_thresh: dist,
+                angle_thresh: angle,
+                min_support: min_cluster,
+                max_planes: 60,
+                max_iterations: max_iters,
+                confidence: conf,
             }),
             // Manhattan (and any non-building fallback): orientation-vote
             // tolerance widened — the region-growing angle slider (~10°) is far
             // too tight here and leaves whole regions unassigned.
             _ => Box::new(ManhattanPlanes {
-                k, dist_thresh: dist,
+                k,
+                dist_thresh: dist,
                 angle_thresh: angle.max(35f32.to_radians()),
                 min_support: min_cluster,
             }),
@@ -1134,10 +1302,17 @@ fn voxel_plane_scene(
                     *g = (f, phase.to_string());
                 }
             });
-            let _ = tx.send(SegOut { planes, all_pts, building: None });
+            let _ = tx.send(SegOut {
+                planes,
+                all_pts,
+                building: None,
+            });
         });
     }
-    state.seg_job = Some(SegJob { progress, rx: Mutex::new(rx) });
+    state.seg_job = Some(SegJob {
+        progress,
+        rx: Mutex::new(rx),
+    });
     state.seg_active = true;
     state.seg_progress = 0.0;
     state.status = "Segmenting…".into();
@@ -1178,7 +1353,11 @@ fn finish_segmentation(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) {
-    let SegOut { planes, all_pts, building } = out;
+    let SegOut {
+        planes,
+        all_pts,
+        building,
+    } = out;
     state.raw_planes = planes;
     // Building walls are all vertical, so estimate_up (dominant plane normal)
     // would return a horizontal vector and break the dollhouse wall filter — use
@@ -1197,65 +1376,104 @@ fn finish_segmentation(
     state.all_pts_cache = all_pts.clone();
     let point_size = state.point_size;
 
-    let raw_planes_ref: &[([f32;3], f32, Vec<usize>)] = &state.raw_planes;
+    let raw_planes_ref: &[([f32; 3], f32, Vec<usize>)] = &state.raw_planes;
     let mut used = vec![false; all_pts.len()];
-    for (_, _, inliers) in raw_planes_ref { for &i in inliers { if i < used.len() { used[i] = true; } } }
-    let leftover: Vec<[f32; 3]> = all_pts.iter().enumerate()
-        .filter(|&(i, _)| !used[i]).map(|(_, &p)| p).collect();
+    for (_, _, inliers) in raw_planes_ref {
+        for &i in inliers {
+            if i < used.len() {
+                used[i] = true;
+            }
+        }
+    }
+    let leftover: Vec<[f32; 3]> = all_pts
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| !used[i])
+        .map(|(_, &p)| p)
+        .collect();
 
-    let raw_planes_clone: Vec<([f32;3], f32, Vec<usize>)> = state.raw_planes.iter()
-        .map(|(n,d,v)| (*n,*d,v.clone())).collect();
+    let raw_planes_clone: Vec<([f32; 3], f32, Vec<usize>)> = state
+        .raw_planes
+        .iter()
+        .map(|(n, d, v)| (*n, *d, v.clone()))
+        .collect();
     let exterior_thresh = state.dollhouse_exterior_thresh;
     let dist_thresh = state.dist_thresh;
     let color_mode = state.plane_color_mode;
     // Building's all_pts is the downsampled cloud, so full-res loaded_colors
     // wouldn't index-match — force palette by passing no colors.
-    let plane_colors = if building.is_some() { Vec::new() } else { state.loaded_colors.clone() };
+    let plane_colors = if building.is_some() {
+        Vec::new()
+    } else {
+        state.loaded_colors.clone()
+    };
     let exterior_override = building.as_ref().map(|(e, _)| e.clone());
     let (mut det, mut ents, mut vis) = (vec![], vec![], vec![]);
-    spawn_planes(&raw_planes_clone, &all_pts, commands,
-        meshes, materials, point_size, exterior_thresh, dist_thresh, color_mode, &plane_colors,
+    spawn_planes(
+        &raw_planes_clone,
+        &all_pts,
+        commands,
+        meshes,
+        materials,
+        point_size,
+        exterior_thresh,
+        dist_thresh,
+        color_mode,
+        &plane_colors,
         exterior_override.as_deref(),
-        &mut det, &mut ents, &mut vis);
-    state.detected = det; state.plane_entities = ents; state.plane_visible = vis;
+        &mut det,
+        &mut ents,
+        &mut vis,
+    );
+    state.detected = det;
+    state.plane_entities = ents;
+    state.plane_visible = vis;
 
     state.leftover_pts_cache = leftover.clone();
     state.leftover_entity = if !leftover.is_empty() {
-        Some(commands.spawn((
-            Mesh3d(meshes.add(make_cloud_mesh(&leftover, point_size))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.45, 0.45, 0.45),
-                unlit: true,
-                ..default()
-            })),
-            Transform::default(),
-            VpEntity,
-        )).id())
-    } else { None };
+        Some(
+            commands
+                .spawn((
+                    Mesh3d(meshes.add(make_cloud_mesh(&leftover, point_size))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgb(0.45, 0.45, 0.45),
+                        unlit: true,
+                        ..default()
+                    })),
+                    Transform::default(),
+                    VpEntity,
+                ))
+                .id(),
+        )
+    } else {
+        None
+    };
 
     state.status = format!(
         "{} pts | {} planes | {} unassigned",
-        all_pts.len(), state.raw_planes.len(), leftover.len()
+        all_pts.len(),
+        state.raw_planes.len(),
+        leftover.len()
     );
 }
 
 #[allow(clippy::too_many_arguments)]
 fn spawn_planes(
-    planes: &[([f32;3], f32, Vec<usize>)],
-    all_pts: &[[f32;3]],
+    planes: &[([f32; 3], f32, Vec<usize>)],
+    all_pts: &[[f32; 3]],
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     point_size: f32,
     exterior_thresh: f32,
-    dist_thresh: f32,   // used to exclude near-plane points from exterior count
+    dist_thresh: f32, // used to exclude near-plane points from exterior count
     color_mode: PlaneColorMode,
     plane_colors: &[[u8; 3]], // original per-point RGB, indexed like all_pts (empty = none)
     // Per-plane exterior labels (Building method's footprint classifier). When
     // Some, overrides classify_plane's side-test; when None, the side-test wins.
     exterior_override: Option<&[bool]>,
-    detected: &mut Vec<([f32;3], f32, usize, [f32;3], bool)>,
-    plane_entities: &mut Vec<[Option<Entity>;2]>,
+    detected: &mut Vec<([f32; 3], f32, usize, [f32; 3], bool)>,
+    plane_entities: &mut Vec<[Option<Entity>; 2]>,
     plane_visible: &mut Vec<bool>,
 ) {
     detected.clear();
@@ -1272,20 +1490,33 @@ fn spawn_planes(
         // library helper — the same code path `segment_for_dollhouse` runs, so
         // the interactive Segment→Merge→Grow steps stay in sync with the lib.
         // margin excludes the near-plane band (canonicalize_margin_factor = 3.0).
-        let (canonical_normal, canonical_d, centroid, side_exterior) =
-            classify_plane(*normal, *d, inliers, all_pts, dist_thresh * 3.0, exterior_thresh);
+        let (canonical_normal, canonical_d, centroid, side_exterior) = classify_plane(
+            *normal,
+            *d,
+            inliers,
+            all_pts,
+            dist_thresh * 3.0,
+            exterior_thresh,
+        );
         // Prefer the footprint exterior label when the Building method supplied one.
         let is_exterior = exterior_override
             .and_then(|o| o.get(pi).copied())
             .unwrap_or(side_exterior);
 
-        detected.push((canonical_normal, canonical_d, pts3d.len(), centroid, is_exterior));
+        detected.push((
+            canonical_normal,
+            canonical_d,
+            pts3d.len(),
+            centroid,
+            is_exterior,
+        ));
 
         // Original-RGB mode bakes per-point color into the mesh; palette/gray
         // use a flat material color. Fall back to palette if colors are missing.
         let use_rgb = color_mode == PlaneColorMode::Original && !plane_colors.is_empty();
         let (pt_mesh, pt_color) = if use_rgb {
-            let cols: Vec<[u8; 3]> = inliers.iter()
+            let cols: Vec<[u8; 3]> = inliers
+                .iter()
                 .map(|&i| plane_colors.get(i).copied().unwrap_or([180, 180, 180]))
                 .collect();
             (make_cloud_mesh_rgb(&pts3d, &cols, point_size), Color::WHITE)
@@ -1297,17 +1528,23 @@ fn spawn_planes(
             (make_cloud_mesh(&pts3d, point_size), c)
         };
         let pts_entity = if !pts3d.is_empty() {
-            Some(commands.spawn((
-                Mesh3d(meshes.add(pt_mesh)),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: pt_color,
-                    unlit: true,
-                    ..default()
-                })),
-                Transform::default(),
-                VpEntity,
-            )).id())
-        } else { None };
+            Some(
+                commands
+                    .spawn((
+                        Mesh3d(meshes.add(pt_mesh)),
+                        MeshMaterial3d(materials.add(StandardMaterial {
+                            base_color: pt_color,
+                            unlit: true,
+                            ..default()
+                        })),
+                        Transform::default(),
+                        VpEntity,
+                    ))
+                    .id(),
+            )
+        } else {
+            None
+        };
 
         let alpha_pts: Vec<[f32; 3]> = if pts3d.len() > 3000 {
             let stride = pts3d.len() / 3000;
@@ -1316,19 +1553,21 @@ fn spawn_planes(
             pts3d.clone()
         };
         let alpha_entity = make_alpha_shape_mesh(*normal, *d, &alpha_pts).map(|mesh| {
-            commands.spawn((
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgba(mr, mg, mb, ma),
-                    alpha_mode: AlphaMode::Blend,
-                    double_sided: true,
-                    unlit: true,
-                    cull_mode: None,
-                    ..default()
-                })),
-                Transform::default(),
-                VpEntity,
-            )).id()
+            commands
+                .spawn((
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(mr, mg, mb, ma),
+                        alpha_mode: AlphaMode::Blend,
+                        double_sided: true,
+                        unlit: true,
+                        cull_mode: None,
+                        ..default()
+                    })),
+                    Transform::default(),
+                    VpEntity,
+                ))
+                .id()
         });
 
         plane_entities.push([pts_entity, alpha_entity]);
@@ -1346,9 +1585,15 @@ impl VoxelPlaneState {
     fn set_cloud(&mut self, cloud: &spatialrust_inlier::PointCloud) {
         self.loaded_colors = cloud_rgb(cloud);
         self.loaded_pts = cloud_xyz(cloud);
-        let color_info = if self.loaded_colors.is_empty() { "" } else { " (RGB)" };
-        self.status =
-            format!("Loaded {} pts{color_info} — click Segment to run", self.loaded_pts.len());
+        let color_info = if self.loaded_colors.is_empty() {
+            ""
+        } else {
+            " (RGB)"
+        };
+        self.status = format!(
+            "Loaded {} pts{color_info} — click Segment to run",
+            self.loaded_pts.len()
+        );
         self.detected.clear();
         self.needs_reload = true;
     }
@@ -1394,67 +1639,138 @@ fn poll_fetch(state: &mut VoxelPlaneState) {
 fn cloud_rgb(cloud: &spatialrust_inlier::PointCloud) -> Vec<[u8; 3]> {
     use spatialrust_inlier::{FieldSemantic, PointBuffer};
     let schema = cloud.schema();
-    let r_name = schema.find_semantic(FieldSemantic::ColorR).map(|f| f.name.clone());
-    let g_name = schema.find_semantic(FieldSemantic::ColorG).map(|f| f.name.clone());
-    let b_name = schema.find_semantic(FieldSemantic::ColorB).map(|f| f.name.clone());
+    let r_name = schema
+        .find_semantic(FieldSemantic::ColorR)
+        .map(|f| f.name.clone());
+    let g_name = schema
+        .find_semantic(FieldSemantic::ColorG)
+        .map(|f| f.name.clone());
+    let b_name = schema
+        .find_semantic(FieldSemantic::ColorB)
+        .map(|f| f.name.clone());
     let (Some(r_name), Some(g_name), Some(b_name)) = (r_name, g_name, b_name) else {
         return vec![];
     };
-    let Ok(r_buf) = cloud.field(&r_name) else { return vec![]; };
-    let Ok(g_buf) = cloud.field(&g_name) else { return vec![]; };
-    let Ok(b_buf) = cloud.field(&b_name) else { return vec![]; };
+    let Ok(r_buf) = cloud.field(&r_name) else {
+        return vec![];
+    };
+    let Ok(g_buf) = cloud.field(&g_name) else {
+        return vec![];
+    };
+    let Ok(b_buf) = cloud.field(&b_name) else {
+        return vec![];
+    };
 
     let to_u8 = |buf: &PointBuffer, i: usize| -> u8 {
         match buf {
-            PointBuffer::U8(v)  => v[i],
+            PointBuffer::U8(v) => v[i],
             PointBuffer::U16(v) => (v[i] >> 8) as u8,
             PointBuffer::F32(v) => (v[i].clamp(0.0, 1.0) * 255.0) as u8,
             PointBuffer::F64(v) => (v[i].clamp(0.0, 1.0) * 255.0) as u8,
-            _                   => 0,
+            _ => 0,
         }
     };
 
-    (0..cloud.len()).map(|i| [to_u8(r_buf, i), to_u8(g_buf, i), to_u8(b_buf, i)]).collect()
+    (0..cloud.len())
+        .map(|i| [to_u8(r_buf, i), to_u8(g_buf, i), to_u8(b_buf, i)])
+        .collect()
 }
 
 /// Build a cube-splat mesh with per-vertex colors baked in.
-fn make_cloud_mesh_rgb(positions: &[[f32; 3]], colors: &[[u8; 3]], size: f32) -> bevy::prelude::Mesh {
-    use bevy::render::mesh::{Indices, PrimitiveTopology};
+fn make_cloud_mesh_rgb(
+    positions: &[[f32; 3]],
+    colors: &[[u8; 3]],
+    size: f32,
+) -> bevy::prelude::Mesh {
     use bevy::asset::RenderAssetUsages;
+    use bevy::render::mesh::{Indices, PrimitiveTopology};
 
     let h = size * 0.5;
     let cap = positions.len().min(colors.len()).min(100_000);
     let n = cap;
-    let mut verts:  Vec<[f32; 3]> = Vec::with_capacity(n * 24);
-    let mut norms:  Vec<[f32; 3]> = Vec::with_capacity(n * 24);
-    let mut cols:   Vec<[f32; 4]> = Vec::with_capacity(n * 24);
-    let mut idx:    Vec<u32>      = Vec::with_capacity(n * 36);
+    let mut verts: Vec<[f32; 3]> = Vec::with_capacity(n * 24);
+    let mut norms: Vec<[f32; 3]> = Vec::with_capacity(n * 24);
+    let mut cols: Vec<[f32; 4]> = Vec::with_capacity(n * 24);
+    let mut idx: Vec<u32> = Vec::with_capacity(n * 36);
 
-    for (i, (&[cx, cy, cz], &[r, g, b])) in positions.iter().zip(colors.iter()).take(cap).enumerate() {
+    for (i, (&[cx, cy, cz], &[r, g, b])) in
+        positions.iter().zip(colors.iter()).take(cap).enumerate()
+    {
         let cr = r as f32 / 255.0;
         let cg = g as f32 / 255.0;
         let cb = b as f32 / 255.0;
         let col = [cr, cg, cb, 1.0];
         let base = (i * 24) as u32;
-        verts.extend([[cx+h,cy-h,cz-h],[cx+h,cy+h,cz-h],[cx+h,cy+h,cz+h],[cx+h,cy-h,cz+h]]);
-        for _ in 0..4 { norms.push([1.,0.,0.]); cols.push(col); }
-        verts.extend([[cx-h,cy-h,cz+h],[cx-h,cy+h,cz+h],[cx-h,cy+h,cz-h],[cx-h,cy-h,cz-h]]);
-        for _ in 0..4 { norms.push([-1.,0.,0.]); cols.push(col); }
-        verts.extend([[cx-h,cy+h,cz-h],[cx-h,cy+h,cz+h],[cx+h,cy+h,cz+h],[cx+h,cy+h,cz-h]]);
-        for _ in 0..4 { norms.push([0.,1.,0.]); cols.push(col); }
-        verts.extend([[cx-h,cy-h,cz+h],[cx-h,cy-h,cz-h],[cx+h,cy-h,cz-h],[cx+h,cy-h,cz+h]]);
-        for _ in 0..4 { norms.push([0.,-1.,0.]); cols.push(col); }
-        verts.extend([[cx-h,cy-h,cz+h],[cx+h,cy-h,cz+h],[cx+h,cy+h,cz+h],[cx-h,cy+h,cz+h]]);
-        for _ in 0..4 { norms.push([0.,0.,1.]); cols.push(col); }
-        verts.extend([[cx+h,cy-h,cz-h],[cx-h,cy-h,cz-h],[cx-h,cy+h,cz-h],[cx+h,cy+h,cz-h]]);
-        for _ in 0..4 { norms.push([0.,0.,-1.]); cols.push(col); }
+        verts.extend([
+            [cx + h, cy - h, cz - h],
+            [cx + h, cy + h, cz - h],
+            [cx + h, cy + h, cz + h],
+            [cx + h, cy - h, cz + h],
+        ]);
+        for _ in 0..4 {
+            norms.push([1., 0., 0.]);
+            cols.push(col);
+        }
+        verts.extend([
+            [cx - h, cy - h, cz + h],
+            [cx - h, cy + h, cz + h],
+            [cx - h, cy + h, cz - h],
+            [cx - h, cy - h, cz - h],
+        ]);
+        for _ in 0..4 {
+            norms.push([-1., 0., 0.]);
+            cols.push(col);
+        }
+        verts.extend([
+            [cx - h, cy + h, cz - h],
+            [cx - h, cy + h, cz + h],
+            [cx + h, cy + h, cz + h],
+            [cx + h, cy + h, cz - h],
+        ]);
+        for _ in 0..4 {
+            norms.push([0., 1., 0.]);
+            cols.push(col);
+        }
+        verts.extend([
+            [cx - h, cy - h, cz + h],
+            [cx - h, cy - h, cz - h],
+            [cx + h, cy - h, cz - h],
+            [cx + h, cy - h, cz + h],
+        ]);
+        for _ in 0..4 {
+            norms.push([0., -1., 0.]);
+            cols.push(col);
+        }
+        verts.extend([
+            [cx - h, cy - h, cz + h],
+            [cx + h, cy - h, cz + h],
+            [cx + h, cy + h, cz + h],
+            [cx - h, cy + h, cz + h],
+        ]);
+        for _ in 0..4 {
+            norms.push([0., 0., 1.]);
+            cols.push(col);
+        }
+        verts.extend([
+            [cx + h, cy - h, cz - h],
+            [cx - h, cy - h, cz - h],
+            [cx - h, cy + h, cz - h],
+            [cx + h, cy + h, cz - h],
+        ]);
+        for _ in 0..4 {
+            norms.push([0., 0., -1.]);
+            cols.push(col);
+        }
         for face in 0..6u32 {
             let b = base + face * 4;
-            idx.extend([b, b+1, b+2, b+2, b+3, b]);
+            idx.extend([b, b + 1, b + 2, b + 2, b + 3, b]);
         }
     }
 
-    let mut mesh = bevy::prelude::Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = bevy::prelude::Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION, verts);
     mesh.insert_attribute(bevy::prelude::Mesh::ATTRIBUTE_NORMAL, norms);
     mesh.insert_attribute(bevy::prelude::Mesh::ATTRIBUTE_COLOR, cols);
@@ -1469,8 +1785,12 @@ fn dollhouse_system(
     cam_query: Query<&Transform, With<OrbitCamera>>,
     mut vis_query: Query<&mut Visibility>,
 ) {
-    if !state.dollhouse_mode { return; }
-    let Ok(cam_tf) = cam_query.single() else { return };
+    if !state.dollhouse_mode {
+        return;
+    }
+    let Ok(cam_tf) = cam_query.single() else {
+        return;
+    };
     let cam_pos = cam_tf.translation;
     let cos_thresh = state.dollhouse_angle.to_radians().cos();
     let up = bevy::math::Vec3::from(state.up_dir);
@@ -1482,9 +1802,13 @@ fn dollhouse_system(
 
     for (i, &(normal, _, _, centroid, is_exterior)) in state.detected.iter().enumerate() {
         // Non-building: only hide roughly-vertical walls (|normal·up| ~0).
-        if !building && bevy::math::Vec3::from(normal).dot(up).abs() > 0.5 { continue; }
+        if !building && bevy::math::Vec3::from(normal).dot(up).abs() > 0.5 {
+            continue;
+        }
         // Exterior-only mode: skip interior planes entirely (leave them always visible).
-        if state.dollhouse_exterior_only && !is_exterior { continue; }
+        if state.dollhouse_exterior_only && !is_exterior {
+            continue;
+        }
 
         let to_cam = bevy::math::Vec3::new(
             cam_pos.x - centroid[0],
@@ -1492,7 +1816,9 @@ fn dollhouse_system(
             cam_pos.z - centroid[2],
         );
         let len = to_cam.length();
-        if len < 1e-6 { continue; }
+        if len < 1e-6 {
+            continue;
+        }
         let to_cam_n = to_cam / len;
         // `normal` is canonicalized inward (toward cloud center).
         // If the inward normal points AWAY from camera (dot < 0), camera is
@@ -1503,7 +1829,11 @@ fn dollhouse_system(
         let facing = dot < -cos_thresh;
         // Override visibility only when dollhouse says to hide — don't fight the
         // per-plane checkbox (which sets visibility_dirty and writes plane_visible).
-        let v = if facing { Visibility::Hidden } else { Visibility::Inherited };
+        let v = if facing {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
         if let Some(entities) = state.plane_entities.get(i) {
             for &opt_e in entities.iter() {
                 if let Some(e) = opt_e {
@@ -1527,19 +1857,31 @@ fn synthetic_multi_plane(
 ) -> Vec<[f32; 3]> {
     let mut s = seed as u64;
     let mut rng = move || -> f32 {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((s >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0
     };
     let mut out = Vec::new();
     for pi in 0..n_planes.min(MAX_PLANES) {
         let normal = loop {
             let (x, y, z) = (rng(), rng(), rng());
-            let len = (x*x+y*y+z*z).sqrt();
-            if len > 0.01 && len <= 1.0 { break normalize3([x, y, z]); }
+            let len = (x * x + y * y + z * z).sqrt();
+            if len > 0.01 && len <= 1.0 {
+                break normalize3([x, y, z]);
+            }
         };
         let offset = pi as f32 * 2.5;
-        let p0 = [-offset*normal[0], -offset*normal[1], -offset*normal[2]];
-        let up = if normal[2].abs() < 0.9 { [0f32,0.,1.] } else { [1.,0.,0.] };
+        let p0 = [
+            -offset * normal[0],
+            -offset * normal[1],
+            -offset * normal[2],
+        ];
+        let up = if normal[2].abs() < 0.9 {
+            [0f32, 0., 1.]
+        } else {
+            [1., 0., 0.]
+        };
         let t1 = normalize3(cross3(normal, up));
         let t2 = cross3(normal, t1);
         for _ in 0..n_inliers {
@@ -1547,21 +1889,22 @@ fn synthetic_multi_plane(
             let v = rng() * 3.0;
             let noise = rng() * noise_std;
             out.push([
-                p0[0] + u*t1[0] + v*t2[0] + noise*normal[0],
-                p0[1] + u*t1[1] + v*t2[1] + noise*normal[1],
-                p0[2] + u*t1[2] + v*t2[2] + noise*normal[2],
+                p0[0] + u * t1[0] + v * t2[0] + noise * normal[0],
+                p0[1] + u * t1[1] + v * t2[1] + noise * normal[1],
+                p0[2] + u * t1[2] + v * t2[2] + noise * normal[2],
             ]);
         }
     }
     for _ in 0..n_outliers {
-        out.push([rng()*4., rng()*4., rng()*4.]);
+        out.push([rng() * 4., rng() * 4., rng() * 4.]);
     }
     out
 }
 
-
 fn lcg_next(seed: u32) -> u32 {
-    let s = (seed as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    let s = (seed as u64)
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     ((s >> 33) as u32 % 9998) + 1
 }
 
@@ -1588,26 +1931,72 @@ mod tests {
 
         println!("Detected {} planes:", planes.len());
         for (i, (n, d, inliers)) in planes.iter().enumerate() {
-            println!("  Plane {}: n=[{:.3},{:.3},{:.3}] d={:.3}  pts={}", i+1, n[0], n[1], n[2], d, inliers.len());
+            println!(
+                "  Plane {}: n=[{:.3},{:.3},{:.3}] d={:.3}  pts={}",
+                i + 1,
+                n[0],
+                n[1],
+                n[2],
+                d,
+                inliers.len()
+            );
         }
 
-        assert_eq!(planes.len(), 3, "should find 3 planes, found {}", planes.len());
+        assert_eq!(
+            planes.len(),
+            3,
+            "should find 3 planes, found {}",
+            planes.len()
+        );
         for (i, (_, _, inliers)) in planes.iter().enumerate() {
-            assert!(inliers.len() >= 400, "plane {} has only {} pts (want >=400)", i+1, inliers.len());
+            assert!(
+                inliers.len() >= 400,
+                "plane {} has only {} pts (want >=400)",
+                i + 1,
+                inliers.len()
+            );
         }
     }
 
     #[test]
     fn smoke_3_planes_msac() {
         let pts = synthetic_multi_plane(3, 600, 0.03, 200, 42);
-        let planes = region_growing_ransac(&pts, 20, 10f32.to_radians(), 30, 0.08, RansacMode::Msac, 0.0, 1000, 0.99);
+        let planes = region_growing_ransac(
+            &pts,
+            20,
+            10f32.to_radians(),
+            30,
+            0.08,
+            RansacMode::Msac,
+            0.0,
+            1000,
+            0.99,
+        );
         println!("MSAC: {} planes", planes.len());
         for (i, (n, d, inliers)) in planes.iter().enumerate() {
-            println!("  Plane {}: n=[{:.3},{:.3},{:.3}] d={:.3}  pts={}", i+1, n[0], n[1], n[2], d, inliers.len());
+            println!(
+                "  Plane {}: n=[{:.3},{:.3},{:.3}] d={:.3}  pts={}",
+                i + 1,
+                n[0],
+                n[1],
+                n[2],
+                d,
+                inliers.len()
+            );
         }
-        assert_eq!(planes.len(), 3, "MSAC should find 3 planes, found {}", planes.len());
+        assert_eq!(
+            planes.len(),
+            3,
+            "MSAC should find 3 planes, found {}",
+            planes.len()
+        );
         for (i, (_, _, inliers)) in planes.iter().enumerate() {
-            assert!(inliers.len() >= 400, "MSAC plane {} has only {} pts", i+1, inliers.len());
+            assert!(
+                inliers.len() >= 400,
+                "MSAC plane {} has only {} pts",
+                i + 1,
+                inliers.len()
+            );
         }
     }
 
@@ -1615,14 +2004,42 @@ mod tests {
     fn smoke_3_planes_magsac() {
         let pts = synthetic_multi_plane(3, 600, 0.03, 200, 42);
         let sigma_max = (0.08f32 * 1.5) as f64;
-        let planes = region_growing_ransac(&pts, 20, 10f32.to_radians(), 30, 0.08, RansacMode::Magsac, sigma_max, 1000, 0.99);
+        let planes = region_growing_ransac(
+            &pts,
+            20,
+            10f32.to_radians(),
+            30,
+            0.08,
+            RansacMode::Magsac,
+            sigma_max,
+            1000,
+            0.99,
+        );
         println!("MAGSAC++: {} planes", planes.len());
         for (i, (n, d, inliers)) in planes.iter().enumerate() {
-            println!("  Plane {}: n=[{:.3},{:.3},{:.3}] d={:.3}  pts={}", i+1, n[0], n[1], n[2], d, inliers.len());
+            println!(
+                "  Plane {}: n=[{:.3},{:.3},{:.3}] d={:.3}  pts={}",
+                i + 1,
+                n[0],
+                n[1],
+                n[2],
+                d,
+                inliers.len()
+            );
         }
-        assert_eq!(planes.len(), 3, "MAGSAC++ should find 3 planes, found {}", planes.len());
+        assert_eq!(
+            planes.len(),
+            3,
+            "MAGSAC++ should find 3 planes, found {}",
+            planes.len()
+        );
         for (i, (_, _, inliers)) in planes.iter().enumerate() {
-            assert!(inliers.len() >= 400, "MAGSAC++ plane {} has only {} pts", i+1, inliers.len());
+            assert!(
+                inliers.len() >= 400,
+                "MAGSAC++ plane {} has only {} pts",
+                i + 1,
+                inliers.len()
+            );
         }
     }
 }

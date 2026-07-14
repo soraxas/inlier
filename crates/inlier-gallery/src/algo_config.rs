@@ -5,8 +5,8 @@
 //! accepts.
 
 use bevy_egui::egui;
-use inlier::MetasacSettings;
 use inlier::settings::ScoringType;
+use inlier::MetasacSettings;
 
 /// The algorithms the user can pick in every demo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -21,9 +21,9 @@ pub enum RansacAlgo {
 impl RansacAlgo {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Simple   => "RANSAC",
-            Self::Msac     => "MSAC",
-            Self::Magsac   => "MAGSAC",
+            Self::Simple => "RANSAC",
+            Self::Msac => "MSAC",
+            Self::Magsac => "MAGSAC",
             Self::MagsacPP => "MAGSAC++",
         }
     }
@@ -42,9 +42,9 @@ impl RansacAlgo {
         // the Magsac scoring type (the crate uses sigma-consensus internally
         // when confidence is high) and tighten the confidence slightly.
         s.scoring = match self {
-            Self::Simple   => ScoringType::Ransac,
-            Self::Msac     => ScoringType::Msac,
-            Self::Magsac   => ScoringType::Magsac,
+            Self::Simple => ScoringType::Ransac,
+            Self::Msac => ScoringType::Msac,
+            Self::Magsac => ScoringType::Magsac,
             Self::MagsacPP => ScoringType::Magsac,
         };
         if self == Self::MagsacPP {

@@ -9,11 +9,11 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use spatialrust_inlier::{
     normals::normalize3,
-    plane_ops::{GrowArgs, merge_planes, grow_planes},
-    region_growing::{RansacMode, region_growing_ransac},
+    plane_ops::{grow_planes, merge_planes, GrowArgs},
+    region_growing::{region_growing_ransac, RansacMode},
 };
 
 use crate::AppDemo;
@@ -89,9 +89,15 @@ fn merge_ui(mut contexts: EguiContexts, mut state: ResMut<MergeState>) {
             ui.label("Synthetic cloud: two co-planar patches + one angled patch");
             ui.separator();
 
-            let c1 = ui.checkbox(&mut state.show_before, "Show before (transparent)").changed();
-            let c2 = ui.checkbox(&mut state.show_after, "Show after (solid)").changed();
-            let c3 = ui.checkbox(&mut state.show_unassigned, "Show unassigned (gray)").changed();
+            let c1 = ui
+                .checkbox(&mut state.show_before, "Show before (transparent)")
+                .changed();
+            let c2 = ui
+                .checkbox(&mut state.show_after, "Show after (solid)")
+                .changed();
+            let c3 = ui
+                .checkbox(&mut state.show_unassigned, "Show unassigned (gray)")
+                .changed();
             if c1 || c2 || c3 {
                 state.needs_update = true;
             }
@@ -119,8 +125,14 @@ fn merge_ui(mut contexts: EguiContexts, mut state: ResMut<MergeState>) {
             ui.separator();
             if !state.before_planes.is_empty() {
                 ui.colored_label(egui::Color32::LIGHT_BLUE, "Stats");
-                ui.label(format!("Segments before merge: {}", state.before_planes.len()));
-                ui.label(format!("Segments after  merge: {}", state.after_planes.len()));
+                ui.label(format!(
+                    "Segments before merge: {}",
+                    state.before_planes.len()
+                ));
+                ui.label(format!(
+                    "Segments after  merge: {}",
+                    state.after_planes.len()
+                ));
                 let total: usize = state.after_planes.iter().map(|(_, _, v)| v.len()).sum();
                 ui.label(format!("Total inliers after:   {total}"));
             }
@@ -148,7 +160,15 @@ fn merge_scene(
 
     let pts = synthetic_oversegmented_cloud();
     let planes = region_growing_ransac(
-        &pts, 20, 12f32.to_radians(), 30, 0.08, RansacMode::Simple, 0.0, 500, 0.99,
+        &pts,
+        20,
+        12f32.to_radians(),
+        30,
+        0.08,
+        RansacMode::Simple,
+        0.0,
+        500,
+        0.99,
     );
 
     let merged = merge_planes(
@@ -161,7 +181,8 @@ fn merge_scene(
 
     state.status = format!(
         "Before: {} segments → After: {} segments",
-        planes.len(), merged.len()
+        planes.len(),
+        merged.len()
     );
 
     // Track assigned indices.
@@ -170,15 +191,21 @@ fn merge_scene(
 
     // Palette: distinct hues.
     let palette: &[[f32; 3]] = &[
-        [0.9, 0.2, 0.2], [0.2, 0.7, 0.9], [0.2, 0.9, 0.3],
-        [0.9, 0.7, 0.1], [0.7, 0.2, 0.9], [0.9, 0.5, 0.1],
+        [0.9, 0.2, 0.2],
+        [0.2, 0.7, 0.9],
+        [0.2, 0.9, 0.3],
+        [0.9, 0.7, 0.1],
+        [0.7, 0.2, 0.9],
+        [0.9, 0.5, 0.1],
     ];
 
     if state.show_before {
         for (pi, (_, _, inliers)) in planes.iter().enumerate() {
             let [r, g, b] = palette[pi % palette.len()];
             let pts3d: Vec<[f32; 3]> = inliers.iter().map(|&i| pts[i]).collect();
-            if pts3d.is_empty() { continue; }
+            if pts3d.is_empty() {
+                continue;
+            }
             commands.spawn((
                 Mesh3d(meshes.add(point_cloud_cube_mesh(&pts3d, 0.04))),
                 MeshMaterial3d(materials.add(StandardMaterial {
@@ -197,8 +224,12 @@ fn merge_scene(
         for (pi, (_, _, inliers)) in merged.iter().enumerate() {
             let [r, g, b] = palette[pi % palette.len()];
             let pts3d: Vec<[f32; 3]> = inliers.iter().map(|&i| pts[i]).collect();
-            for &i in inliers { assigned[i] = true; }
-            if pts3d.is_empty() { continue; }
+            for &i in inliers {
+                assigned[i] = true;
+            }
+            if pts3d.is_empty() {
+                continue;
+            }
             commands.spawn((
                 Mesh3d(meshes.add(point_cloud_cube_mesh(&pts3d, 0.04))),
                 MeshMaterial3d(materials.add(StandardMaterial {
@@ -245,7 +276,9 @@ fn merge_scene(
 fn synthetic_oversegmented_cloud() -> Vec<[f32; 3]> {
     let mut s: u64 = 0xabad_cafe;
     let mut rng = move || -> f32 {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((s >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0
     };
 
@@ -276,13 +309,28 @@ fn synthetic_oversegmented_cloud() -> Vec<[f32; 3]> {
 pub fn point_cloud_cube_mesh(pts: &[[f32; 3]], size: f32) -> Mesh {
     let h = size * 0.5;
     let cube_verts: [[f32; 3]; 8] = [
-        [-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h],
-        [-h, -h,  h], [h, -h,  h], [h, h,  h], [-h, h,  h],
+        [-h, -h, -h],
+        [h, -h, -h],
+        [h, h, -h],
+        [-h, h, -h],
+        [-h, -h, h],
+        [h, -h, h],
+        [h, h, h],
+        [-h, h, h],
     ];
     const CUBE_TRIS: [[u32; 3]; 12] = [
-        [0,1,2],[0,2,3], [4,6,5],[4,7,6],
-        [0,5,1],[0,4,5], [2,6,7],[2,7,3],
-        [0,3,7],[0,7,4], [1,5,6],[1,6,2],
+        [0, 1, 2],
+        [0, 2, 3],
+        [4, 6, 5],
+        [4, 7, 6],
+        [0, 5, 1],
+        [0, 4, 5],
+        [2, 6, 7],
+        [2, 7, 3],
+        [0, 3, 7],
+        [0, 7, 4],
+        [1, 5, 6],
+        [1, 6, 2],
     ];
 
     let n = pts.len();
@@ -301,7 +349,10 @@ pub fn point_cloud_cube_mesh(pts: &[[f32; 3]], size: f32) -> Mesh {
         }
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_indices(Indices::U32(indices));
     mesh

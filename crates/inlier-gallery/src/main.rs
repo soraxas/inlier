@@ -18,7 +18,7 @@ pub use wasm_bindgen_rayon::init_thread_pool;
 
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 
 #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppDemo {
@@ -39,15 +39,15 @@ pub enum AppDemo {
 impl AppDemo {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Plane          => "Plane Estimation",
-            Self::Voxel          => "Voxel Downsample",
-            Self::VoxelPlane     => "Voxel-Normal Planes",
-            Self::Normals        => "Normal Estimation",
-            Self::Merge          => "Merge Demo",
-            Self::Segmentation   => "Segmentation Pipeline",
-            Self::LineFit        => "Line Fitting",
-            Self::AbsolutePose   => "Absolute Pose",
-            Self::EssentialMatrix   => "Essential Matrix",
+            Self::Plane => "Plane Estimation",
+            Self::Voxel => "Voxel Downsample",
+            Self::VoxelPlane => "Voxel-Normal Planes",
+            Self::Normals => "Normal Estimation",
+            Self::Merge => "Merge Demo",
+            Self::Segmentation => "Segmentation Pipeline",
+            Self::LineFit => "Line Fitting",
+            Self::AbsolutePose => "Absolute Pose",
+            Self::EssentialMatrix => "Essential Matrix",
             Self::FundamentalMatrix => "Fundamental Matrix",
             Self::RigidTransform => "Rigid Transform",
         }
@@ -55,10 +55,17 @@ impl AppDemo {
 
     pub fn all() -> &'static [AppDemo] {
         &[
-            Self::Plane, Self::Voxel, Self::VoxelPlane,
-            Self::Normals, Self::Merge, Self::Segmentation,
-            Self::LineFit, Self::AbsolutePose,
-            Self::EssentialMatrix, Self::FundamentalMatrix, Self::RigidTransform,
+            Self::Plane,
+            Self::Voxel,
+            Self::VoxelPlane,
+            Self::Normals,
+            Self::Merge,
+            Self::Segmentation,
+            Self::LineFit,
+            Self::AbsolutePose,
+            Self::EssentialMatrix,
+            Self::FundamentalMatrix,
+            Self::RigidTransform,
         ]
     }
 }
@@ -108,10 +115,18 @@ fn setup_scene(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(0.0, 4.0, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
-        OrbitCamera { yaw: 0.0, pitch: -0.4, radius: 10.0, focus: Vec3::ZERO },
+        OrbitCamera {
+            yaw: 0.0,
+            pitch: -0.4,
+            radius: 10.0,
+            focus: Vec3::ZERO,
+        },
     ));
     commands.spawn((
-        DirectionalLight { illuminance: 5000.0, ..default() },
+        DirectionalLight {
+            illuminance: 5000.0,
+            ..default()
+        },
         Transform::from_xyz(5.0, 10.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
@@ -153,7 +168,9 @@ fn orbit_camera_system(
         .map(|ctx| ctx.egui_wants_pointer_input() || ctx.is_pointer_over_egui())
         .unwrap_or(false);
 
-    let Ok((mut transform, mut cam)) = query.single_mut() else { return };
+    let Ok((mut transform, mut cam)) = query.single_mut() else {
+        return;
+    };
 
     if !egui_wants {
         if mouse_buttons.pressed(MouseButton::Left) {

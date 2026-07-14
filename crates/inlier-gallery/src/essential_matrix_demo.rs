@@ -11,10 +11,10 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use crate::algo_config::{algo_combo_ui, randomize_button_ui, RansacAlgo};
 use crate::AppDemo;
-use crate::algo_config::{RansacAlgo, algo_combo_ui, randomize_button_ui};
 
 // ── Plugin / State / Marker ───────────────────────────────────────────────────
 
@@ -96,10 +96,7 @@ fn on_exit(mut commands: Commands, q: Query<Entity, With<EssentialMatrixEntity>>
 
 // ── System: UI ────────────────────────────────────────────────────────────────
 
-fn essential_matrix_ui(
-    mut contexts: EguiContexts,
-    mut state: ResMut<EssentialMatrixState>,
-) {
+fn essential_matrix_ui(mut contexts: EguiContexts, mut state: ResMut<EssentialMatrixState>) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     egui::Panel::left("essential_matrix_panel")
         .default_size(260.0)
@@ -109,11 +106,17 @@ fn essential_matrix_ui(
             ui.label("2-camera geometry from calibrated correspondences.");
             ui.separator();
 
-            if algo_combo_ui(ui, &mut state.algo) { state.needs_run = true; }
+            if algo_combo_ui(ui, &mut state.algo) {
+                state.needs_run = true;
+            }
 
             ui.separator();
-            let c1 = ui.checkbox(&mut state.show_epipolar, "Show epipolar lines").changed();
-            let c2 = ui.checkbox(&mut state.show_3d_points, "Show 3D points").changed();
+            let c1 = ui
+                .checkbox(&mut state.show_epipolar, "Show epipolar lines")
+                .changed();
+            let c2 = ui
+                .checkbox(&mut state.show_3d_points, "Show 3D points")
+                .changed();
             if c1 || c2 {
                 state.needs_run = true;
             }
@@ -132,9 +135,11 @@ fn essential_matrix_ui(
                 state.needs_run = true;
             }
             if ui
-                .add(egui::Slider::new(&mut state.sampson_threshold, 0.0001..=0.5)
-                    .text("Sampson thr.")
-                    .logarithmic(true))
+                .add(
+                    egui::Slider::new(&mut state.sampson_threshold, 0.0001..=0.5)
+                        .text("Sampson the.")
+                        .logarithmic(true),
+                )
                 .changed()
             {
                 state.needs_run = true;
@@ -142,8 +147,12 @@ fn essential_matrix_ui(
 
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Re-run").clicked() { state.needs_run = true; }
-                if randomize_button_ui(ui, &mut state.seed) { state.needs_run = true; }
+                if ui.button("Re-run").clicked() {
+                    state.needs_run = true;
+                }
+                if randomize_button_ui(ui, &mut state.seed) {
+                    state.needs_run = true;
+                }
             });
 
             ui.separator();
@@ -152,25 +161,46 @@ fn essential_matrix_ui(
             ui.label(format!("Trans norm: {:.4}", state.translation_norm));
 
             ui.separator();
-            ui.colored_label(egui::Color32::LIGHT_BLUE, "Confusion (Sampson < thr → inlier)");
-            egui::Grid::new("em_confusion").num_columns(2).show(ui, |ui| {
-                ui.colored_label(egui::Color32::GREEN, format!("TP {:3}", state.conf_tp));
-                ui.colored_label(egui::Color32::RED,   format!("FP {:3}", state.conf_fp));
-                ui.end_row();
-                ui.colored_label(egui::Color32::from_rgb(100, 180, 255), format!("FN {:3}", state.conf_fn));
-                ui.colored_label(egui::Color32::GRAY,  format!("TN {:3}", state.conf_tn));
-                ui.end_row();
-            });
-            let tp = state.conf_tp; let fp = state.conf_fp;
+            ui.colored_label(
+                egui::Color32::LIGHT_BLUE,
+                "Confusion (Sampson < the → inlier)",
+            );
+            egui::Grid::new("em_confusion")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.colored_label(egui::Color32::GREEN, format!("TP {:3}", state.conf_tp));
+                    ui.colored_label(egui::Color32::RED, format!("FP {:3}", state.conf_fp));
+                    ui.end_row();
+                    ui.colored_label(
+                        egui::Color32::from_rgb(100, 180, 255),
+                        format!("FN {:3}", state.conf_fn),
+                    );
+                    ui.colored_label(egui::Color32::GRAY, format!("TN {:3}", state.conf_tn));
+                    ui.end_row();
+                });
+            let tp = state.conf_tp;
+            let fp = state.conf_fp;
             let fn_ = state.conf_fn;
             if tp + fp > 0 {
                 let prec = tp as f32 / (tp + fp) as f32;
-                let col = if prec > 0.9 { egui::Color32::GREEN } else if prec > 0.7 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                let col = if prec > 0.9 {
+                    egui::Color32::GREEN
+                } else if prec > 0.7 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::RED
+                };
                 ui.colored_label(col, format!("Precision: {:.1}%", prec * 100.0));
             }
             if tp + fn_ > 0 {
                 let rec = tp as f32 / (tp + fn_) as f32;
-                let col = if rec > 0.9 { egui::Color32::GREEN } else if rec > 0.7 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                let col = if rec > 0.9 {
+                    egui::Color32::GREEN
+                } else if rec > 0.7 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::RED
+                };
                 ui.colored_label(col, format!("Recall:    {:.1}%", rec * 100.0));
             }
 
@@ -259,30 +289,51 @@ fn essential_matrix_scene(
 
     // ── Confusion matrix ──────────────────────────────────────────────────────
     // Build combined correspondence list: GT inliers first, then GT outliers.
-    let all_p1: Vec<[f32; 2]> = pts2d_cam1.iter().copied()
-        .chain(outlier_pts2d_1.iter().copied()).collect();
-    let all_p2: Vec<[f32; 2]> = pts2d_cam2.iter().copied()
-        .chain(outlier_pts2d_2.iter().copied()).collect();
+    let all_p1: Vec<[f32; 2]> = pts2d_cam1
+        .iter()
+        .copied()
+        .chain(outlier_pts2d_1.iter().copied())
+        .collect();
+    let all_p2: Vec<[f32; 2]> = pts2d_cam2
+        .iter()
+        .copied()
+        .chain(outlier_pts2d_2.iter().copied())
+        .collect();
     let n_total = all_p1.len();
 
     // est_inlier[i] = true if algorithm classified pair i as an inlier.
     let est_inlier: Vec<bool> = match state.algo {
         RansacAlgo::Simple | RansacAlgo::Msac => {
             // Threshold Sampson error against the user's slider.
-            let thr = state.sampson_threshold;
-            all_p1.iter().zip(all_p2.iter())
-                .map(|(&p1, &p2)| sampson_error(&f_mat, p1, p2) < thr)
+            let the = state.sampson_threshold;
+            all_p1
+                .iter()
+                .zip(all_p2.iter())
+                .map(|(&p1, &p2)| sampson_error(&f_mat, p1, p2) < the)
                 .collect()
         }
         RansacAlgo::Magsac | RansacAlgo::MagsacPP => {
             // Use the inlier crate's essential matrix estimator.
             use inlier::types::DataMatrix;
-            let flat1: Vec<f64> = all_p1.iter().flat_map(|p| [p[0] as f64, p[1] as f64]).collect();
-            let flat2: Vec<f64> = all_p2.iter().flat_map(|p| [p[0] as f64, p[1] as f64]).collect();
+            let flat1: Vec<f64> = all_p1
+                .iter()
+                .flat_map(|p| [p[0] as f64, p[1] as f64])
+                .collect();
+            let flat2: Vec<f64> = all_p2
+                .iter()
+                .flat_map(|p| [p[0] as f64, p[1] as f64])
+                .collect();
             let dm1 = DataMatrix::from_row_slice(n_total, 2, &flat1);
             let dm2 = DataMatrix::from_row_slice(n_total, 2, &flat2);
-            let settings = state.algo.make_settings(state.sampson_threshold as f64, Some(state.seed));
-            match inlier::estimate_essential_matrix(&dm1, &dm2, state.sampson_threshold as f64, Some(settings)) {
+            let settings = state
+                .algo
+                .make_settings(state.sampson_threshold as f64, Some(state.seed));
+            match inlier::estimate_essential_matrix(
+                &dm1,
+                &dm2,
+                state.sampson_threshold as f64,
+                Some(settings),
+            ) {
                 Ok(res) => {
                     let inlier_set: std::collections::HashSet<usize> =
                         res.inliers.into_iter().collect();
@@ -293,14 +344,16 @@ fn essential_matrix_scene(
         }
     };
 
-    let mut conf_tp = 0usize; let mut conf_fp = 0usize;
-    let mut conf_tn = 0usize; let mut conf_fn = 0usize;
+    let mut conf_tp = 0usize;
+    let mut conf_fp = 0usize;
+    let mut conf_tn = 0usize;
+    let mut conf_fn = 0usize;
     for i in 0..n_total {
         let gt_in = i < n_inlier_pts;
         match (gt_in, est_inlier[i]) {
-            (true,  true)  => conf_tp += 1,
-            (false, true)  => conf_fp += 1,
-            (true,  false) => conf_fn += 1,
+            (true, true) => conf_tp += 1,
+            (false, true) => conf_fp += 1,
+            (true, false) => conf_fn += 1,
             (false, false) => conf_tn += 1,
         }
     }
@@ -327,26 +380,40 @@ fn essential_matrix_scene(
     // ── Spawn camera frustums ─────────────────────────────────────────────────
     // Cam1: blue wireframe
     spawn_frustum(
-        &mut commands, &mut meshes, &mut materials,
-        c1, r1,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        c1,
+        r1,
         Color::srgb(0.2, 0.5, 1.0),
     );
     // Cam2: orange wireframe
     spawn_frustum(
-        &mut commands, &mut meshes, &mut materials,
-        c2, gt_rot,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        c2,
+        gt_rot,
         Color::srgb(1.0, 0.55, 0.1),
     );
 
     // ── Spawn image-plane projected dots (cam1 = blue, cam2 = orange) ─────────
     spawn_image_plane_dots(
-        &mut commands, &mut meshes, &mut materials,
-        c1, r1, &pts2d_cam1,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        c1,
+        r1,
+        &pts2d_cam1,
         Color::srgb(0.3, 0.6, 1.0),
     );
     spawn_image_plane_dots(
-        &mut commands, &mut meshes, &mut materials,
-        c2, gt_rot, &pts2d_cam2,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        c2,
+        gt_rot,
+        &pts2d_cam2,
         Color::srgb(1.0, 0.6, 0.2),
     );
 
@@ -509,7 +576,9 @@ fn sampson_error(f: &[[f32; 3]; 3], x1: [f32; 2], x2: [f32; 2]) -> f32 {
     // x2^T F x1
     let num = x2[0] * fx1[0] + x2[1] * fx1[1] + fx1[2];
     let denom = fx1[0] * fx1[0] + fx1[1] * fx1[1] + ftx2[0] * ftx2[0] + ftx2[1] * ftx2[1];
-    if denom < 1e-10 { return 0.0; }
+    if denom < 1e-10 {
+        return 0.0;
+    }
     (num * num) / denom
 }
 
@@ -544,11 +613,7 @@ fn normalize3(v: [f32; 3]) -> [f32; 3] {
 
 /// Skew-symmetric matrix [t]_x.
 fn skew(t: [f32; 3]) -> [[f32; 3]; 3] {
-    [
-        [0.0, -t[2], t[1]],
-        [t[2], 0.0, -t[0]],
-        [-t[1], t[0], 0.0],
-    ]
+    [[0.0, -t[2], t[1]], [t[2], 0.0, -t[0]], [-t[1], t[0], 0.0]]
 }
 
 /// 3x3 matrix multiply.
@@ -667,7 +732,9 @@ fn mat_vec3(m: &[[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
 fn gen_scene_points(n: usize, seed: u64) -> Vec<[f32; 3]> {
     let mut s = seed;
     let mut next = || -> f32 {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (s >> 33) as f32 / u32::MAX as f32
     };
     (0..n)
@@ -684,7 +751,9 @@ fn gen_scene_points(n: usize, seed: u64) -> Vec<[f32; 3]> {
 fn gen_outlier_pts2d(n: usize, seed: u64) -> Vec<[f32; 2]> {
     let mut s = seed;
     let mut next = || -> f32 {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (s >> 33) as f32 / u32::MAX as f32
     };
     (0..n)
@@ -702,13 +771,28 @@ fn gen_outlier_pts2d(n: usize, seed: u64) -> Vec<[f32; 2]> {
 fn make_cube_mesh_batch(positions: &[[f32; 3]], size: f32) -> Mesh {
     let h = size * 0.5;
     let cube_verts: [[f32; 3]; 8] = [
-        [-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h],
-        [-h, -h,  h], [h, -h,  h], [h, h,  h], [-h, h,  h],
+        [-h, -h, -h],
+        [h, -h, -h],
+        [h, h, -h],
+        [-h, h, -h],
+        [-h, -h, h],
+        [h, -h, h],
+        [h, h, h],
+        [-h, h, h],
     ];
     const CUBE_TRIS: [[u32; 3]; 12] = [
-        [0,1,2],[0,2,3], [4,6,5],[4,7,6],
-        [0,5,1],[0,4,5], [2,6,7],[2,7,3],
-        [0,3,7],[0,7,4], [1,5,6],[1,6,2],
+        [0, 1, 2],
+        [0, 2, 3],
+        [4, 6, 5],
+        [4, 7, 6],
+        [0, 5, 1],
+        [0, 4, 5],
+        [2, 6, 7],
+        [2, 7, 3],
+        [0, 3, 7],
+        [0, 7, 4],
+        [1, 5, 6],
+        [1, 6, 2],
     ];
     let n = positions.len();
     let mut verts: Vec<[f32; 3]> = Vec::with_capacity(n * 8);
@@ -724,7 +808,10 @@ fn make_cube_mesh_batch(positions: &[[f32; 3]], size: f32) -> Mesh {
             indices.push(base + tri[2]);
         }
     }
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
     mesh.insert_indices(Indices::U32(indices));
     mesh
@@ -741,7 +828,11 @@ fn make_line_mesh(points: &[[f32; 3]]) -> Mesh {
 fn make_tube_mesh(a: [f32; 3], b: [f32; 3], radius: f32) -> Mesh {
     let dir = normalize3([b[0] - a[0], b[1] - a[1], b[2] - a[2]]);
     // Pick a perpendicular
-    let up = if dir[1].abs() < 0.9 { [0.0_f32, 1.0, 0.0] } else { [1.0, 0.0, 0.0] };
+    let up = if dir[1].abs() < 0.9 {
+        [0.0_f32, 1.0, 0.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
     let right = normalize3(cross3(dir, up));
     let up2 = normalize3(cross3(right, dir));
 
@@ -775,7 +866,10 @@ fn make_tube_mesh(a: [f32; 3], b: [f32; 3], radius: f32) -> Mesh {
     indices.extend([0, 1, 2, 0, 2, 3]); // near cap
     indices.extend([4, 6, 5, 4, 7, 6]); // far cap
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
     mesh.insert_indices(Indices::U32(indices));
     mesh
@@ -859,10 +953,14 @@ fn spawn_frustum(
 
     // Near-plane quad (wireframe loop: 4 edges)
     let quad_pts: Vec<[f32; 3]> = vec![
-        corners_world[0], corners_world[1],
-        corners_world[1], corners_world[2],
-        corners_world[2], corners_world[3],
-        corners_world[3], corners_world[0],
+        corners_world[0],
+        corners_world[1],
+        corners_world[1],
+        corners_world[2],
+        corners_world[2],
+        corners_world[3],
+        corners_world[3],
+        corners_world[0],
     ];
     let quad_mesh = {
         let mut m = Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::default());
@@ -882,11 +980,17 @@ fn spawn_frustum(
 
     // Filled near-plane quad (semi-transparent)
     let [c0, c1, c2, c3] = [
-        corners_world[0], corners_world[1], corners_world[2], corners_world[3],
+        corners_world[0],
+        corners_world[1],
+        corners_world[2],
+        corners_world[3],
     ];
     let plane_verts = vec![c0, c1, c2, c3];
     let plane_indices = Indices::U32(vec![0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2]);
-    let mut plane_mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut plane_mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     plane_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, plane_verts);
     plane_mesh.insert_indices(plane_indices);
 

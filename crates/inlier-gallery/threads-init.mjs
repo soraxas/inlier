@@ -11,19 +11,23 @@
 // in a real browser; if segmentation panics with a thread-pool error, this is
 // where to look.
 export default function () {
-  return {
-    onStart: () => {},
-    onProgress: () => {},
-    onComplete: () => {},
-    onSuccess: async (wasm) => {
-      if (wasm && typeof wasm.initThreadPool === 'function') {
-        const n = (navigator.hardwareConcurrency || 4);
-        await wasm.initThreadPool(n);
-        console.info(`inlier-gallery: rayon thread pool initialized with ${n} workers`);
-      } else {
-        console.warn('inlier-gallery: initThreadPool export missing; running single-threaded');
-      }
-    },
-    onFailure: (err) => console.error('inlier-gallery init failed', err),
-  };
+	return {
+		onStart: () => {},
+		onProgress: () => {},
+		onComplete: () => {},
+		onSuccess: async (wasm) => {
+			if (wasm && typeof wasm.initThreadPool === "function") {
+				const n = navigator.hardwareConcurrency || 4;
+				await wasm.initThreadPool(n);
+				console.info(
+					`inlier-gallery: rayon thread pool initialized with ${n} workers`,
+				);
+			} else {
+				console.warn(
+					"inlier-gallery: initThreadPool export missing; running single-threaded",
+				);
+			}
+		},
+		onFailure: (err) => console.error("inlier-gallery init failed", err),
+	};
 }

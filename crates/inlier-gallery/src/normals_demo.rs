@@ -9,14 +9,14 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use spatialrust_inlier::{
     normals::pca_normal_and_curvature,
     spatial_grid::{build_grid, estimate_cell_size, knn},
 };
 
-use crate::AppDemo;
 use crate::plane_demo::make_cloud_mesh;
+use crate::AppDemo;
 
 pub struct NormalsPlugin;
 
@@ -99,20 +99,28 @@ fn normals_ui(mut contexts: EguiContexts, mut state: ResMut<NormalsState>) {
             ui.separator();
             ui.label("Color mode:");
             if ui
-                .selectable_label(state.color_mode == ColorMode::NormalZ, "Normal Z (up = green)")
+                .selectable_label(
+                    state.color_mode == ColorMode::NormalZ,
+                    "Normal Z (up = green)",
+                )
                 .clicked()
             {
                 state.color_mode = ColorMode::NormalZ;
             }
             if ui
-                .selectable_label(state.color_mode == ColorMode::Curvature, "Curvature heatmap")
+                .selectable_label(
+                    state.color_mode == ColorMode::Curvature,
+                    "Curvature heatmap",
+                )
                 .clicked()
             {
                 state.color_mode = ColorMode::Curvature;
             }
 
             ui.separator();
-            let changed = ui.checkbox(&mut state.show_sticks, "Show normal sticks").changed();
+            let changed = ui
+                .checkbox(&mut state.show_sticks, "Show normal sticks")
+                .changed();
             if changed {
                 state.needs_update = true;
             }
@@ -171,7 +179,12 @@ fn normals_scene(
         }
     }
 
-    state.status = format!("Estimated normals for {}/{} points (k={})", results.len(), pts.len(), k);
+    state.status = format!(
+        "Estimated normals for {}/{} points (k={})",
+        results.len(),
+        pts.len(),
+        k
+    );
 
     let max_curv = results.iter().map(|(_, _, c)| *c).fold(1e-6f32, f32::max);
 
@@ -270,13 +283,28 @@ fn synthetic_cloud() -> Vec<[f32; 3]> {
 fn make_colored_cloud_mesh(pts: &[[f32; 3]], colors: &[[f32; 4]], size: f32) -> Mesh {
     let h = size * 0.5;
     let cube_verts: [[f32; 3]; 8] = [
-        [-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h],
-        [-h, -h,  h], [h, -h,  h], [h, h,  h], [-h, h,  h],
+        [-h, -h, -h],
+        [h, -h, -h],
+        [h, h, -h],
+        [-h, h, -h],
+        [-h, -h, h],
+        [h, -h, h],
+        [h, h, h],
+        [-h, h, h],
     ];
     const CUBE_TRIS: [[u32; 3]; 12] = [
-        [0,1,2],[0,2,3], [4,6,5],[4,7,6],
-        [0,5,1],[0,4,5], [2,6,7],[2,7,3],
-        [0,3,7],[0,7,4], [1,5,6],[1,6,2],
+        [0, 1, 2],
+        [0, 2, 3],
+        [4, 6, 5],
+        [4, 7, 6],
+        [0, 5, 1],
+        [0, 4, 5],
+        [2, 6, 7],
+        [2, 7, 3],
+        [0, 3, 7],
+        [0, 7, 4],
+        [1, 5, 6],
+        [1, 6, 2],
     ];
 
     let n_pts = pts.len();
@@ -297,7 +325,10 @@ fn make_colored_cloud_mesh(pts: &[[f32; 3]], colors: &[[f32; 4]], size: f32) -> 
         }
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
     mesh.insert_indices(Indices::U32(indices));

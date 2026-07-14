@@ -16,10 +16,10 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use crate::algo_config::{algo_combo_ui, randomize_button_ui, RansacAlgo};
 use crate::AppDemo;
-use crate::algo_config::{RansacAlgo, algo_combo_ui, randomize_button_ui};
 
 // ─── plugin ──────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ pub struct FundamentalMatrixState {
 
     // Computed results (filled in by scene system)
     pub inlier_count: usize,
-    pub f_det: f64,          // determinant of the 3×3 F matrix (display only)
+    pub f_det: f64,             // determinant of the 3×3 F matrix (display only)
     pub selected_inlier: usize, // index into inlier list for epipolar line
 
     // Trigger rebuild
@@ -104,10 +104,7 @@ fn on_exit(mut commands: Commands, q: Query<Entity, With<FundamentalMatrixEntity
 
 // ─── UI ──────────────────────────────────────────────────────────────────────
 
-fn fundamental_matrix_ui(
-    mut contexts: EguiContexts,
-    mut state: ResMut<FundamentalMatrixState>,
-) {
+fn fundamental_matrix_ui(mut contexts: EguiContexts, mut state: ResMut<FundamentalMatrixState>) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     egui::Panel::left("fm_panel")
         .default_size(270.0)
@@ -117,7 +114,9 @@ fn fundamental_matrix_ui(
             ui.small("Epipolar geometry from 2 views");
             ui.separator();
 
-            if algo_combo_ui(ui, &mut state.algo) { state.needs_run = true; }
+            if algo_combo_ui(ui, &mut state.algo) {
+                state.needs_run = true;
+            }
             ui.separator();
 
             // Parameters
@@ -145,7 +144,9 @@ fn fundamental_matrix_ui(
 
             // Visibility checkboxes
             ui.separator();
-            let v1 = ui.checkbox(&mut state.show_3d_scene, "Show 3D scene").changed();
+            let v1 = ui
+                .checkbox(&mut state.show_3d_scene, "Show 3D scene")
+                .changed();
             let v2 = ui
                 .checkbox(&mut state.show_image_planes, "Show image planes")
                 .changed();
@@ -196,14 +197,8 @@ fn fundamental_matrix_ui(
             ui.colored_label(egui::Color32::RED, "■ Outlier correspondences");
             ui.colored_label(egui::Color32::YELLOW, "■ Epipolar line");
             ui.colored_label(egui::Color32::LIGHT_GRAY, "■ 3D scene points");
-            ui.colored_label(
-                egui::Color32::from_rgb(100, 200, 255),
-                "■ Camera 1 (left)",
-            );
-            ui.colored_label(
-                egui::Color32::from_rgb(255, 180, 50),
-                "■ Camera 2 (right)",
-            );
+            ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "■ Camera 1 (left)");
+            ui.colored_label(egui::Color32::from_rgb(255, 180, 50), "■ Camera 2 (right)");
         });
 }
 
@@ -272,8 +267,8 @@ fn fundamental_matrix_scene(
     // Row 2: 0,   tx,  0
     let f_mat = [
         [0.0f64, 0.0, 0.0],
-        [0.0,    0.0, -tx as f64],
-        [0.0,    tx as f64, 0.0],
+        [0.0, 0.0, -tx as f64],
+        [0.0, tx as f64, 0.0],
     ];
     // det of F: computed analytically (it's always 0 for a valid F matrix)
     let f_det = mat3_det(&f_mat);
@@ -287,12 +282,8 @@ fn fundamental_matrix_scene(
     let right_x = 4.0f32;
 
     // Map projected coordinate to world position on the display plane.
-    let to_left = |p: Vec2| -> Vec3 {
-        Vec3::new(left_x, p.x * scale, p.y * scale)
-    };
-    let to_right = |p: Vec2| -> Vec3 {
-        Vec3::new(right_x, p.x * scale, p.y * scale)
-    };
+    let to_left = |p: Vec2| -> Vec3 { Vec3::new(left_x, p.x * scale, p.y * scale) };
+    let to_right = |p: Vec2| -> Vec3 { Vec3::new(right_x, p.x * scale, p.y * scale) };
 
     let n_inliers = proj1.len();
     state.inlier_count = n_inliers;
@@ -777,7 +768,10 @@ fn make_rect_fill_mesh(center: Vec3, half_w: f32, half_h: f32, _axis: Axis) -> M
     let norms: Vec<[f32; 3]> = vec![[1.0, 0.0, 0.0]; 4];
     let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3, 0, 3, 2, 0, 2, 1];
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, norms);
     mesh.insert_indices(Indices::U32(indices));
@@ -827,7 +821,10 @@ fn make_line_segments_mesh(pts: &[[f32; 3]]) -> Mesh {
         idx.extend([base, base + 2, base + 1, base + 2, base, base + 3]);
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, norms);
     mesh.insert_indices(Indices::U32(idx));
@@ -892,7 +889,10 @@ fn make_thick_line_mesh(a: Vec3, b: Vec3, half_w: f32) -> Mesh {
         idx.extend([base, base + 1, base + 2, base + 2, base + 3, base]);
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, norms);
     mesh.insert_indices(Indices::U32(idx));
@@ -974,7 +974,10 @@ fn cube_cloud_mesh(positions: &[[f32; 3]], size: f32) -> Mesh {
         }
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, norms);
     mesh.insert_indices(Indices::U32(idx));

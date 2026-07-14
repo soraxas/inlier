@@ -17,11 +17,11 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::AppDemo;
-use crate::algo_config::{RansacAlgo, algo_combo_ui, randomize_button_ui};
+use crate::algo_config::{algo_combo_ui, randomize_button_ui, RansacAlgo};
 use crate::merge_demo::point_cloud_cube_mesh;
+use crate::AppDemo;
 
 // ─── plugin ──────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,10 @@ impl Plugin for AbsolutePosePlugin {
                 EguiPrimaryContextPass,
                 absolute_pose_ui.run_if(in_state(AppDemo::AbsolutePose)),
             )
-            .add_systems(Update, absolute_pose_scene.run_if(in_state(AppDemo::AbsolutePose)));
+            .add_systems(
+                Update,
+                absolute_pose_scene.run_if(in_state(AppDemo::AbsolutePose)),
+            );
     }
 }
 
@@ -99,7 +102,9 @@ fn absolute_pose_ui(mut contexts: EguiContexts, mut state: ResMut<AbsolutePoseSt
             ui.label("3D world landmarks → 2D image projections → camera pose");
             ui.separator();
 
-            if algo_combo_ui(ui, &mut state.algo) { state.needs_update = true; }
+            if algo_combo_ui(ui, &mut state.algo) {
+                state.needs_update = true;
+            }
             ui.separator();
 
             if ui
@@ -127,8 +132,12 @@ fn absolute_pose_ui(mut contexts: EguiContexts, mut state: ResMut<AbsolutePoseSt
 
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Re-run").clicked() { state.needs_update = true; }
-                if randomize_button_ui(ui, &mut state.seed) { state.needs_update = true; }
+                if ui.button("Re-run").clicked() {
+                    state.needs_update = true;
+                }
+                if randomize_button_ui(ui, &mut state.seed) {
+                    state.needs_update = true;
+                }
             });
 
             ui.separator();
@@ -139,7 +148,10 @@ fn absolute_pose_ui(mut contexts: EguiContexts, mut state: ResMut<AbsolutePoseSt
             ui.label(format!("Camera pos:     ({:.3}, {:.3}, {:.3})", cx, cy, cz));
 
             ui.separator();
-            ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "■ World landmarks (3D)");
+            ui.colored_label(
+                egui::Color32::from_rgb(80, 200, 80),
+                "■ World landmarks (3D)",
+            );
             ui.colored_label(egui::Color32::from_rgb(0, 200, 220), "■ Camera body");
             ui.colored_label(egui::Color32::from_rgb(200, 200, 60), "■ Inlier rays");
             ui.colored_label(egui::Color32::from_rgb(220, 60, 60), "■ Outlier rays");
@@ -202,10 +214,7 @@ fn absolute_pose_scene(
     let outlier_obs: Vec<Vec2> = generate_outlier_obs(state.n_outliers, 0xDEAD_BEEF_u64);
 
     // ── 5. Spawn world landmarks (green cubes) ───────────────────────────────
-    let landmark_pts: Vec<[f32; 3]> = all_world_pts[..n_in]
-        .iter()
-        .map(|v| v.to_array())
-        .collect();
+    let landmark_pts: Vec<[f32; 3]> = all_world_pts[..n_in].iter().map(|v| v.to_array()).collect();
     if !landmark_pts.is_empty() {
         commands.spawn((
             Mesh3d(meshes.add(point_cloud_cube_mesh(&landmark_pts, 0.07))),
@@ -244,20 +253,17 @@ fn absolute_pose_scene(
     // Four image-plane corners in camera space.
     let corners_cam = [
         Vec3::new(-hw, -hh, image_depth),
-        Vec3::new( hw, -hh, image_depth),
-        Vec3::new( hw,  hh, image_depth),
-        Vec3::new(-hw,  hh, image_depth),
+        Vec3::new(hw, -hh, image_depth),
+        Vec3::new(hw, hh, image_depth),
+        Vec3::new(-hw, hh, image_depth),
     ];
 
     // Transform corners to world space.
-    let corners_world: Vec<Vec3> = corners_cam
-        .iter()
-        .map(|&c| cam_t + cam_rot * c)
-        .collect();
+    let corners_world: Vec<Vec3> = corners_cam.iter().map(|&c| cam_t + cam_rot * c).collect();
 
     // 4 rays: camera center → each corner.
     let ray_len = 1.0_f32; // the rays extend exactly to image_depth=1 then we extend further
-    // We'll draw each as a thin box mesh from cam_t to corner * (6/image_depth) to show depth.
+                           // We'll draw each as a thin box mesh from cam_t to corner * (6/image_depth) to show depth.
     let frustum_extend = 5.0_f32; // extend rays 5 units past image plane
     let white_mat = materials.add(StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, 0.7),
@@ -386,7 +392,9 @@ fn spawn_thin_line(
 /// LCG step (Knuth multiplicative): produces a float in [0, 1).
 #[inline]
 fn lcg_next(s: &mut u64) -> f32 {
-    *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *s = s
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     ((*s >> 33) as f32) / (u32::MAX as f32 + 1.0)
 }
 

@@ -10,12 +10,12 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use inlier::types::DataMatrix;
 
-use crate::AppDemo;
-use crate::algo_config::{RansacAlgo, algo_combo_ui, randomize_button_ui};
+use crate::algo_config::{algo_combo_ui, randomize_button_ui, RansacAlgo};
 use crate::merge_demo::point_cloud_cube_mesh;
+use crate::AppDemo;
 
 pub struct LineFitPlugin;
 
@@ -44,11 +44,19 @@ pub struct ConfusionStats {
 impl ConfusionStats {
     pub fn precision(self) -> Option<f32> {
         let denom = self.tp + self.fp;
-        if denom == 0 { None } else { Some(self.tp as f32 / denom as f32) }
+        if denom == 0 {
+            None
+        } else {
+            Some(self.tp as f32 / denom as f32)
+        }
     }
     pub fn recall(self) -> Option<f32> {
         let denom = self.tp + self.r#fn;
-        if denom == 0 { None } else { Some(self.tp as f32 / denom as f32) }
+        if denom == 0 {
+            None
+        } else {
+            Some(self.tp as f32 / denom as f32)
+        }
     }
 }
 
@@ -125,7 +133,9 @@ fn line_fit_ui(mut contexts: EguiContexts, mut state: ResMut<LineFitState>) {
             ui.label("Yellow box = fitted line");
             ui.separator();
 
-            if algo_combo_ui(ui, &mut state.algorithm) { state.needs_update = true; }
+            if algo_combo_ui(ui, &mut state.algorithm) {
+                state.needs_update = true;
+            }
 
             ui.separator();
 
@@ -150,8 +160,12 @@ fn line_fit_ui(mut contexts: EguiContexts, mut state: ResMut<LineFitState>) {
 
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Re-run").clicked() { state.needs_update = true; }
-                if randomize_button_ui(ui, &mut state.seed) { state.needs_update = true; }
+                if ui.button("Re-run").clicked() {
+                    state.needs_update = true;
+                }
+                if randomize_button_ui(ui, &mut state.seed) {
+                    state.needs_update = true;
+                }
             });
 
             if let Some(ref r) = state.result.clone() {
@@ -159,33 +173,67 @@ fn line_fit_ui(mut contexts: EguiContexts, mut state: ResMut<LineFitState>) {
                 ui.colored_label(egui::Color32::LIGHT_GREEN, "Fit Quality");
                 let slope_err = (r.slope - state.gt_slope).abs();
                 let intercept_err = (r.intercept - state.gt_intercept).abs();
-                let slope_color = if slope_err < 0.1 { egui::Color32::GREEN }
-                    else if slope_err < 0.3 { egui::Color32::YELLOW }
-                    else { egui::Color32::RED };
-                ui.colored_label(slope_color, format!("Slope: {:.3} (err {:.3})", r.slope, slope_err));
-                let int_color = if intercept_err < 0.1 { egui::Color32::GREEN }
-                    else if intercept_err < 0.3 { egui::Color32::YELLOW }
-                    else { egui::Color32::RED };
-                ui.colored_label(int_color, format!("Intercept: {:.3} (err {:.3})", r.intercept, intercept_err));
-                ui.label(format!("GT: y = {:.1}x + {:.1}", state.gt_slope, state.gt_intercept));
+                let slope_color = if slope_err < 0.1 {
+                    egui::Color32::GREEN
+                } else if slope_err < 0.3 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::RED
+                };
+                ui.colored_label(
+                    slope_color,
+                    format!("Slope: {:.3} (err {:.3})", r.slope, slope_err),
+                );
+                let int_color = if intercept_err < 0.1 {
+                    egui::Color32::GREEN
+                } else if intercept_err < 0.3 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::RED
+                };
+                ui.colored_label(
+                    int_color,
+                    format!("Intercept: {:.3} (err {:.3})", r.intercept, intercept_err),
+                );
+                ui.label(format!(
+                    "GT: y = {:.1}x + {:.1}",
+                    state.gt_slope, state.gt_intercept
+                ));
 
                 ui.separator();
                 let c = r.confusion;
                 ui.colored_label(egui::Color32::LIGHT_BLUE, "Confusion Matrix");
-                egui::Grid::new("confusion_grid").num_columns(2).show(ui, |ui| {
-                    ui.colored_label(egui::Color32::GREEN,  format!("TP {:3}", c.tp));
-                    ui.colored_label(egui::Color32::RED,    format!("FP {:3}", c.fp));
-                    ui.end_row();
-                    ui.colored_label(egui::Color32::from_rgb(100, 180, 255), format!("FN {:3}", c.r#fn));
-                    ui.colored_label(egui::Color32::GRAY,   format!("TN {:3}", c.tn));
-                    ui.end_row();
-                });
+                egui::Grid::new("confusion_grid")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.colored_label(egui::Color32::GREEN, format!("TP {:3}", c.tp));
+                        ui.colored_label(egui::Color32::RED, format!("FP {:3}", c.fp));
+                        ui.end_row();
+                        ui.colored_label(
+                            egui::Color32::from_rgb(100, 180, 255),
+                            format!("FN {:3}", c.r#fn),
+                        );
+                        ui.colored_label(egui::Color32::GRAY, format!("TN {:3}", c.tn));
+                        ui.end_row();
+                    });
                 if let Some(p) = c.precision() {
-                    let col = if p > 0.9 { egui::Color32::GREEN } else if p > 0.7 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                    let col = if p > 0.9 {
+                        egui::Color32::GREEN
+                    } else if p > 0.7 {
+                        egui::Color32::YELLOW
+                    } else {
+                        egui::Color32::RED
+                    };
                     ui.colored_label(col, format!("Precision: {:.1}%", p * 100.0));
                 }
                 if let Some(rec) = c.recall() {
-                    let col = if rec > 0.9 { egui::Color32::GREEN } else if rec > 0.7 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                    let col = if rec > 0.9 {
+                        egui::Color32::GREEN
+                    } else if rec > 0.7 {
+                        egui::Color32::YELLOW
+                    } else {
+                        egui::Color32::RED
+                    };
                     ui.colored_label(col, format!("Recall:    {:.1}%", rec * 100.0));
                 }
             }
@@ -233,9 +281,9 @@ fn line_fit_scene(
         let gt_in = i < n_gt_inliers;
         let est_in = est_inlier_set.contains(&i);
         match (gt_in, est_in) {
-            (true,  true)  => confusion.tp += 1,
-            (false, true)  => confusion.fp += 1,
-            (true,  false) => confusion.r#fn += 1,
+            (true, true) => confusion.tp += 1,
+            (false, true) => confusion.fp += 1,
+            (true, false) => confusion.r#fn += 1,
             (false, false) => confusion.tn += 1,
         }
     }
@@ -254,9 +302,9 @@ fn line_fit_scene(
         let gt_in = i < n_gt_inliers;
         let est_in = est_inlier_set.contains(&i);
         match (gt_in, est_in) {
-            (true,  true)  => tp_pts.push(p3),
-            (false, true)  => fp_pts.push(p3),
-            (true,  false) => fn_pts.push(p3),
+            (true, true) => tp_pts.push(p3),
+            (false, true) => fp_pts.push(p3),
+            (true, false) => fn_pts.push(p3),
             (false, false) => tn_pts.push(p3),
         }
     }
@@ -267,10 +315,16 @@ fn line_fit_scene(
         (fn_pts, Color::srgb(0.2, 0.4, 1.0)),
         (tn_pts, Color::srgb(0.45, 0.45, 0.45)),
     ] {
-        if group_pts.is_empty() { continue; }
+        if group_pts.is_empty() {
+            continue;
+        }
         commands.spawn((
             Mesh3d(meshes.add(point_cloud_cube_mesh(&group_pts, 0.12))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: color, unlit: true, ..default() })),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: color,
+                unlit: true,
+                ..default()
+            })),
             Transform::default(),
             LineFitEntity,
         ));
@@ -323,7 +377,9 @@ fn line_fit_scene(
 
 /// Deterministic LCG: returns next float in [0, 1).
 fn lcg_next(s: &mut u64) -> f32 {
-    *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *s = s
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     ((*s >> 33) as f32) / (u32::MAX as f32 + 1.0)
 }
 
@@ -400,18 +456,22 @@ fn run_line_fit(pts: &[[f32; 2]], threshold: f32, algo: RansacAlgo, seed: u64) -
     use RansacAlgo::*;
     match algo {
         Simple => ransac_line_fit(pts, threshold, 500, seed, false),
-        Msac   => ransac_line_fit(pts, threshold, 500, seed, true),
+        Msac => ransac_line_fit(pts, threshold, 500, seed, true),
         Magsac | MagsacPP => {
             let n = pts.len();
-            if n < 2 { return LineFitResult::default(); }
+            if n < 2 {
+                return LineFitResult::default();
+            }
             // Build Nx2 DataMatrix.
-            let flat: Vec<f64> = pts.iter().flat_map(|p| [p[0] as f64, p[1] as f64]).collect();
+            let flat: Vec<f64> = pts
+                .iter()
+                .flat_map(|p| [p[0] as f64, p[1] as f64])
+                .collect();
             let data = DataMatrix::from_row_slice(n, 2, &flat);
             let settings = algo.make_settings(threshold as f64, Some(seed));
             match inlier::estimate_line(&data, threshold as f64, Some(settings)) {
                 Ok(res) => {
-                    let (slope, intercept) = res.model.to_slope_intercept()
-                        .unwrap_or((0.0, 0.0));
+                    let (slope, intercept) = res.model.to_slope_intercept().unwrap_or((0.0, 0.0));
                     LineFitResult {
                         slope: slope as f32,
                         intercept: intercept as f32,
@@ -427,7 +487,13 @@ fn run_line_fit(pts: &[[f32; 2]], threshold: f32, algo: RansacAlgo, seed: u64) -
 
 /// RANSAC or MSAC line fit (inline). Returns a partial `LineFitResult` (confusion is filled by caller).
 /// MSAC uses truncated-quadratic cost (lower = better) instead of inlier count.
-fn ransac_line_fit(pts: &[[f32; 2]], threshold: f32, max_iter: usize, seed: u64, msac: bool) -> LineFitResult {
+fn ransac_line_fit(
+    pts: &[[f32; 2]],
+    threshold: f32,
+    max_iter: usize,
+    seed: u64,
+    msac: bool,
+) -> LineFitResult {
     let n = pts.len();
     if n < 2 {
         return LineFitResult::default();
@@ -442,7 +508,9 @@ fn ransac_line_fit(pts: &[[f32; 2]], threshold: f32, max_iter: usize, seed: u64,
     for _ in 0..max_iter {
         let i = (lcg_next(&mut s) * n as f32) as usize % n;
         let mut j = (lcg_next(&mut s) * n as f32) as usize % n;
-        if j == i { j = (i + 1) % n; }
+        if j == i {
+            j = (i + 1) % n;
+        }
 
         let line = line_from_two_points(pts[i], pts[j]);
 
@@ -450,7 +518,10 @@ fn ransac_line_fit(pts: &[[f32; 2]], threshold: f32, max_iter: usize, seed: u64,
             // MSAC: cost = Σ min(d², t²).  Lower is better.
             let t2 = threshold * threshold;
             let cost: f32 = (0..n)
-                .map(|k| { let d = point_line_dist(pts[k], line); (d * d).min(t2) })
+                .map(|k| {
+                    let d = point_line_dist(pts[k], line);
+                    (d * d).min(t2)
+                })
                 .sum();
             let inliers: Vec<usize> = (0..n)
                 .filter(|&k| point_line_dist(pts[k], line) <= threshold)
@@ -477,7 +548,11 @@ fn ransac_line_fit(pts: &[[f32; 2]], threshold: f32, max_iter: usize, seed: u64,
         ols_line(&inlier_pts)
     } else {
         let b = best_line[1];
-        if b.abs() > 1e-6 { (-best_line[0] / b, -best_line[2] / b) } else { (0.0, 0.0) }
+        if b.abs() > 1e-6 {
+            (-best_line[0] / b, -best_line[2] / b)
+        } else {
+            (0.0, 0.0)
+        }
     };
 
     // Re-evaluate inliers against the OLS line.
@@ -493,7 +568,11 @@ fn ransac_line_fit(pts: &[[f32; 2]], threshold: f32, max_iter: usize, seed: u64,
     LineFitResult {
         slope,
         intercept,
-        inlier_indices: if final_inliers.len() >= best_inliers.len() { final_inliers } else { best_inliers },
+        inlier_indices: if final_inliers.len() >= best_inliers.len() {
+            final_inliers
+        } else {
+            best_inliers
+        },
         confusion: ConfusionStats::default(),
     }
 }
@@ -509,13 +588,25 @@ fn make_box_mesh(len_x: f32, size_y: f32, size_z: f32) -> Mesh {
 
     // 8 corners.
     let positions: Vec<[f32; 3]> = vec![
-        [-hx, -hy, -hz], [ hx, -hy, -hz], [ hx,  hy, -hz], [-hx,  hy, -hz],
-        [-hx, -hy,  hz], [ hx, -hy,  hz], [ hx,  hy,  hz], [-hx,  hy,  hz],
+        [-hx, -hy, -hz],
+        [hx, -hy, -hz],
+        [hx, hy, -hz],
+        [-hx, hy, -hz],
+        [-hx, -hy, hz],
+        [hx, -hy, hz],
+        [hx, hy, hz],
+        [-hx, hy, hz],
     ];
 
     let normals: Vec<[f32; 3]> = vec![
-        [0.0, 0.0, -1.0], [0.0, 0.0, -1.0], [0.0, 0.0, -1.0], [0.0, 0.0, -1.0],
-        [0.0, 0.0,  1.0], [0.0, 0.0,  1.0], [0.0, 0.0,  1.0], [0.0, 0.0,  1.0],
+        [0.0, 0.0, -1.0],
+        [0.0, 0.0, -1.0],
+        [0.0, 0.0, -1.0],
+        [0.0, 0.0, -1.0],
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0],
     ];
 
     #[rustfmt::skip]
@@ -534,7 +625,10 @@ fn make_box_mesh(len_x: f32, size_y: f32, size_z: f32) -> Mesh {
         1, 2, 6,  1, 6, 5,
     ];
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_indices(Indices::U32(indices));

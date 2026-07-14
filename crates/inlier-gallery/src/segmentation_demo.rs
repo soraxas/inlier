@@ -10,15 +10,15 @@
 //! Colors are stable across stages (same palette index = same physical plane).
 
 use bevy::prelude::*;
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use spatialrust_inlier::{
     auto_tune::auto_tune_settings,
-    plane_ops::{GrowArgs, grow_planes, merge_planes},
-    region_growing::{RansacMode, region_growing_ransac},
+    plane_ops::{grow_planes, merge_planes, GrowArgs},
+    region_growing::{region_growing_ransac, RansacMode},
 };
 
-use crate::AppDemo;
 use crate::merge_demo::point_cloud_cube_mesh;
+use crate::AppDemo;
 
 pub struct SegmentationPlugin;
 
@@ -31,7 +31,10 @@ impl Plugin for SegmentationPlugin {
                 EguiPrimaryContextPass,
                 segmentation_ui.run_if(in_state(AppDemo::Segmentation)),
             )
-            .add_systems(Update, segmentation_scene.run_if(in_state(AppDemo::Segmentation)));
+            .add_systems(
+                Update,
+                segmentation_scene.run_if(in_state(AppDemo::Segmentation)),
+            );
     }
 }
 
@@ -110,59 +113,152 @@ fn segmentation_ui(mut contexts: EguiContexts, mut state: ResMut<SegmentationSta
 
             ui.label("View stage:");
             ui.horizontal(|ui| {
-                if ui.selectable_label(state.view == PipelineView::AfterSegment, "Segment").clicked() {
+                if ui
+                    .selectable_label(state.view == PipelineView::AfterSegment, "Segment")
+                    .clicked()
+                {
                     state.view = PipelineView::AfterSegment;
                     state.needs_update = true;
                 }
-                if ui.selectable_label(state.view == PipelineView::AfterMerge, "Merge").clicked() {
+                if ui
+                    .selectable_label(state.view == PipelineView::AfterMerge, "Merge")
+                    .clicked()
+                {
                     state.view = PipelineView::AfterMerge;
                     state.needs_update = true;
                 }
-                if ui.selectable_label(state.view == PipelineView::AfterGrow, "Grow").clicked() {
+                if ui
+                    .selectable_label(state.view == PipelineView::AfterGrow, "Grow")
+                    .clicked()
+                {
                     state.view = PipelineView::AfterGrow;
                     state.needs_update = true;
                 }
             });
 
             ui.separator();
-            let at = ui.checkbox(&mut state.auto_tune, "Auto-tune parameters").changed();
-            if at { state.needs_update = true; }
+            let at = ui
+                .checkbox(&mut state.auto_tune, "Auto-tune parameters")
+                .changed();
+            if at {
+                state.needs_update = true;
+            }
 
             if !state.auto_tune {
-                egui::CollapsingHeader::new("Segment parameters").default_open(true).show(ui, |ui| {
-                    if ui.add(egui::Slider::new(&mut state.k, 5..=40).text("k neighbours")).changed() { state.needs_update = true; }
-                    if ui.add(egui::Slider::new(&mut state.angle_thresh_deg, 3.0..=45.0_f32).text("Angle (°)")).changed() { state.needs_update = true; }
-                    if ui.add(egui::Slider::new(&mut state.dist_thresh, 0.01..=0.5_f32).text("Dist thresh")).changed() { state.needs_update = true; }
-                    if ui.add(egui::Slider::new(&mut state.min_cluster_size, 10..=200_usize).text("Min cluster")).changed() { state.needs_update = true; }
-                });
+                egui::CollapsingHeader::new("Segment parameters")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if ui
+                            .add(egui::Slider::new(&mut state.k, 5..=40).text("k neighbours"))
+                            .changed()
+                        {
+                            state.needs_update = true;
+                        }
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut state.angle_thresh_deg, 3.0..=45.0_f32)
+                                    .text("Angle (°)"),
+                            )
+                            .changed()
+                        {
+                            state.needs_update = true;
+                        }
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut state.dist_thresh, 0.01..=0.5_f32)
+                                    .text("Dist thresh"),
+                            )
+                            .changed()
+                        {
+                            state.needs_update = true;
+                        }
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut state.min_cluster_size, 10..=200_usize)
+                                    .text("Min cluster"),
+                            )
+                            .changed()
+                        {
+                            state.needs_update = true;
+                        }
+                    });
 
-                egui::CollapsingHeader::new("Merge parameters").default_open(true).show(ui, |ui| {
-                    if ui.add(egui::Slider::new(&mut state.merge_angle_deg, 1.0..=20.0_f32).text("Angle (°)")).changed() { state.needs_update = true; }
-                    if ui.add(egui::Slider::new(&mut state.merge_dist, 0.05..=1.0_f32).text("Dist")).changed() { state.needs_update = true; }
-                });
+                egui::CollapsingHeader::new("Merge parameters")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut state.merge_angle_deg, 1.0..=20.0_f32)
+                                    .text("Angle (°)"),
+                            )
+                            .changed()
+                        {
+                            state.needs_update = true;
+                        }
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut state.merge_dist, 0.05..=1.0_f32)
+                                    .text("Dist"),
+                            )
+                            .changed()
+                        {
+                            state.needs_update = true;
+                        }
+                    });
 
-                egui::CollapsingHeader::new("Grow parameters").default_open(true).show(ui, |ui| {
-                    if ui.add(egui::Slider::new(&mut state.grow_dist, 0.02..=0.5_f32).text("Dist thresh")).changed() { state.needs_update = true; }
-                });
+                egui::CollapsingHeader::new("Grow parameters")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut state.grow_dist, 0.02..=0.5_f32)
+                                    .text("Dist thresh"),
+                            )
+                            .changed()
+                        {
+                            state.needs_update = true;
+                        }
+                    });
             }
 
             ui.separator();
-            let cu = ui.checkbox(&mut state.show_unassigned, "Show unassigned (gray)").changed();
-            if cu { state.needs_update = true; }
+            let cu = ui
+                .checkbox(&mut state.show_unassigned, "Show unassigned (gray)")
+                .changed();
+            if cu {
+                state.needs_update = true;
+            }
 
             ui.separator();
-            if ui.button("Re-run").clicked() { state.needs_update = true; }
+            if ui.button("Re-run").clicked() {
+                state.needs_update = true;
+            }
 
             ui.separator();
             if !state.seg_planes.is_empty() {
                 ui.colored_label(egui::Color32::LIGHT_GREEN, "Stats");
                 ui.label(format!("After segment: {} planes", state.seg_planes.len()));
-                ui.label(format!("After merge:   {} planes", state.merge_planes_result.len()));
-                ui.label(format!("After grow:    {} planes", state.grow_planes_result.len()));
+                ui.label(format!(
+                    "After merge:   {} planes",
+                    state.merge_planes_result.len()
+                ));
+                ui.label(format!(
+                    "After grow:    {} planes",
+                    state.grow_planes_result.len()
+                ));
                 let total_pts: usize = state.pts.len();
-                let assigned: usize = state.grow_planes_result.iter().map(|(_, _, v)| v.len()).sum();
+                let assigned: usize = state
+                    .grow_planes_result
+                    .iter()
+                    .map(|(_, _, v)| v.len())
+                    .sum();
                 if total_pts > 0 {
-                    ui.label(format!("Assigned: {}/{} ({:.1}%)", assigned, total_pts, 100.0 * assigned as f32 / total_pts as f32));
+                    ui.label(format!(
+                        "Assigned: {}/{} ({:.1}%)",
+                        assigned,
+                        total_pts,
+                        100.0 * assigned as f32 / total_pts as f32
+                    ));
                 }
             }
 
@@ -190,24 +286,50 @@ fn segmentation_scene(
     let pts = synthetic_room();
 
     // Optionally apply auto-tune.
-    let (angle_deg, dist, min_cluster, merge_angle_deg, merge_dist, grow_dist) = if state.auto_tune {
+    let (angle_deg, dist, min_cluster, merge_angle_deg, merge_dist, grow_dist) = if state.auto_tune
+    {
         let t = auto_tune_settings(&pts);
         state.status = t.description.clone();
-        (t.angle_thresh, t.dist_thresh, t.min_cluster_size,
-         t.merge_angle_thresh, t.merge_dist_thresh, t.grow_dist_thresh)
+        (
+            t.angle_thresh,
+            t.dist_thresh,
+            t.min_cluster_size,
+            t.merge_angle_thresh,
+            t.merge_dist_thresh,
+            t.grow_dist_thresh,
+        )
     } else {
-        (state.angle_thresh_deg, state.dist_thresh, state.min_cluster_size,
-         state.merge_angle_deg, state.merge_dist, state.grow_dist)
+        (
+            state.angle_thresh_deg,
+            state.dist_thresh,
+            state.min_cluster_size,
+            state.merge_angle_deg,
+            state.merge_dist,
+            state.grow_dist,
+        )
     };
 
     // Step 1: segment.
     let seg = region_growing_ransac(
-        &pts, state.k, angle_deg.to_radians(), min_cluster, dist,
-        RansacMode::Simple, 0.0, 500, 0.99,
+        &pts,
+        state.k,
+        angle_deg.to_radians(),
+        min_cluster,
+        dist,
+        RansacMode::Simple,
+        0.0,
+        500,
+        0.99,
     );
 
     // Step 2: merge.
-    let merged = merge_planes(&seg, &pts, merge_angle_deg.to_radians(), merge_dist, min_cluster / 2);
+    let merged = merge_planes(
+        &seg,
+        &pts,
+        merge_angle_deg.to_radians(),
+        merge_dist,
+        min_cluster / 2,
+    );
 
     // Step 3: grow.
     let grow_args = GrowArgs {
@@ -223,7 +345,9 @@ fn segmentation_scene(
     if !state.auto_tune {
         state.status = format!(
             "Seg: {} → Merge: {} → Grow: {} planes",
-            seg.len(), merged.len(), grown.len()
+            seg.len(),
+            merged.len(),
+            grown.len()
         );
     }
 
@@ -234,9 +358,14 @@ fn segmentation_scene(
     };
 
     let palette: &[[f32; 3]] = &[
-        [0.9, 0.2, 0.2], [0.2, 0.7, 0.9], [0.2, 0.9, 0.3],
-        [0.9, 0.7, 0.1], [0.7, 0.2, 0.9], [0.9, 0.5, 0.1],
-        [0.1, 0.9, 0.8], [0.8, 0.1, 0.5],
+        [0.9, 0.2, 0.2],
+        [0.2, 0.7, 0.9],
+        [0.2, 0.9, 0.3],
+        [0.9, 0.7, 0.1],
+        [0.7, 0.2, 0.9],
+        [0.9, 0.5, 0.1],
+        [0.1, 0.9, 0.8],
+        [0.8, 0.1, 0.5],
     ];
 
     let n_pts = pts.len();
@@ -245,8 +374,14 @@ fn segmentation_scene(
     for (pi, (_, _, inliers)) in planes_to_show.iter().enumerate() {
         let [r, g, b] = palette[pi % palette.len()];
         let pts3d: Vec<[f32; 3]> = inliers.iter().map(|&i| pts[i]).collect();
-        for &i in inliers { if i < n_pts { assigned[i] = true; } }
-        if pts3d.is_empty() { continue; }
+        for &i in inliers {
+            if i < n_pts {
+                assigned[i] = true;
+            }
+        }
+        if pts3d.is_empty() {
+            continue;
+        }
         commands.spawn((
             Mesh3d(meshes.add(point_cloud_cube_mesh(&pts3d, state.point_size))),
             MeshMaterial3d(materials.add(StandardMaterial {
@@ -260,7 +395,9 @@ fn segmentation_scene(
     }
 
     if state.show_unassigned {
-        let unassigned: Vec<[f32; 3]> = pts.iter().enumerate()
+        let unassigned: Vec<[f32; 3]> = pts
+            .iter()
+            .enumerate()
             .filter(|(i, _)| !assigned[*i])
             .map(|(_, p)| *p)
             .collect();
@@ -289,7 +426,9 @@ fn segmentation_scene(
 fn synthetic_room() -> Vec<[f32; 3]> {
     let mut s: u64 = 0x1234_abcd;
     let mut rng = move || -> f32 {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((s >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0
     };
 

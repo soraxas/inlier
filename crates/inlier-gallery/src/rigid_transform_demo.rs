@@ -14,10 +14,10 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use spatialrust_inlier::normals::{cross3, matvec, normalize3, power_iter};
 
-use crate::algo_config::{RansacAlgo, algo_combo_ui, randomize_button_ui};
+use crate::algo_config::{algo_combo_ui, randomize_button_ui, RansacAlgo};
 
 use crate::AppDemo;
 
@@ -78,7 +78,8 @@ pub struct RigidTransformState {
 impl Default for RigidTransformState {
     fn default() -> Self {
         let seed = 0xA11D_ED55_u64;
-        let n_in = 48usize; let n_out = 12usize;
+        let n_in = 48usize;
+        let n_out = 12usize;
         let (src, dst, mask) = generate_correspondences(n_in, n_out, seed);
         Self {
             threshold: 0.08,
@@ -91,7 +92,10 @@ impl Default for RigidTransformState {
             translation_error: 0.0,
             inlier_count: 0,
             status: "Ready.".into(),
-            conf_tp: 0, conf_fp: 0, conf_tn: 0, conf_fn: 0,
+            conf_tp: 0,
+            conf_fp: 0,
+            conf_tn: 0,
+            conf_fn: 0,
             src_pts: src,
             dst_pts: dst,
             gt_inlier_mask: mask,
@@ -109,11 +113,7 @@ fn gt_rotation() -> [[f32; 3]; 3] {
     let angle: f32 = 0.25;
     let c = angle.cos();
     let s = angle.sin();
-    [
-        [ c, 0.0,  s],
-        [0.0, 1.0, 0.0],
-        [-s, 0.0,  c],
-    ]
+    [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]
 }
 
 /// Ground-truth translation.
@@ -126,7 +126,8 @@ struct Lcg(u64);
 
 impl Lcg {
     fn next_f32(&mut self) -> f32 {
-        self.0 = self.0
+        self.0 = self
+            .0
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
         ((self.0 >> 33) as f32) / (u32::MAX as f32 + 1.0)
@@ -165,7 +166,11 @@ fn vec_dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// Generate inlier + outlier correspondences with the given counts and seed.
 ///
 /// Returns `(src_pts, dst_pts, gt_inlier_mask)`.
-fn generate_correspondences(n_inliers: usize, n_outliers: usize, seed: u64) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<bool>) {
+fn generate_correspondences(
+    n_inliers: usize,
+    n_outliers: usize,
+    seed: u64,
+) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<bool>) {
     let mut rng = Lcg(seed);
     let r = gt_rotation();
     let t = GT_TRANSLATION;
@@ -275,8 +280,12 @@ fn kabsch(
         cd[1] += dst[i][1];
         cd[2] += dst[i][2];
     }
-    cs[0] /= nf; cs[1] /= nf; cs[2] /= nf;
-    cd[0] /= nf; cd[1] /= nf; cd[2] /= nf;
+    cs[0] /= nf;
+    cs[1] /= nf;
+    cs[2] /= nf;
+    cd[0] /= nf;
+    cd[1] /= nf;
+    cd[2] /= nf;
 
     // Cross-covariance H = sum(centered_dst_i * centered_src_i^T)
     // i.e. H[r][c] += dst_centered[r] * src_centered[c]
@@ -298,8 +307,8 @@ fn kabsch(
 
     // Approximate SVD via two rounds of power iteration on H H^T (for U) and H^T H (for V).
     let ht = mat3_transpose(h);
-    let hht = mat3_mul(h, ht);  // H H^T  — eigenvectors are columns of U
-    let hth = mat3_mul(ht, h);  // H^T H  — eigenvectors are columns of V
+    let hht = mat3_mul(h, ht); // H H^T  — eigenvectors are columns of U
+    let hth = mat3_mul(ht, h); // H^T H  — eigenvectors are columns of V
 
     // First singular vector.
     let u0 = power_iter(hht, [0.4, 0.7, 0.3]);
@@ -307,9 +316,7 @@ fn kabsch(
 
     // Second singular vector (orthogonal to first).
     // Deflate: B2 = B - sigma1 * v1 v1^T.
-    let s1 = (matvec(hth, v0)[0] * v0[0]
-        + matvec(hth, v0)[1] * v0[1]
-        + matvec(hth, v0)[2] * v0[2])
+    let s1 = (matvec(hth, v0)[0] * v0[0] + matvec(hth, v0)[1] * v0[1] + matvec(hth, v0)[2] * v0[2])
         .max(0.0)
         .sqrt();
 
@@ -324,11 +331,10 @@ fn kabsch(
     let v2 = normalize3(v2_raw);
 
     // Same deflation for U.
-    let s1u = (matvec(hht, u0)[0] * u0[0]
-        + matvec(hht, u0)[1] * u0[1]
-        + matvec(hht, u0)[2] * u0[2])
-        .max(0.0)
-        .sqrt();
+    let s1u =
+        (matvec(hht, u0)[0] * u0[0] + matvec(hht, u0)[1] * u0[1] + matvec(hht, u0)[2] * u0[2])
+            .max(0.0)
+            .sqrt();
     let hht2 = deflate3(hht, u0, s1u * s1u);
     let u1_raw = power_iter(hht2, [0.3, 0.1, 0.9]);
     let u1 = gram_schmidt(u0, u1_raw);
@@ -403,9 +409,17 @@ fn run_rigid_fit(
         Simple | Msac => ransac_kabsch(src, dst, threshold, 500, seed),
         Magsac | MagsacPP => {
             let n = src.len();
-            if n < 3 { return (identity3(), [0.0; 3], vec![false; n]); }
-            let flat_s: Vec<f64> = src.iter().flat_map(|p| [p[0] as f64, p[1] as f64, p[2] as f64]).collect();
-            let flat_d: Vec<f64> = dst.iter().flat_map(|p| [p[0] as f64, p[1] as f64, p[2] as f64]).collect();
+            if n < 3 {
+                return (identity3(), [0.0; 3], vec![false; n]);
+            }
+            let flat_s: Vec<f64> = src
+                .iter()
+                .flat_map(|p| [p[0] as f64, p[1] as f64, p[2] as f64])
+                .collect();
+            let flat_d: Vec<f64> = dst
+                .iter()
+                .flat_map(|p| [p[0] as f64, p[1] as f64, p[2] as f64])
+                .collect();
             let dm_s = inlier::types::DataMatrix::from_row_slice(n, 3, &flat_s);
             let dm_d = inlier::types::DataMatrix::from_row_slice(n, 3, &flat_d);
             let settings = algo.make_settings(threshold as f64, Some(seed));
@@ -418,9 +432,9 @@ fn run_rigid_fit(
                     let rot = res.model.rotation.to_rotation_matrix();
                     let m = rot.matrix();
                     let r = [
-                        [m[(0,0)] as f32, m[(0,1)] as f32, m[(0,2)] as f32],
-                        [m[(1,0)] as f32, m[(1,1)] as f32, m[(1,2)] as f32],
-                        [m[(2,0)] as f32, m[(2,1)] as f32, m[(2,2)] as f32],
+                        [m[(0, 0)] as f32, m[(0, 1)] as f32, m[(0, 2)] as f32],
+                        [m[(1, 0)] as f32, m[(1, 1)] as f32, m[(1, 2)] as f32],
+                        [m[(2, 0)] as f32, m[(2, 1)] as f32, m[(2, 2)] as f32],
                     ];
                     let t = [
                         res.model.translation.x as f32,
@@ -541,10 +555,7 @@ fn on_enter(mut state: ResMut<RigidTransformState>) {
     state.needs_run = true;
 }
 
-fn on_exit(
-    mut commands: Commands,
-    q: Query<Entity, With<RigidTransformEntity>>,
-) {
+fn on_exit(mut commands: Commands, q: Query<Entity, With<RigidTransformEntity>>) {
     for e in &q {
         commands.entity(e).despawn();
     }
@@ -552,10 +563,7 @@ fn on_exit(
 
 // ── UI ────────────────────────────────────────────────────────────────────────
 
-fn rigid_transform_ui(
-    mut contexts: EguiContexts,
-    mut state: ResMut<RigidTransformState>,
-) {
+fn rigid_transform_ui(mut contexts: EguiContexts, mut state: ResMut<RigidTransformState>) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     egui::Panel::left("rigid_transform_panel")
         .default_size(270.0)
@@ -565,23 +573,38 @@ fn rigid_transform_ui(
             ui.label("GT: R≈0.25 rad around Y, t=[0.65, -0.3, 0.45]");
             ui.separator();
 
-            if algo_combo_ui(ui, &mut state.algo) { state.needs_run = true; }
+            if algo_combo_ui(ui, &mut state.algo) {
+                state.needs_run = true;
+            }
             ui.separator();
 
-            if ui.add(egui::Slider::new(&mut state.threshold, 0.01..=0.5_f32).text("Threshold")).changed() {
+            if ui
+                .add(egui::Slider::new(&mut state.threshold, 0.01..=0.5_f32).text("Threshold"))
+                .changed()
+            {
                 state.needs_run = true;
             }
-            if ui.add(egui::Slider::new(&mut state.n_inliers, 5..=300_usize).text("N inliers")).changed() {
+            if ui
+                .add(egui::Slider::new(&mut state.n_inliers, 5..=300_usize).text("N inliers"))
+                .changed()
+            {
                 state.needs_run = true;
             }
-            if ui.add(egui::Slider::new(&mut state.n_outliers, 0..=200_usize).text("N outliers")).changed() {
+            if ui
+                .add(egui::Slider::new(&mut state.n_outliers, 0..=200_usize).text("N outliers"))
+                .changed()
+            {
                 state.needs_run = true;
             }
 
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Re-run").clicked() { state.needs_run = true; }
-                if randomize_button_ui(ui, &mut state.seed) { state.needs_run = true; }
+                if ui.button("Re-run").clicked() {
+                    state.needs_run = true;
+                }
+                if randomize_button_ui(ui, &mut state.seed) {
+                    state.needs_run = true;
+                }
             });
 
             ui.separator();
@@ -592,23 +615,42 @@ fn rigid_transform_ui(
 
             ui.separator();
             ui.colored_label(egui::Color32::LIGHT_BLUE, "Confusion Matrix");
-            egui::Grid::new("rt_confusion").num_columns(2).show(ui, |ui| {
-                ui.colored_label(egui::Color32::GREEN, format!("TP {:3}", state.conf_tp));
-                ui.colored_label(egui::Color32::RED,   format!("FP {:3}", state.conf_fp));
-                ui.end_row();
-                ui.colored_label(egui::Color32::from_rgb(100, 180, 255), format!("FN {:3}", state.conf_fn));
-                ui.colored_label(egui::Color32::GRAY,  format!("TN {:3}", state.conf_tn));
-                ui.end_row();
-            });
-            let tp = state.conf_tp; let fp = state.conf_fp; let fn_ = state.conf_fn;
+            egui::Grid::new("rt_confusion")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.colored_label(egui::Color32::GREEN, format!("TP {:3}", state.conf_tp));
+                    ui.colored_label(egui::Color32::RED, format!("FP {:3}", state.conf_fp));
+                    ui.end_row();
+                    ui.colored_label(
+                        egui::Color32::from_rgb(100, 180, 255),
+                        format!("FN {:3}", state.conf_fn),
+                    );
+                    ui.colored_label(egui::Color32::GRAY, format!("TN {:3}", state.conf_tn));
+                    ui.end_row();
+                });
+            let tp = state.conf_tp;
+            let fp = state.conf_fp;
+            let fn_ = state.conf_fn;
             if tp + fp > 0 {
                 let p = tp as f32 / (tp + fp) as f32;
-                let c = if p > 0.9 { egui::Color32::GREEN } else if p > 0.7 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                let c = if p > 0.9 {
+                    egui::Color32::GREEN
+                } else if p > 0.7 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::RED
+                };
                 ui.colored_label(c, format!("Precision: {:.1}%", p * 100.0));
             }
             if tp + fn_ > 0 {
                 let r = tp as f32 / (tp + fn_) as f32;
-                let c = if r > 0.9 { egui::Color32::GREEN } else if r > 0.7 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                let c = if r > 0.9 {
+                    egui::Color32::GREEN
+                } else if r > 0.7 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::RED
+                };
                 ui.colored_label(c, format!("Recall:    {:.1}%", r * 100.0));
             }
 
@@ -616,11 +658,26 @@ fn rigid_transform_ui(
             ui.small(&state.status);
 
             ui.separator();
-            ui.colored_label(egui::Color32::from_rgb(100, 150, 255), "■ Blue   = source pts");
-            ui.colored_label(egui::Color32::from_rgb(255, 160, 60),  "■ Orange = target pts");
-            ui.colored_label(egui::Color32::from_rgb(80, 220, 80),   "■ Green  = est-transformed src");
-            ui.colored_label(egui::Color32::from_rgb(180, 180, 180), "─ Gray   = inlier correspondence");
-            ui.colored_label(egui::Color32::from_rgb(220, 60, 60),   "─ Red    = outlier correspondence");
+            ui.colored_label(
+                egui::Color32::from_rgb(100, 150, 255),
+                "■ Blue   = source pts",
+            );
+            ui.colored_label(
+                egui::Color32::from_rgb(255, 160, 60),
+                "■ Orange = target pts",
+            );
+            ui.colored_label(
+                egui::Color32::from_rgb(80, 220, 80),
+                "■ Green  = est-transformed src",
+            );
+            ui.colored_label(
+                egui::Color32::from_rgb(180, 180, 180),
+                "─ Gray   = inlier correspondence",
+            );
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 60, 60),
+                "─ Red    = outlier correspondence",
+            );
         });
 }
 
@@ -644,14 +701,19 @@ fn rigid_transform_scene(
     }
 
     // Regenerate data with current seed / counts.
-    let (src, dst, gt_mask) = generate_correspondences(state.n_inliers, state.n_outliers, state.seed);
+    let (src, dst, gt_mask) =
+        generate_correspondences(state.n_inliers, state.n_outliers, state.seed);
     state.src_pts = src;
     state.dst_pts = dst;
     state.gt_inlier_mask = gt_mask;
 
     // Run rigid transform estimation.
     let (r_est, t_est, est_mask) = run_rigid_fit(
-        &state.src_pts, &state.dst_pts, state.threshold, state.algo, state.seed,
+        &state.src_pts,
+        &state.dst_pts,
+        state.threshold,
+        state.algo,
+        state.seed,
     );
 
     let inlier_count = est_mask.iter().filter(|&&b| b).count();
@@ -662,14 +724,16 @@ fn rigid_transform_scene(
     let (mut tp, mut fp, mut tn, mut fn_) = (0usize, 0usize, 0usize, 0usize);
     for i in 0..state.gt_inlier_mask.len() {
         match (state.gt_inlier_mask[i], est_mask[i]) {
-            (true,  true)  => tp += 1,
-            (false, true)  => fp += 1,
-            (true,  false) => fn_ += 1,
+            (true, true) => tp += 1,
+            (false, true) => fp += 1,
+            (true, false) => fn_ += 1,
             (false, false) => tn += 1,
         }
     }
-    state.conf_tp = tp; state.conf_fp = fp;
-    state.conf_tn = tn; state.conf_fn = fn_;
+    state.conf_tp = tp;
+    state.conf_fp = fp;
+    state.conf_tn = tn;
+    state.conf_fn = fn_;
 
     state.est_rotation = r_est;
     state.est_translation = t_est;
@@ -689,11 +753,7 @@ fn rigid_transform_scene(
     // ── Source points (blue) ──────────────────────────────────────────────────
     {
         let src_pts: Vec<[f32; 3]> = state.src_pts.clone();
-        let mesh = point_cloud_cube_mesh_colored(
-            &src_pts,
-            point_size,
-            [0.25, 0.55, 1.0, 1.0],
-        );
+        let mesh = point_cloud_cube_mesh_colored(&src_pts, point_size, [0.25, 0.55, 1.0, 1.0]);
         commands.spawn((
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(StandardMaterial {
@@ -709,11 +769,7 @@ fn rigid_transform_scene(
     // ── Target points (orange) ────────────────────────────────────────────────
     {
         let dst_pts: Vec<[f32; 3]> = state.dst_pts.clone();
-        let mesh = point_cloud_cube_mesh_colored(
-            &dst_pts,
-            point_size,
-            [1.0, 0.55, 0.1, 1.0],
-        );
+        let mesh = point_cloud_cube_mesh_colored(&dst_pts, point_size, [1.0, 0.55, 0.1, 1.0]);
         commands.spawn((
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(StandardMaterial {
@@ -733,11 +789,8 @@ fn rigid_transform_scene(
             .iter()
             .map(|&s| vec_add(rot_apply(r_est, s), t_est))
             .collect();
-        let mesh = point_cloud_cube_mesh_colored(
-            &transformed,
-            point_size * 0.8,
-            [0.1, 0.85, 0.25, 1.0],
-        );
+        let mesh =
+            point_cloud_cube_mesh_colored(&transformed, point_size * 0.8, [0.1, 0.85, 0.25, 1.0]);
         commands.spawn((
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(StandardMaterial {
@@ -804,13 +857,28 @@ fn rigid_transform_scene(
 fn point_cloud_cube_mesh_colored(pts: &[[f32; 3]], size: f32, color: [f32; 4]) -> Mesh {
     let h = size * 0.5;
     let cube_verts: [[f32; 3]; 8] = [
-        [-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h],
-        [-h, -h,  h], [h, -h,  h], [h, h,  h], [-h, h,  h],
+        [-h, -h, -h],
+        [h, -h, -h],
+        [h, h, -h],
+        [-h, h, -h],
+        [-h, -h, h],
+        [h, -h, h],
+        [h, h, h],
+        [-h, h, h],
     ];
     const CUBE_TRIS: [[u32; 3]; 12] = [
-        [0,1,2],[0,2,3], [4,6,5],[4,7,6],
-        [0,5,1],[0,4,5], [2,6,7],[2,7,3],
-        [0,3,7],[0,7,4], [1,5,6],[1,6,2],
+        [0, 1, 2],
+        [0, 2, 3],
+        [4, 6, 5],
+        [4, 7, 6],
+        [0, 5, 1],
+        [0, 4, 5],
+        [2, 6, 7],
+        [2, 7, 3],
+        [0, 3, 7],
+        [0, 7, 4],
+        [1, 5, 6],
+        [1, 6, 2],
     ];
 
     let n = pts.len();
@@ -831,7 +899,10 @@ fn point_cloud_cube_mesh_colored(pts: &[[f32; 3]], size: f32, color: [f32; 4]) -
         }
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
     mesh.insert_indices(Indices::U32(indices));
@@ -852,18 +923,27 @@ fn line_segments_mesh(segs: &[([f32; 3], [f32; 3])], thickness: f32, color: [f32
     // After scaling: length = segment length, cross = thickness.
     let box_verts: [[f32; 3]; 8] = [
         [-h, -0.5, -h],
-        [ h, -0.5, -h],
-        [ h,  0.5, -h],
-        [-h,  0.5, -h],
-        [-h, -0.5,  h],
-        [ h, -0.5,  h],
-        [ h,  0.5,  h],
-        [-h,  0.5,  h],
+        [h, -0.5, -h],
+        [h, 0.5, -h],
+        [-h, 0.5, -h],
+        [-h, -0.5, h],
+        [h, -0.5, h],
+        [h, 0.5, h],
+        [-h, 0.5, h],
     ];
     const BOX_TRIS: [[u32; 3]; 12] = [
-        [0,1,2],[0,2,3], [4,6,5],[4,7,6],
-        [0,5,1],[0,4,5], [2,6,7],[2,7,3],
-        [0,3,7],[0,7,4], [1,5,6],[1,6,2],
+        [0, 1, 2],
+        [0, 2, 3],
+        [4, 6, 5],
+        [4, 7, 6],
+        [0, 5, 1],
+        [0, 4, 5],
+        [2, 6, 7],
+        [2, 7, 3],
+        [0, 3, 7],
+        [0, 7, 4],
+        [1, 5, 6],
+        [1, 6, 2],
     ];
 
     let n = segs.len();
@@ -881,9 +961,7 @@ fn line_segments_mesh(segs: &[([f32; 3], [f32; 3])], thickness: f32, color: [f32
             (a[2] + b[2]) * 0.5,
         ];
         let dir_raw = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        let len = (dir_raw[0] * dir_raw[0]
-            + dir_raw[1] * dir_raw[1]
-            + dir_raw[2] * dir_raw[2])
+        let len = (dir_raw[0] * dir_raw[0] + dir_raw[1] * dir_raw[1] + dir_raw[2] * dir_raw[2])
             .sqrt()
             .max(1e-8);
         let dir = [dir_raw[0] / len, dir_raw[1] / len, dir_raw[2] / len];
@@ -907,7 +985,10 @@ fn line_segments_mesh(segs: &[([f32; 3], [f32; 3])], thickness: f32, color: [f32
         }
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors_out);
     mesh.insert_indices(Indices::U32(indices));
@@ -928,11 +1009,7 @@ fn rotation_y_to_dir(dir: [f32; 3]) -> [[f32; 3]; 3] {
 
     // If dir ≈ -Y, return 180° rotation around X.
     if (dot + 1.0).abs() < 1e-6 {
-        return [
-            [1.0, 0.0, 0.0],
-            [0.0, -1.0, 0.0],
-            [0.0, 0.0, -1.0],
-        ];
+        return [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]];
     }
 
     // Rotation axis k = Y × dir, normalised.
@@ -971,7 +1048,7 @@ mod tests {
 
     #[test]
     fn generate_correspondences_sizes() {
-        let (src, dst, mask) = generate_correspondences();
+        let (src, dst, mask) = generate_correspondences(48, 12, 0xA11D_ED55);
         assert_eq!(src.len(), 60);
         assert_eq!(dst.len(), 60);
         assert_eq!(mask.len(), 60);
@@ -982,12 +1059,14 @@ mod tests {
     #[test]
     fn kabsch_identity() {
         // If src == dst and no noise, Kabsch should return identity + zero translation.
-        let pts: Vec<[f32; 3]> = (0..8).map(|i| {
-            let x = (i % 2) as f32;
-            let y = ((i / 2) % 2) as f32;
-            let z = (i / 4) as f32;
-            [x, y, z]
-        }).collect();
+        let pts: Vec<[f32; 3]> = (0..8)
+            .map(|i| {
+                let x = (i % 2) as f32;
+                let y = ((i / 2) % 2) as f32;
+                let z = (i / 4) as f32;
+                [x, y, z]
+            })
+            .collect();
         let indices: Vec<usize> = (0..pts.len()).collect();
         let (r, t) = kabsch(&pts, &pts, &indices).unwrap();
         // R ≈ I, t ≈ 0.
@@ -1005,7 +1084,7 @@ mod tests {
     #[test]
     fn kabsch_known_rotation() {
         // Ground truth correspondences (no noise) — should recover the transform.
-        let (src, dst, mask) = generate_correspondences();
+        let (src, dst, mask) = generate_correspondences(48, 12, 0xA11D_ED55);
         let inlier_indices: Vec<usize> = mask
             .iter()
             .enumerate()
@@ -1025,15 +1104,12 @@ mod tests {
 
     #[test]
     fn ransac_recovers_transform() {
-        let (src, dst, _) = generate_correspondences();
+        let (src, dst, _) = generate_correspondences(48, 12, 0xA11D_ED55);
         let (r, t, mask) = ransac_kabsch(&src, &dst, 0.08, 500, 0xBEEF_CAFE);
         let inlier_count = mask.iter().filter(|&&b| b).count();
 
         // Should recover at least 40 of the 48 inliers.
-        assert!(
-            inlier_count >= 40,
-            "too few inliers found: {inlier_count}"
-        );
+        assert!(inlier_count >= 40, "too few inliers found: {inlier_count}");
 
         let rot_err = rotation_error_deg(r, gt_rotation());
         let tr_err = translation_error(t, GT_TRANSLATION);
