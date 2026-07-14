@@ -185,7 +185,10 @@ impl NeighborhoodGraph for GridNeighborhoodGraph {
 /// use inlier::types::DataMatrix;
 ///
 /// let mut graph = KdTreeNeighborhoodGraph::<2>::new(10); // 10 neighbors, 2D data
-/// let data = DataMatrix::zeros(100, 2);
+/// let rows: Vec<f64> = (0..100)
+///     .flat_map(|i| [i as f64 * 0.01, (i % 17) as f64 * 0.02])
+///     .collect();
+/// let data = DataMatrix::from_row_slice(100, 2, &rows);
 /// graph.initialize(&data);
 /// let neighbors = graph.neighbors(0);
 /// ```

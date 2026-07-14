@@ -423,6 +423,16 @@ pub fn estimate_line(
 
     // Use points directly as data matrix
     let n = points.n_points();
+    if n < 2 {
+        return Err("need at least 2 points to fit a line".to_string());
+    }
+    for idx in 0..n {
+        for dim in 0..2 {
+            if !points.get(idx, dim).is_finite() {
+                return Err("points must contain only finite coordinates".to_string());
+            }
+        }
+    }
     let mut data = DataMatrix::zeros(n, 2);
     for i in 0..n {
         data.set(i, 0, points.get(i, 0));
@@ -493,6 +503,16 @@ pub fn estimate_rigid_transform(
     }
 
     let n = points_src.n_points();
+    if n < 3 {
+        return Err("need at least 3 correspondences to fit a rigid transform".to_string());
+    }
+    for idx in 0..n {
+        for dim in 0..3 {
+            if !points_src.get(idx, dim).is_finite() || !points_tgt.get(idx, dim).is_finite() {
+                return Err("points must contain only finite coordinates".to_string());
+            }
+        }
+    }
     let mut data = DataMatrix::zeros(n, 6);
     for i in 0..n {
         data.set(i, 0, points_src.get(i, 0));
@@ -574,6 +594,13 @@ pub fn estimate_plane(
     let n = points.n_points();
     if n < 3 {
         return Err("need at least 3 points to fit a plane".to_string());
+    }
+    for idx in 0..n {
+        for dim in 0..3 {
+            if !points.get(idx, dim).is_finite() {
+                return Err("points must contain only finite coordinates".to_string());
+            }
+        }
     }
 
     let settings = settings_opt.unwrap_or_default();

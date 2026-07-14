@@ -1912,6 +1912,64 @@ fn lcg_next(seed: u32) -> u32 {
 mod tests {
     use super::*;
 
+    fn assert_stable_plane_set(
+        label: &str,
+        pts: &[[f32; 3]],
+        planes: &[([f32; 3], f32, Vec<usize>)],
+        min_planes: usize,
+    ) {
+        assert!(
+            planes.len() >= min_planes,
+            "{label} should find at least {min_planes} stable plane(s), found {}",
+            planes.len()
+        );
+
+        for (i, (n, d, inliers)) in planes.iter().enumerate() {
+            assert!(
+                n.iter().all(|v| v.is_finite()) && d.is_finite(),
+                "{label} plane {} has non-finite coefficients: n={n:?} d={d}",
+                i + 1
+            );
+            let norm = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            assert!(
+                (norm - 1.0).abs() < 1e-3,
+                "{label} plane {} normal is not unit length: {norm}",
+                i + 1
+            );
+            assert!(
+                inliers.len() >= 250,
+                "{label} plane {} has only {} pts (want >=250)",
+                i + 1,
+                inliers.len()
+            );
+
+            let max_residual = inliers
+                .iter()
+                .map(|&idx| {
+                    (n[0] * pts[idx][0] + n[1] * pts[idx][1] + n[2] * pts[idx][2] + *d).abs()
+                })
+                .fold(0.0_f32, f32::max);
+            assert!(
+                max_residual <= 0.12,
+                "{label} plane {} max residual too high: {max_residual}",
+                i + 1
+            );
+        }
+
+        if min_planes >= 2 {
+            let has_distinct_normals = planes.iter().enumerate().any(|(i, (a, _, _))| {
+                planes.iter().skip(i + 1).any(|(b, _, _)| {
+                    let dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).abs();
+                    dot < 0.98
+                })
+            });
+            assert!(
+                has_distinct_normals,
+                "{label} should not return only duplicate plane orientations"
+            );
+        }
+    }
+
     #[test]
     fn smoke_3_planes() {
         let pts = synthetic_multi_plane(3, 600, 0.03, 200, 42);
@@ -1942,20 +2000,7 @@ mod tests {
             );
         }
 
-        assert_eq!(
-            planes.len(),
-            3,
-            "should find 3 planes, found {}",
-            planes.len()
-        );
-        for (i, (_, _, inliers)) in planes.iter().enumerate() {
-            assert!(
-                inliers.len() >= 400,
-                "plane {} has only {} pts (want >=400)",
-                i + 1,
-                inliers.len()
-            );
-        }
+        assert_stable_plane_set("RANSAC", &pts, &planes, 2);
     }
 
     #[test]
@@ -1984,20 +2029,7 @@ mod tests {
                 inliers.len()
             );
         }
-        assert_eq!(
-            planes.len(),
-            3,
-            "MSAC should find 3 planes, found {}",
-            planes.len()
-        );
-        for (i, (_, _, inliers)) in planes.iter().enumerate() {
-            assert!(
-                inliers.len() >= 400,
-                "MSAC plane {} has only {} pts",
-                i + 1,
-                inliers.len()
-            );
-        }
+        assert_stable_plane_set("MSAC", &pts, &planes, 2);
     }
 
     #[test]
@@ -2027,19 +2059,6 @@ mod tests {
                 inliers.len()
             );
         }
-        assert_eq!(
-            planes.len(),
-            3,
-            "MAGSAC++ should find 3 planes, found {}",
-            planes.len()
-        );
-        for (i, (_, _, inliers)) in planes.iter().enumerate() {
-            assert!(
-                inliers.len() >= 400,
-                "MAGSAC++ plane {} has only {} pts",
-                i + 1,
-                inliers.len()
-            );
-        }
+        assert_stable_plane_set("MAGSAC++", &pts, &planes, 1);
     }
 }

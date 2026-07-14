@@ -28,13 +28,29 @@ impl PlaneEstimator {
         Vector3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
     }
 
+    fn finite_point(data: &DataMatrix, idx: usize) -> Option<Vector3<f64>> {
+        let p = Self::point3(data, idx);
+        p.iter().all(|v| v.is_finite()).then_some(p)
+    }
+
+    fn weight(weights: Option<&[f64]>, idx: usize) -> Option<f64> {
+        match weights {
+            Some(weights) => {
+                let w = *weights.get(idx)?;
+                (w.is_finite() && w >= 0.0).then_some(w)
+            }
+            None => Some(1.0),
+        }
+    }
+
     fn fit_pca(data: &DataMatrix, sample: &[usize], weights: Option<&[f64]>) -> Option<Plane3> {
         let mut sum_w = 0.0_f64;
         let mut centroid = Vector3::zeros();
 
         for &idx in sample {
-            let w = weights.map_or(1.0, |w| w[idx]);
-            centroid += w * Self::point3(data, idx);
+            let w = Self::weight(weights, idx)?;
+            let p = Self::finite_point(data, idx)?;
+            centroid += w * p;
             sum_w += w;
         }
         if sum_w < 1e-10 {
@@ -44,9 +60,12 @@ impl PlaneEstimator {
 
         let mut cov = Matrix3::zeros();
         for &idx in sample {
-            let w = weights.map_or(1.0, |w| w[idx]);
-            let d = Self::point3(data, idx) - centroid;
+            let w = Self::weight(weights, idx)?;
+            let d = Self::finite_point(data, idx)? - centroid;
             cov += w * d * d.transpose();
+        }
+        if cov.iter().any(|v| !v.is_finite()) {
+            return None;
         }
 
         let eig = SymmetricEigen::new(cov);
@@ -83,9 +102,15 @@ impl Estimator for PlaneEstimator {
             }
         }
         // Non-collinear: cross product magnitude above threshold
-        let p0 = Self::point3(data, sample[0]);
-        let p1 = Self::point3(data, sample[1]);
-        let p2 = Self::point3(data, sample[2]);
+        let Some(p0) = Self::finite_point(data, sample[0]) else {
+            return false;
+        };
+        let Some(p1) = Self::finite_point(data, sample[1]) else {
+            return false;
+        };
+        let Some(p2) = Self::finite_point(data, sample[2]) else {
+            return false;
+        };
         (p1 - p0).cross(&(p2 - p0)).norm() > 1e-10
     }
 
@@ -93,12 +118,18 @@ impl Estimator for PlaneEstimator {
         if sample.len() < 3 || data.n_dims() < 3 {
             return vec![];
         }
-        let p0 = Self::point3(data, sample[0]);
-        let p1 = Self::point3(data, sample[1]);
-        let p2 = Self::point3(data, sample[2]);
+        let Some(p0) = Self::finite_point(data, sample[0]) else {
+            return vec![];
+        };
+        let Some(p1) = Self::finite_point(data, sample[1]) else {
+            return vec![];
+        };
+        let Some(p2) = Self::finite_point(data, sample[2]) else {
+            return vec![];
+        };
         let cross = (p1 - p0).cross(&(p2 - p0));
         let norm = cross.norm();
-        if norm < 1e-10 {
+        if !norm.is_finite() || norm < 1e-10 {
             return vec![];
         }
         vec![Plane3::from_normal_and_point(cross / norm, p0)]

@@ -81,26 +81,47 @@ mod tests {
 
     #[test]
     fn test_load_ply() {
-        let result = load_ply("TEASER-plusplus/test/benchmark/data/benchmark_1/src.ply");
+        let result = load_ply("tests/data/sample_src.ply");
         assert!(result.is_ok());
 
         let points = result.unwrap();
         assert_eq!(points.n_dims(), 3);
-        assert_eq!(points.n_points(), 10); // benchmark_1/src.ply has 10 points
+        assert_eq!(points.n_points(), 5);
 
-        // Check first point matches PLY file: 0.000000000000000 0.340289771402993 0.125195115981903
         assert_relative_eq!(points.get(0, 0), 0.0, epsilon = 1e-6);
-        assert_relative_eq!(points.get(0, 1), 0.340289771402993, epsilon = 1e-6);
-        assert_relative_eq!(points.get(0, 2), 0.125195115981903, epsilon = 1e-6);
+        assert_relative_eq!(points.get(0, 1), 0.3402897714, epsilon = 1e-6);
+        assert_relative_eq!(points.get(0, 2), 0.1251951159, epsilon = 1e-6);
+        assert_relative_eq!(points.get(4, 0), -1.25, epsilon = 1e-6);
+        assert_relative_eq!(points.get(4, 1), 0.5, epsilon = 1e-6);
+        assert_relative_eq!(points.get(4, 2), 2.75, epsilon = 1e-6);
     }
 
     #[test]
     fn test_load_ply_dst() {
-        let result = load_ply("TEASER-plusplus/test/benchmark/data/benchmark_1/dst.ply");
+        let result = load_ply("tests/data/sample_dst.ply");
         assert!(result.is_ok());
 
         let points = result.unwrap();
         assert_eq!(points.n_dims(), 3);
-        assert_eq!(points.n_points(), 10);
+        assert_eq!(points.n_points(), 5);
+        assert_relative_eq!(points.get(0, 0), 1.0, epsilon = 1e-6);
+        assert_relative_eq!(points.get(0, 1), -2.0, epsilon = 1e-6);
+        assert_relative_eq!(points.get(0, 2), 0.5, epsilon = 1e-6);
+        assert_relative_eq!(points.get(4, 0), -0.25, epsilon = 1e-6);
+        assert_relative_eq!(points.get(4, 1), -1.5, epsilon = 1e-6);
+        assert_relative_eq!(points.get(4, 2), 3.25, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn load_ply_rejects_empty_vertex_payload() {
+        let result = load_ply("tests/data/empty_vertices.ply");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No points"));
+    }
+
+    #[test]
+    fn load_ply_rejects_missing_file() {
+        let result = load_ply("tests/data/does_not_exist.ply");
+        assert!(result.is_err());
     }
 }

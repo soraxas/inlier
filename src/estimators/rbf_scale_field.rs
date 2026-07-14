@@ -351,7 +351,7 @@ impl RBFScaleEstimator {
         let mut prev_energy = f64::INFINITY;
 
         // [4] Alternating optimization
-        for iter in 0..self.config.max_iterations {
+        for _iter in 0..self.config.max_iterations {
             // Step 1: Optimize R, t given weights
             let scales = &phi * &weights;
             let (new_r, new_t) =
@@ -389,7 +389,7 @@ impl RBFScaleEstimator {
                 #[cfg(feature = "verbose")]
                 println!(
                     "RBF converged at iteration {} (ΔE={:.2e})",
-                    iter, delta_energy
+                    _iter, delta_energy
                 );
                 break;
             }
