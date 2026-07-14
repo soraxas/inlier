@@ -15,9 +15,8 @@
 pub use spatialrust_filtering::PointCloudFilter;
 
 pub use spatialrust_filtering::{
-    Aabb, CropBox, PassThrough,
-    FarthestPointSampling, FarthestPointSamplingConfig,
-    StatisticalOutlierRemoval, StatisticalOutlierConfig,
-    RadiusOutlierRemoval, RadiusOutlierConfig,
-    VoxelGridDownsample, VoxelGridDownsampleConfig, VoxelAggregationMode, AttributeAggregation,
+    Aabb, AttributeAggregation, CropBox, FarthestPointSampling, FarthestPointSamplingConfig,
+    PassThrough, RadiusOutlierConfig, RadiusOutlierRemoval, StatisticalOutlierConfig,
+    StatisticalOutlierRemoval, VoxelAggregationMode, VoxelGridDownsample,
+    VoxelGridDownsampleConfig,
 };

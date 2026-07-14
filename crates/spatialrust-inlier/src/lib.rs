@@ -36,12 +36,12 @@ pub mod convert;
 pub mod plane;
 
 // ── Plane-segmentation library modules (always available) ─────────────────────
-/// Uniform spatial grid for approximate k-NN queries.
-pub mod spatial_grid;
-/// PCA normal + curvature estimation, plus minimal plane-fitting helpers.
-pub mod normals;
 /// Auto-tune algorithm parameters from point cloud statistics.
 pub mod auto_tune;
+/// PCA normal + curvature estimation, plus minimal plane-fitting helpers.
+pub mod normals;
+/// Uniform spatial grid for approximate k-NN queries.
+pub mod spatial_grid;
 
 // ── Modules gated on the `segmentation` feature ───────────────────────────────
 #[cfg(feature = "segmentation")]
@@ -88,10 +88,11 @@ pub use convert::{
     data_matrix_to_point_cloud, nalgebra_to_isometry3, point_cloud_to_data_matrix,
     point_cloud_with_normals_to_data_matrix,
 };
-pub use plane::{PlaneResult, estimate_plane_from_cloud, fit_plane_msac, fit_plane_magsac_raw};
 pub use inlier::MetasacSettings;
+pub use plane::{PlaneResult, estimate_plane_from_cloud, fit_plane_magsac_raw, fit_plane_msac};
 pub use spatialrust_core::{
-    FieldSemantic, PointBuffer, PointCloud, PointCloudBuilder, SpatialError, SpatialResult, StandardSchemas,
+    FieldSemantic, PointBuffer, PointCloud, PointCloudBuilder, SpatialError, SpatialResult,
+    StandardSchemas,
 };
 
 #[cfg(feature = "registration")]
@@ -99,20 +100,22 @@ pub use registration::InlierRegistration;
 
 // Pipeline API re-exports for convenience.
 #[cfg(feature = "segmentation")]
-pub use dollhouse::{DollhouseParams, DollhouseScene, SegmentedPlane, classify_plane, segment_for_dollhouse};
-#[cfg(feature = "segmentation")]
 pub use building::{
-    align_and_split, reconstruct_building, AlignedCloud, BuildingParams, BuildingScene,
-    BuildingWall, Orientation,
+    AlignedCloud, BuildingParams, BuildingScene, BuildingWall, Orientation, align_and_split,
+    reconstruct_building,
 };
 #[cfg(feature = "segmentation")]
-pub use region_growing::RansacMode;
+pub use dollhouse::{
+    DollhouseParams, DollhouseScene, SegmentedPlane, classify_plane, segment_for_dollhouse,
+};
 #[cfg(feature = "segmentation")]
 pub use plane_estimation::{
+    Footprint2D, Frame, GlobalPlanePeeling, ManhattanPlanes, Plane, PlaneEstimator, RegionGrowing,
     assign_storeys_columnwise, build_footprint2d, compute_normals, estimate_frame,
     estimate_frame_from_normals, find_storeys, refine_up, refine_up_from_normals,
-    smooth_storey_labels, Footprint2D, Frame, GlobalPlanePeeling, ManhattanPlanes, Plane,
-    PlaneEstimator, RegionGrowing,
+    smooth_storey_labels,
 };
 #[cfg(feature = "segmentation")]
 pub use plane_ops::GrowArgs;
+#[cfg(feature = "segmentation")]
+pub use region_growing::RansacMode;

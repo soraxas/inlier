@@ -1,5 +1,7 @@
 use inlier::pcr::{PCRConfig, register_rigid};
-use spatialrust_core::{PointCloud, PointCloudBuilder, SpatialError, SpatialResult, StandardSchemas};
+use spatialrust_core::{
+    PointCloud, PointCloudBuilder, SpatialError, SpatialResult, StandardSchemas,
+};
 use spatialrust_registration::{PointCloudRegistration, RegistrationResult};
 
 use crate::convert::{nalgebra_to_isometry3, point_cloud_to_data_matrix};
@@ -19,7 +21,9 @@ impl InlierRegistration {
     }
 
     pub fn with_default_config() -> Self {
-        Self { config: PCRConfig::default() }
+        Self {
+            config: PCRConfig::default(),
+        }
     }
 }
 
@@ -36,10 +40,14 @@ impl PointCloudRegistration for InlierRegistration {
             .ok_or_else(|| SpatialError::InvalidArgument("registration failed".into()))?;
 
         let transform = nalgebra_to_isometry3(&result.rotation, &result.translation);
-        let fitness = result.inlier_count as f64
-            / result.total_correspondences.max(1) as f64;
+        let fitness = result.inlier_count as f64 / result.total_correspondences.max(1) as f64;
 
-        Ok(RegistrationResult { transform, fitness, iterations: 0, converged: true })
+        Ok(RegistrationResult {
+            transform,
+            fitness,
+            iterations: 0,
+            converged: true,
+        })
     }
 }
 
@@ -67,15 +75,19 @@ mod tests {
         // Use a 3D grid with small LCG noise to avoid degenerate KD-tree splits.
         let mut s: u64 = 42;
         let mut rng = move || -> f32 {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((s >> 33) as f32) / (u32::MAX as f32) * 0.005
         };
-        let pts: Vec<[f32; 3]> = (0..512).map(|i| {
-            let x = (i % 8) as f32 * 0.15 + rng();
-            let y = ((i / 8) % 8) as f32 * 0.15 + rng();
-            let z = (i / 64) as f32 * 0.15 + rng();
-            [x, y, z]
-        }).collect();
+        let pts: Vec<[f32; 3]> = (0..512)
+            .map(|i| {
+                let x = (i % 8) as f32 * 0.15 + rng();
+                let y = ((i / 8) % 8) as f32 * 0.15 + rng();
+                let z = (i / 64) as f32 * 0.15 + rng();
+                [x, y, z]
+            })
+            .collect();
         let cloud = make_xyz_cloud(&pts);
         let reg = InlierRegistration::with_default_config();
         // Should not panic — success or graceful failure both acceptable.

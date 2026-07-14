@@ -13,17 +13,17 @@
 //! println!("normal {:?}, {} inliers", result.normal, result.inlier_cloud.len());
 //! ```
 
+use inlier::choices::SamplerChoice;
 use inlier::{
-    MetasacSettings, api::estimate_plane,
+    MetasacSettings,
+    api::estimate_plane,
     core::{MetaSAC, NoopInlierSelector, RansacTerminationCriterion},
     estimators::PlaneEstimator,
     models::Plane3,
     optimisers::LeastSquaresOptimizer,
     samplers::UniformRandomSampler,
     scoring::SigmaConsensusScoring,
-    settings::SamplerType,
 };
-use inlier::choices::SamplerChoice;
 use spatialrust_core::{PointCloud, SpatialError, SpatialResult};
 
 use crate::convert::point_cloud_to_data_matrix;
@@ -55,8 +55,8 @@ pub fn estimate_plane_from_cloud(
 ) -> SpatialResult<PlaneResult> {
     let data = point_cloud_to_data_matrix(cloud)?;
 
-    let result = estimate_plane(&data, threshold, settings)
-        .map_err(|e| SpatialError::InvalidArgument(e))?;
+    let result =
+        estimate_plane(&data, threshold, settings).map_err(SpatialError::InvalidArgument)?;
 
     // Split into inlier / outlier clouds
     let n = cloud.len();
@@ -118,11 +118,16 @@ pub fn estimate_plane_magsac(
             for i in 0..k {
                 let mut best = f64::MAX;
                 for j in 0..k {
-                    if i == j { continue; }
-                    let d = ((pts[i][0]-pts[j][0]).powi(2)
-                           + (pts[i][1]-pts[j][1]).powi(2)
-                           + (pts[i][2]-pts[j][2]).powi(2)).sqrt();
-                    if d < best { best = d; }
+                    if i == j {
+                        continue;
+                    }
+                    let d = ((pts[i][0] - pts[j][0]).powi(2)
+                        + (pts[i][1] - pts[j][1]).powi(2)
+                        + (pts[i][2] - pts[j][2]).powi(2))
+                    .sqrt();
+                    if d < best {
+                        best = d;
+                    }
                 }
                 sum += best;
             }
@@ -145,7 +150,9 @@ pub fn estimate_plane_magsac(
 
     let local_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
-    let termination = RansacTerminationCriterion { confidence: settings.confidence };
+    let termination = RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
 
     let mut ransac = MetaSAC::new(
         settings,
@@ -161,7 +168,11 @@ pub fn estimate_plane_magsac(
 
     let model = match &ransac.best_model {
         Some(m) => m.clone(),
-        None => return Err(SpatialError::InvalidArgument("MAGSAC++ failed to find a plane".into())),
+        None => {
+            return Err(SpatialError::InvalidArgument(
+                "MAGSAC++ failed to find a plane".into(),
+            ));
+        }
     };
 
     let mut inlier_mask = vec![false; n];
@@ -172,7 +183,11 @@ pub fn estimate_plane_magsac(
     let outlier_cloud = extract_by_mask(cloud, &inlier_mask, false)?;
 
     Ok(PlaneResult {
-        normal: [model.normal.x as f32, model.normal.y as f32, model.normal.z as f32],
+        normal: [
+            model.normal.x as f32,
+            model.normal.y as f32,
+            model.normal.z as f32,
+        ],
         d: model.d as f32,
         inlier_cloud,
         outlier_cloud,
@@ -191,14 +206,24 @@ pub fn fit_plane_msac(
     settings: Option<MetasacSettings>,
 ) -> Option<([f32; 3], f32, usize)> {
     use inlier::api::estimate_plane;
-    if pts.len() < 3 { return None; }
+    if pts.len() < 3 {
+        return None;
+    }
     let n = pts.len();
     let mut data = Vec::with_capacity(3 * n);
-    for p in pts { data.push(p[0] as f64); data.push(p[1] as f64); data.push(p[2] as f64); }
+    for p in pts {
+        data.push(p[0] as f64);
+        data.push(p[1] as f64);
+        data.push(p[2] as f64);
+    }
     let dm = inlier::types::DataMatrix::from_row_slice(n, 3, &data);
     let result = estimate_plane(&dm, threshold, settings).ok()?;
     let nv = result.model.normal;
-    Some(([nv.x as f32, nv.y as f32, nv.z as f32], result.model.d as f32, result.inliers.len()))
+    Some((
+        [nv.x as f32, nv.y as f32, nv.z as f32],
+        result.model.d as f32,
+        result.inliers.len(),
+    ))
 }
 
 /// Fit a plane using MAGSAC++ and return only (unit_normal, d, inlier_count).
@@ -210,10 +235,16 @@ pub fn fit_plane_magsac_raw(
     sigma_max: f64,
     settings: Option<MetasacSettings>,
 ) -> Option<([f32; 3], f32, usize)> {
-    if pts.len() < 3 { return None; }
+    if pts.len() < 3 {
+        return None;
+    }
     let n = pts.len();
     let mut raw = Vec::with_capacity(3 * n);
-    for p in pts { raw.push(p[0] as f64); raw.push(p[1] as f64); raw.push(p[2] as f64); }
+    for p in pts {
+        raw.push(p[0] as f64);
+        raw.push(p[1] as f64);
+        raw.push(p[2] as f64);
+    }
     let data = inlier::types::DataMatrix::from_row_slice(n, 3, &raw);
 
     let settings = settings.unwrap_or_default();
@@ -228,16 +259,27 @@ pub fn fit_plane_magsac_raw(
     );
     let local_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
-    let termination = RansacTerminationCriterion { confidence: settings.confidence };
+    let termination = RansacTerminationCriterion {
+        confidence: settings.confidence,
+    };
     let mut ransac = MetaSAC::new(
-        settings, estimator, sampler, scoring,
-        local_optimizer, final_optimizer, termination,
+        settings,
+        estimator,
+        sampler,
+        scoring,
+        local_optimizer,
+        final_optimizer,
+        termination,
         Some(NoopInlierSelector),
     );
     ransac.run(&data);
     let model = ransac.best_model.as_ref()?;
     let nv = model.normal;
-    Some(([nv.x as f32, nv.y as f32, nv.z as f32], model.d as f32, ransac.best_inliers.len()))
+    Some((
+        [nv.x as f32, nv.y as f32, nv.z as f32],
+        model.d as f32,
+        ransac.best_inliers.len(),
+    ))
 }
 
 fn extract_by_mask(
@@ -245,8 +287,8 @@ fn extract_by_mask(
     mask: &[bool],
     keep_true: bool,
 ) -> SpatialResult<PointCloud> {
-    use spatialrust_core::{PointCloudBuilder, StandardSchemas};
     use spatialrust_core::HasPositions3;
+    use spatialrust_core::{PointCloudBuilder, StandardSchemas};
 
     let (xs, ys, zs) = cloud.positions3()?;
     let mut builder = PointCloudBuilder::new(StandardSchemas::point_xyz());
@@ -269,15 +311,21 @@ mod tests {
     fn flat_plane_cloud(n_inliers: usize, noise: f32, n_outliers: usize, seed: u64) -> PointCloud {
         let mut s = seed;
         let mut rng = move || -> f32 {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((s >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0
         };
         let mut builder = PointCloudBuilder::new(StandardSchemas::point_xyz());
         for _ in 0..n_inliers {
-            builder.push_point([rng() * 5.0, rng() * 5.0, rng() * noise]).unwrap();
+            builder
+                .push_point([rng() * 5.0, rng() * 5.0, rng() * noise])
+                .unwrap();
         }
         for _ in 0..n_outliers {
-            builder.push_point([rng() * 5.0, rng() * 5.0, rng() * 5.0]).unwrap();
+            builder
+                .push_point([rng() * 5.0, rng() * 5.0, rng() * 5.0])
+                .unwrap();
         }
         builder.build().unwrap()
     }
@@ -294,7 +342,10 @@ mod tests {
         // Normal should be roughly [0,0,±1]
         assert!(n[2].abs() > 0.9, "normal should be ≈ z-axis: {n:?}");
         assert!(d.abs() < 0.5, "offset near origin: {d}");
-        assert!(inliers >= 150, "at least 150 inliers expected, got {inliers}");
+        assert!(
+            inliers >= 150,
+            "at least 150 inliers expected, got {inliers}"
+        );
     }
 
     #[test]
@@ -308,16 +359,31 @@ mod tests {
         let (n, d, inliers) = fit_plane_magsac_raw(&pts, 0.05, None).unwrap();
         assert!(n[2].abs() > 0.9, "MAGSAC normal should be ≈ z-axis: {n:?}");
         assert!(d.abs() < 0.5, "MAGSAC offset near origin: {d}");
-        assert!(inliers >= 150, "at least 150 inliers expected, got {inliers}");
+        assert!(
+            inliers >= 150,
+            "at least 150 inliers expected, got {inliers}"
+        );
     }
 
     #[test]
     fn estimate_plane_from_cloud_splits_inliers_outliers() {
         let cloud = flat_plane_cloud(300, 0.01, 100, 13);
         let result = estimate_plane_from_cloud(&cloud, 0.1, None).unwrap();
-        assert!(result.normal[2].abs() > 0.9, "normal ≈ z: {:?}", result.normal);
-        assert!(result.inlier_cloud.len() >= 200, "too few inliers: {}", result.inlier_cloud.len());
-        assert!(result.outlier_cloud.len() >= 50, "too few outliers: {}", result.outlier_cloud.len());
+        assert!(
+            result.normal[2].abs() > 0.9,
+            "normal ≈ z: {:?}",
+            result.normal
+        );
+        assert!(
+            result.inlier_cloud.len() >= 200,
+            "too few inliers: {}",
+            result.inlier_cloud.len()
+        );
+        assert!(
+            result.outlier_cloud.len() >= 50,
+            "too few outliers: {}",
+            result.outlier_cloud.len()
+        );
         assert_eq!(
             result.inlier_cloud.len() + result.outlier_cloud.len(),
             cloud.len(),

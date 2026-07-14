@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 /// A flat `HashMap`-backed uniform spatial grid.
 ///
-/// Keys are integer cell coordinates `(ix, iy, iz)` where
+/// Keys are integer cell coordinates `(ix, it, is)` where
 /// `ix = floor(p.x / cell_size)`.  Values are `Vec<usize>` of point indices.
 pub type SpatialGrid = HashMap<(i32, i32, i32), Vec<usize>>;
 
@@ -51,12 +51,24 @@ pub fn estimate_cell_size(pts: &[[f32; 3]]) -> f32 {
     let mut zmin = f32::MAX;
     let mut zmax = f32::MIN;
     for &p in pts {
-        if p[0] < xmin { xmin = p[0]; }
-        if p[0] > xmax { xmax = p[0]; }
-        if p[1] < ymin { ymin = p[1]; }
-        if p[1] > ymax { ymax = p[1]; }
-        if p[2] < zmin { zmin = p[2]; }
-        if p[2] > zmax { zmax = p[2]; }
+        if p[0] < xmin {
+            xmin = p[0];
+        }
+        if p[0] > xmax {
+            xmax = p[0];
+        }
+        if p[1] < ymin {
+            ymin = p[1];
+        }
+        if p[1] > ymax {
+            ymax = p[1];
+        }
+        if p[2] < zmin {
+            zmin = p[2];
+        }
+        if p[2] > zmax {
+            zmax = p[2];
+        }
     }
     let dx = (xmax - xmin).max(1e-5);
     let dy = (ymax - ymin).max(1e-5);
@@ -131,10 +143,12 @@ mod tests {
     #[test]
     fn cell_size_reasonable() {
         // 1000 points in a unit cube → cell_size ≈ 0.2
-        let pts: Vec<[f32; 3]> = (0..1000).map(|i| {
-            let f = i as f32 / 1000.0;
-            [f, f * 0.5, f * 0.3]
-        }).collect();
+        let pts: Vec<[f32; 3]> = (0..1000)
+            .map(|i| {
+                let f = i as f32 / 1000.0;
+                [f, f * 0.5, f * 0.3]
+            })
+            .collect();
         let cs = estimate_cell_size(&pts);
         assert!(cs > 0.0 && cs < 1.0, "cell_size={cs}");
     }
@@ -142,16 +156,21 @@ mod tests {
     #[test]
     fn knn_finds_close_points() {
         // Use 3-D grid so bbox has non-degenerate volume.
-        let pts: Vec<[f32; 3]> = (0..125).map(|i| {
-            let x = (i % 5) as f32 * 0.1;
-            let y = ((i / 5) % 5) as f32 * 0.1;
-            let z = (i / 25) as f32 * 0.1;
-            [x, y, z]
-        }).collect();
+        let pts: Vec<[f32; 3]> = (0..125)
+            .map(|i| {
+                let x = (i % 5) as f32 * 0.1;
+                let y = ((i / 5) % 5) as f32 * 0.1;
+                let z = (i / 25) as f32 * 0.1;
+                [x, y, z]
+            })
+            .collect();
         let cs = estimate_cell_size(&pts);
         let grid = build_grid(&pts, cs);
         let neighbours = knn(&pts, 62, 5, cs, &grid);
-        assert!(!neighbours.is_empty(), "should find neighbours in a 5×5×5 grid");
+        assert!(
+            !neighbours.is_empty(),
+            "should find neighbours in a 5×5×5 grid"
+        );
         assert!(neighbours.iter().all(|&j| j != 62));
     }
 }

@@ -14,7 +14,7 @@ use std::io::Write;
 
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
-use spatialrust_inlier::{reconstruct_building, BuildingParams, Orientation};
+use spatialrust_inlier::{BuildingParams, Orientation, reconstruct_building};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -26,7 +26,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cloud = read_point_cloud_file(input)?;
     let dm = point_cloud_to_data_matrix(&cloud)?;
     let raw: Vec<[f32; 3]> = (0..dm.n_points())
-        .map(|i| [dm.get(i, 0) as f32, dm.get(i, 1) as f32, dm.get(i, 2) as f32])
+        .map(|i| {
+            [
+                dm.get(i, 0) as f32,
+                dm.get(i, 1) as f32,
+                dm.get(i, 2) as f32,
+            ]
+        })
         .collect();
     let scene = reconstruct_building(&raw, &BuildingParams::default());
     eprintln!(
@@ -41,13 +47,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let all: Vec<usize> = (0..scene.points.len()).collect();
 
     // Stage 1: original (downsampled) coords.
-    write_vg(&format!("{outdir}/01_original.vg"), &scene.points, &[([0.6, 0.6, 0.6], &all)])?;
+    write_vg(
+        &format!("{outdir}/01_original.vg"),
+        &scene.points,
+        &[([0.6, 0.6, 0.6], &all)],
+    )?;
 
     // Stage 2: aligned coords.
-    write_vg(&format!("{outdir}/02_aligned.vg"), &scene.aligned, &[([0.6, 0.6, 0.6], &all)])?;
+    write_vg(
+        &format!("{outdir}/02_aligned.vg"),
+        &scene.aligned,
+        &[([0.6, 0.6, 0.6], &all)],
+    )?;
 
     // Stage 3: aligned, coloured per storey.
-    let palette = [[0.9, 0.4, 0.2], [0.2, 0.6, 0.9], [0.3, 0.85, 0.3], [0.8, 0.3, 0.9]];
+    let palette = [
+        [0.9, 0.4, 0.2],
+        [0.2, 0.6, 0.9],
+        [0.3, 0.85, 0.3],
+        [0.8, 0.3, 0.9],
+    ];
     let mut per_storey_idx: Vec<Vec<usize>> = vec![Vec::new(); scene.n_storeys.max(1)];
     for (i, &s) in scene.storey_labels.iter().enumerate() {
         per_storey_idx[s].push(i);
@@ -57,17 +76,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enumerate()
         .map(|(si, idx)| (palette[si % palette.len()], idx.clone()))
         .collect();
-    let sg: Vec<([f32; 3], &[usize])> =
-        storey_groups.iter().map(|(c, v)| (*c, v.as_slice())).collect();
+    let sg: Vec<([f32; 3], &[usize])> = storey_groups
+        .iter()
+        .map(|(c, v)| (*c, v.as_slice()))
+        .collect();
     write_vg(&format!("{outdir}/03_storeys.vg"), &scene.aligned, &sg)?;
 
     // Stage 4: the conservative structural mask — floor/ceiling + exterior/
     // interior walls, each coloured by kind. Everything not in a confident plane
     // stays gray (unassigned) and is left visible by the dollhouse.
     let (mut ne, mut ni, mut nf, mut nc) = (0, 0, 0, 0);
-    let assigned: std::collections::HashSet<usize> =
-        scene.walls.iter().flat_map(|w| w.inlier_indices.iter().copied()).collect();
-    let leftover: Vec<usize> = (0..scene.points.len()).filter(|i| !assigned.contains(i)).collect();
+    let assigned: std::collections::HashSet<usize> = scene
+        .walls
+        .iter()
+        .flat_map(|w| w.inlier_indices.iter().copied())
+        .collect();
+    let leftover: Vec<usize> = (0..scene.points.len())
+        .filter(|i| !assigned.contains(i))
+        .collect();
     let mut groups: Vec<([f32; 3], Vec<usize>)> = vec![([0.45, 0.45, 0.45], leftover)]; // ambiguous → gray
     for w in &scene.walls {
         let color = match w.orientation {

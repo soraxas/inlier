@@ -36,8 +36,8 @@ use std::collections::VecDeque;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-use crate::spatial_grid::{estimate_cell_size, build_grid, knn};
-use crate::normals::{pca_normal_and_curvature, fit_plane_3pts, fit_plane_ls};
+use crate::normals::{fit_plane_3pts, fit_plane_ls, pca_normal_and_curvature};
+use crate::spatial_grid::{build_grid, estimate_cell_size, knn};
 
 /// Which RANSAC scorer to use when fitting a plane to each region-growing cluster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +84,14 @@ pub fn region_growing_ransac(
     confidence: f64,
 ) -> Vec<([f32; 3], f32, Vec<usize>)> {
     region_growing_ransac_with_progress(
-        pts, k, angle_thresh, min_cluster_size, dist_thresh, mode, sigma_max, max_iterations,
+        pts,
+        k,
+        angle_thresh,
+        min_cluster_size,
+        dist_thresh,
+        mode,
+        sigma_max,
+        max_iterations,
         confidence,
         &mut |_, _| {},
     )
@@ -149,12 +156,8 @@ pub fn region_growing_ransac_with_progress(
     // Step 2: region growing sorted by curvature ascending (flattest = best seed).
     let cos_thresh = angle_thresh.cos();
     let mut visited = vec![false; n];
-    let mut sorted_idx: Vec<usize> = (0..n)
-        .filter(|&i| curvatures[i] < f32::MAX)
-        .collect();
-    sorted_idx.sort_unstable_by(|&a, &b| {
-        curvatures[a].partial_cmp(&curvatures[b]).unwrap()
-    });
+    let mut sorted_idx: Vec<usize> = (0..n).filter(|&i| curvatures[i] < f32::MAX).collect();
+    sorted_idx.sort_unstable_by(|&a, &b| curvatures[a].partial_cmp(&curvatures[b]).unwrap());
 
     let mut clusters: Vec<Vec<usize>> = Vec::new();
     for &seed in &sorted_idx {
@@ -198,12 +201,11 @@ pub fn region_growing_ransac_with_progress(
 
     let n_clusters = clusters.len().max(1);
     for (ci, cluster) in clusters.into_iter().enumerate() {
-        on_progress(0.7 + 0.3 * (ci as f32 / n_clusters as f32), "Fitting planes");
-        let unassigned: Vec<usize> = cluster
-            .iter()
-            .cloned()
-            .filter(|&i| !assigned[i])
-            .collect();
+        on_progress(
+            0.7 + 0.3 * (ci as f32 / n_clusters as f32),
+            "Fitting planes",
+        );
+        let unassigned: Vec<usize> = cluster.iter().cloned().filter(|&i| !assigned[i]).collect();
         if unassigned.len() < min_cluster_size {
             continue;
         }
@@ -221,32 +223,25 @@ pub fn region_growing_ransac_with_progress(
         let fit = match mode {
             RansacMode::Simple => ransac_plane_simple(&cluster_pts, dist_thresh, 200, 42),
             RansacMode::Msac => {
-                crate::plane::fit_plane_msac(
-                    &cluster_pts,
-                    dist_thresh as f64,
-                    msac_settings(),
-                )
-                .map(|(n, d, _)| (n, d))
+                crate::plane::fit_plane_msac(&cluster_pts, dist_thresh as f64, msac_settings())
+                    .map(|(n, d, _)| (n, d))
             }
             RansacMode::Magsac => {
-                crate::plane::fit_plane_magsac_raw(
-                    &cluster_pts,
-                    sigma_max,
-                    msac_settings(),
-                )
-                .map(|(n, d, _)| (n, d))
+                crate::plane::fit_plane_magsac_raw(&cluster_pts, sigma_max, msac_settings())
+                    .map(|(n, d, _)| (n, d))
             }
         };
 
         let (normal, d) = match fit {
-            Some(nd) => nd,
+            Some(and) => and,
             None => continue,
         };
 
         let mut plane_pts: Vec<usize> = Vec::new();
         for &gi in &unassigned {
             let dist =
-                (normal[0] * pts[gi][0] + normal[1] * pts[gi][1] + normal[2] * pts[gi][2] + d).abs();
+                (normal[0] * pts[gi][0] + normal[1] * pts[gi][1] + normal[2] * pts[gi][2] + d)
+                    .abs();
             if dist < dist_thresh {
                 plane_pts.push(gi);
                 assigned[gi] = true;
@@ -266,10 +261,9 @@ pub fn region_growing_ransac_with_progress(
             if dist >= dist_thresh {
                 continue;
             }
-            let dot = (normals[i][0] * normal[0]
-                + normals[i][1] * normal[1]
-                + normals[i][2] * normal[2])
-                .abs();
+            let dot =
+                (normals[i][0] * normal[0] + normals[i][1] * normal[1] + normals[i][2] * normal[2])
+                    .abs();
             if dot < cos_thresh {
                 continue;
             }
@@ -324,7 +318,7 @@ pub fn ransac_plane_simple(
         }
 
         let (normal, d) = match fit_plane_3pts(pts[i0], pts[i1], pts[i2]) {
-            Some(nd) => nd,
+            Some(and) => and,
             None => continue,
         };
 
@@ -351,11 +345,7 @@ pub fn ransac_plane_simple(
         .iter()
         .cloned()
         .filter(|&p| {
-            (best_normal[0] * p[0]
-                + best_normal[1] * p[1]
-                + best_normal[2] * p[2]
-                + best_d)
-                .abs()
+            (best_normal[0] * p[0] + best_normal[1] * p[1] + best_normal[2] * p[2] + best_d).abs()
                 < threshold
         })
         .collect();
@@ -466,7 +456,11 @@ mod tests {
             1000,
             0.99,
         );
-        assert!(planes.len() >= 2, "expected ≥2 planes, got {}", planes.len());
+        assert!(
+            planes.len() >= 2,
+            "expected ≥2 planes, got {}",
+            planes.len()
+        );
         for (i, (_, _, inliers)) in planes.iter().enumerate() {
             assert!(
                 inliers.len() >= 200,
@@ -480,19 +474,45 @@ mod tests {
     #[test]
     fn progress_streams_monotonically_and_preserves_result() {
         let pts = synthetic_multi_plane(3, 600, 0.03, 200, 42);
-        let args = (20usize, 10f32.to_radians(), 30usize, 0.08f32, RansacMode::Simple, 0.0f64, 1000usize, 0.99f64);
+        let args = (
+            20usize,
+            10f32.to_radians(),
+            30usize,
+            0.08f32,
+            RansacMode::Simple,
+            0.0f64,
+            1000usize,
+            0.99f64,
+        );
 
         let mut fractions: Vec<f32> = Vec::new();
         let with = region_growing_ransac_with_progress(
-            &pts, args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7,
+            &pts,
+            args.0,
+            args.1,
+            args.2,
+            args.3,
+            args.4,
+            args.5,
+            args.6,
+            args.7,
             &mut |f, _phase| fractions.push(f),
         );
 
         // Streaming: many intermediate updates, not just 0 -> 1.
-        assert!(fractions.len() > 5, "want several progress ticks, got {}", fractions.len());
+        assert!(
+            fractions.len() > 5,
+            "want several progress ticks, got {}",
+            fractions.len()
+        );
         // Monotonic non-decreasing, bounded to [0, 1].
         for w in fractions.windows(2) {
-            assert!(w[1] >= w[0], "progress went backwards: {} -> {}", w[0], w[1]);
+            assert!(
+                w[1] >= w[0],
+                "progress went backwards: {} -> {}",
+                w[0],
+                w[1]
+            );
         }
         assert!(fractions.iter().all(|&f| (0.0..=1.0).contains(&f)));
         assert_eq!(*fractions.first().unwrap(), 0.0);
@@ -506,7 +526,10 @@ mod tests {
         );
         assert_eq!(with.len(), plain.len());
         for (a, b) in with.iter().zip(plain.iter()) {
-            assert_eq!(a.2, b.2, "inlier sets differ between with_progress and plain");
+            assert_eq!(
+                a.2, b.2,
+                "inlier sets differ between with_progress and plain"
+            );
         }
     }
 }

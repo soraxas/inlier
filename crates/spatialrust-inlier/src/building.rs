@@ -22,8 +22,8 @@
 
 use crate::auto_tune::auto_tune_settings;
 use crate::plane_estimation::{
-    assign_storeys_columnwise, build_footprint2d, compute_normals, estimate_frame_from_normals,
-    find_storeys, refine_up_from_normals, smooth_storey_labels, ManhattanPlanes, PlaneEstimator,
+    ManhattanPlanes, PlaneEstimator, assign_storeys_columnwise, build_footprint2d, compute_normals,
+    estimate_frame_from_normals, find_storeys, refine_up_from_normals, smooth_storey_labels,
 };
 use crate::plane_ops::merge_planes;
 
@@ -31,7 +31,11 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 fn unit(a: [f32; 3]) -> [f32; 3] {
     let n = dot(a, a).sqrt().max(1e-9);
@@ -56,7 +60,12 @@ pub struct BuildingParams {
 
 impl Default for BuildingParams {
     fn default() -> Self {
-        Self { voxel_div: 700.0, k: 20, min_prominence: 0.25, fp_close_iters: 0 }
+        Self {
+            voxel_div: 700.0,
+            k: 20,
+            min_prominence: 0.25,
+            fp_close_iters: 0,
+        }
     }
 }
 
@@ -121,7 +130,11 @@ pub fn voxel_downsample(pts: &[[f32; 3]], voxel: f32) -> Vec<[f32; 3]> {
     use std::collections::HashMap;
     let voxel = voxel.max(1e-6);
     let key = |p: &[f32; 3]| {
-        ((p[0] / voxel).floor() as i64, (p[1] / voxel).floor() as i64, (p[2] / voxel).floor() as i64)
+        (
+            (p[0] / voxel).floor() as i64,
+            (p[1] / voxel).floor() as i64,
+            (p[2] / voxel).floor() as i64,
+        )
     };
     let mut slot: HashMap<(i64, i64, i64), usize> = HashMap::new();
     let mut cells: Vec<([f64; 3], u32)> = Vec::new();
@@ -138,7 +151,11 @@ pub fn voxel_downsample(pts: &[[f32; 3]], voxel: f32) -> Vec<[f32; 3]> {
     cells
         .into_iter()
         .map(|(s, n)| {
-            [(s[0] / n as f64) as f32, (s[1] / n as f64) as f32, (s[2] / n as f64) as f32]
+            [
+                (s[0] / n as f64) as f32,
+                (s[1] / n as f64) as f32,
+                (s[2] / n as f64) as f32,
+            ]
         })
         .collect()
 }
@@ -171,8 +188,7 @@ pub fn align_and_split(raw: &[[f32; 3]], params: &BuildingParams) -> AlignedClou
             hi[k] = hi[k].max(p[k]);
         }
     }
-    let diag =
-        ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
+    let diag = ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
     let pts = voxel_downsample(raw, (diag / params.voxel_div.max(1.0)).max(1e-6));
     if pts.len() < 8 || diag <= 0.0 {
         return AlignedCloud {
@@ -204,7 +220,11 @@ pub fn align_and_split(raw: &[[f32; 3]], params: &BuildingParams) -> AlignedClou
                 s[k] += p[k];
             }
         }
-        [s[0] / pts.len() as f32, s[1] / pts.len() as f32, s[2] / pts.len() as f32]
+        [
+            s[0] / pts.len() as f32,
+            s[1] / pts.len() as f32,
+            s[2] / pts.len() as f32,
+        ]
     };
     let aligned: Vec<[f32; 3]> = pts
         .iter()
@@ -219,15 +239,32 @@ pub fn align_and_split(raw: &[[f32; 3]], params: &BuildingParams) -> AlignedClou
     let storey_labels = smooth_storey_labels(&pts, &labels0, 16, 2);
     let n_storeys = storeys.len().max(1);
 
-    AlignedCloud { points: pts, aligned, up, h1, h2, storey_labels, n_storeys, diag }
+    AlignedCloud {
+        points: pts,
+        aligned,
+        up,
+        h1,
+        h2,
+        storey_labels,
+        n_storeys,
+        diag,
+    }
 }
 
 /// Run the full building pipeline on a raw point cloud.
 ///
 /// Never panics; returns an empty-walls scene for degenerate input.
 pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> BuildingScene {
-    let AlignedCloud { points: pts, aligned, up, h1, h2, storey_labels, n_storeys, diag } =
-        align_and_split(raw, params);
+    let AlignedCloud {
+        points: pts,
+        aligned,
+        up,
+        h1,
+        h2,
+        storey_labels,
+        n_storeys,
+        diag,
+    } = align_and_split(raw, params);
     if n_storeys == 0 {
         return BuildingScene {
             aligned,
@@ -290,8 +327,10 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
         .collect();
 
         // Footprint of this storey (aligned x=h1, y=h2) + exterior flood-fill.
-        let fp_pts: Vec<(f32, f32)> =
-            storey_idx.iter().map(|&g| (aligned[g][0], aligned[g][1])).collect();
+        let fp_pts: Vec<(f32, f32)> = storey_idx
+            .iter()
+            .map(|&g| (aligned[g][0], aligned[g][1]))
+            .collect();
         let fp = build_footprint2d(&fp_pts, fp_cell, params.fp_close_iters);
 
         for (n, d, gidx0) in merged {
@@ -316,8 +355,10 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
                 })
                 .collect();
             // Exterior via footprint boundary (project wall pts + normal to 2-D).
-            let wall2d: Vec<(f32, f32)> =
-                gidx.iter().map(|&g| (aligned[g][0], aligned[g][1])).collect();
+            let wall2d: Vec<(f32, f32)> = gidx
+                .iter()
+                .map(|&g| (aligned[g][0], aligned[g][1]))
+                .collect();
             let (a, b) = (dot(n, h1), dot(n, h2));
             let m = (a * a + b * b).sqrt().max(1e-9);
             let is_exterior = fp.wall_is_exterior(&wall2d, (a / m, b / m));
@@ -352,9 +393,7 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
                 }
             }
             let mut done = std::collections::HashSet::new();
-            for (idx, orientation) in
-                [(lo_i, Orientation::Floor), (hi_i, Orientation::Ceiling)]
-            {
+            for (idx, orientation) in [(lo_i, Orientation::Floor), (hi_i, Orientation::Ceiling)] {
                 if !done.insert(idx) {
                     continue; // only one horizontal plane → don't double-add it
                 }
@@ -376,7 +415,14 @@ pub fn reconstruct_building(raw: &[[f32; 3]], params: &BuildingParams) -> Buildi
         }
     }
 
-    BuildingScene { points: pts, aligned, storey_labels, walls, up, n_storeys }
+    BuildingScene {
+        points: pts,
+        aligned,
+        storey_labels,
+        walls,
+        up,
+        n_storeys,
+    }
 }
 
 #[cfg(test)]
@@ -436,11 +482,17 @@ mod tests {
         }
         // The box has a dominant floor and ceiling → both should be detected.
         assert!(
-            scene.walls.iter().any(|w| w.orientation == Orientation::Floor),
+            scene
+                .walls
+                .iter()
+                .any(|w| w.orientation == Orientation::Floor),
             "no floor detected"
         );
         assert!(
-            scene.walls.iter().any(|w| w.orientation == Orientation::Ceiling),
+            scene
+                .walls
+                .iter()
+                .any(|w| w.orientation == Orientation::Ceiling),
             "no ceiling detected"
         );
     }

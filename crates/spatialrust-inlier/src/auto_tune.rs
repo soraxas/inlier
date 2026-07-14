@@ -23,8 +23,8 @@
 //! | `merge_min_pts` | `min_cluster_size / 4` | Loose minimum after merge |
 //! | `grow_dist_thresh` | `dist_thresh × 2` | Mops up near-plane leftovers |
 
-use crate::spatial_grid::{estimate_cell_size, build_grid, knn};
 use crate::normals::pca_normal_and_curvature;
+use crate::spatial_grid::{build_grid, estimate_cell_size, knn};
 
 /// Algorithm parameter set derived by [`auto_tune_settings`].
 ///
@@ -96,10 +96,7 @@ pub fn auto_tune_settings(pts: &[[f32; 3]]) -> TunedSettings {
                 continue;
             }
             let q = pts[j];
-            let d = ((p[0] - q[0]).powi(2)
-                + (p[1] - q[1]).powi(2)
-                + (p[2] - q[2]).powi(2))
-                .sqrt();
+            let d = ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt();
             if d < min_d {
                 min_d = d;
             }
@@ -110,12 +107,9 @@ pub fn auto_tune_settings(pts: &[[f32; 3]]) -> TunedSettings {
 
         // Local plane residual.
         if let Some((normal, _)) = pca_normal_and_curvature(pts, &neighbors) {
-            let cx = neighbors.iter().map(|&j| pts[j][0]).sum::<f32>()
-                / neighbors.len() as f32;
-            let cy = neighbors.iter().map(|&j| pts[j][1]).sum::<f32>()
-                / neighbors.len() as f32;
-            let cz = neighbors.iter().map(|&j| pts[j][2]).sum::<f32>()
-                / neighbors.len() as f32;
+            let cx = neighbors.iter().map(|&j| pts[j][0]).sum::<f32>() / neighbors.len() as f32;
+            let cy = neighbors.iter().map(|&j| pts[j][1]).sum::<f32>() / neighbors.len() as f32;
+            let cz = neighbors.iter().map(|&j| pts[j][2]).sum::<f32>() / neighbors.len() as f32;
             let d = -(normal[0] * cx + normal[1] * cy + normal[2] * cz);
             let res = (normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2] + d).abs();
             residuals.push(res);
@@ -176,8 +170,14 @@ mod tests {
             .collect();
         let t = auto_tune_settings(&pts);
         assert!(t.dist_thresh > 0.0, "dist_thresh must be positive");
-        assert!(t.grow_dist_thresh >= t.dist_thresh, "grow must be >= seg dist");
-        assert!(t.merge_dist_thresh >= t.dist_thresh, "merge must be >= seg dist");
+        assert!(
+            t.grow_dist_thresh >= t.dist_thresh,
+            "grow must be >= seg dist"
+        );
+        assert!(
+            t.merge_dist_thresh >= t.dist_thresh,
+            "merge must be >= seg dist"
+        );
         assert!(!t.description.is_empty());
     }
 

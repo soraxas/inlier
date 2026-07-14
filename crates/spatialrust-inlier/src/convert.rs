@@ -25,7 +25,11 @@ pub fn point_cloud_to_data_matrix(cloud: &PointCloud) -> SpatialResult<DataMatri
 ///
 /// Panics if `m.n_dims() != 3`.
 pub fn data_matrix_to_point_cloud(m: &DataMatrix) -> SpatialResult<PointCloud> {
-    assert_eq!(m.n_dims(), 3, "DataMatrix must be 3-dimensional for xyz conversion");
+    assert_eq!(
+        m.n_dims(),
+        3,
+        "DataMatrix must be 3-dimensional for xyz conversion"
+    );
     let mut builder = PointCloudBuilder::xyz();
     for pt in m.iter_points() {
         builder
@@ -65,8 +69,17 @@ pub fn nalgebra_to_isometry3(
 ) -> Isometry3<f32> {
     let rot3 = Rotation3::from_matrix_unchecked(*rotation);
     let uq: UnitQuaternion<f64> = UnitQuaternion::from_rotation_matrix(&rot3);
-    let q = Quat { x: uq.i as f32, y: uq.j as f32, z: uq.k as f32, w: uq.w as f32 };
-    let t = Vec3::new(translation.x as f32, translation.y as f32, translation.z as f32);
+    let q = Quat {
+        x: uq.i as f32,
+        y: uq.j as f32,
+        z: uq.k as f32,
+        w: uq.w as f32,
+    };
+    let t = Vec3::new(
+        translation.x as f32,
+        translation.y as f32,
+        translation.z as f32,
+    );
     Isometry3::new(q, t)
 }
 
@@ -105,12 +118,28 @@ mod tests {
     fn point_cloud_with_normals_round_trip() {
         use spatialrust_core::{DType, FieldSemantic, PointField, StandardSchemas};
         let schema = StandardSchemas::point_xyz()
-            .with_field(PointField::scalar("normal_x", FieldSemantic::NormalX, DType::F32))
-            .with_field(PointField::scalar("normal_y", FieldSemantic::NormalY, DType::F32))
-            .with_field(PointField::scalar("normal_z", FieldSemantic::NormalZ, DType::F32));
+            .with_field(PointField::scalar(
+                "normal_x",
+                FieldSemantic::NormalX,
+                DType::F32,
+            ))
+            .with_field(PointField::scalar(
+                "normal_y",
+                FieldSemantic::NormalY,
+                DType::F32,
+            ))
+            .with_field(PointField::scalar(
+                "normal_z",
+                FieldSemantic::NormalZ,
+                DType::F32,
+            ));
         let mut builder = spatialrust_core::PointCloudBuilder::new(schema);
-        builder.push_point([1.0f32, 2.0, 3.0, 0.0, 0.0, 1.0]).unwrap();
-        builder.push_point([4.0f32, 5.0, 6.0, 1.0, 0.0, 0.0]).unwrap();
+        builder
+            .push_point([1.0f32, 2.0, 3.0, 0.0, 0.0, 1.0])
+            .unwrap();
+        builder
+            .push_point([4.0f32, 5.0, 6.0, 1.0, 0.0, 0.0])
+            .unwrap();
         let cloud = builder.build().unwrap();
 
         let dm = point_cloud_with_normals_to_data_matrix(&cloud).unwrap();
@@ -127,11 +156,7 @@ mod tests {
     fn nalgebra_to_isometry3_90_degree_rotation() {
         use std::f64::consts::FRAC_PI_2;
         // 90° rotation around Z axis.
-        let rot = Matrix3::new(
-            0.0, -1.0, 0.0,
-            1.0,  0.0, 0.0,
-            0.0,  0.0, 1.0,
-        );
+        let rot = Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
         let trans = Vector3::new(1.0, 2.0, 3.0);
         let iso = nalgebra_to_isometry3(&rot, &trans);
         // Translation should round-trip.

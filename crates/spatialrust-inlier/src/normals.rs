@@ -186,11 +186,13 @@ mod tests {
     #[test]
     fn pca_flat_plane() {
         // XY-plane cluster → normal should be ≈ [0, 0, 1].
-        let pts: Vec<[f32; 3]> = (0..25).map(|i| {
-            let x = (i % 5) as f32 * 0.1;
-            let y = (i / 5) as f32 * 0.1;
-            [x, y, 0.0]
-        }).collect();
+        let pts: Vec<[f32; 3]> = (0..25)
+            .map(|i| {
+                let x = (i % 5) as f32 * 0.1;
+                let y = (i / 5) as f32 * 0.1;
+                [x, y, 0.0]
+            })
+            .collect();
         let idxs: Vec<usize> = (0..pts.len()).collect();
         let (n, curv) = pca_normal_and_curvature(&pts, &idxs).unwrap();
         assert!(n[2].abs() > 0.99, "normal z should ≈ ±1, got {n:?}");
@@ -234,7 +236,10 @@ mod tests {
         let (n, d) = fit_plane_ls(&pts).unwrap();
         // n·p + d = 0  →  ±1·2 + d = 0  →  d = ∓2
         let residual = (n[2] * 2.0 + d).abs();
-        assert!(residual < 1e-3, "plane should pass through z=2: n={n:?} d={d}");
+        assert!(
+            residual < 1e-3,
+            "plane should pass through z=2: n={n:?} d={d}"
+        );
     }
 
     #[test]
@@ -286,7 +291,10 @@ mod tests {
         // Diagonal matrix: eigenvalues 3, 2, 1 → dominant eigenvector is [1,0,0].
         let m = [[3.0f32, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 1.0]];
         let v = power_iter(m, [0.9, 0.1, 0.1]);
-        assert!(v[0].abs() > 0.99, "dominant eigenvector should be x-axis: {v:?}");
+        assert!(
+            v[0].abs() > 0.99,
+            "dominant eigenvector should be x-axis: {v:?}"
+        );
     }
 
     #[test]
@@ -300,13 +308,18 @@ mod tests {
     fn pca_curvature_high_for_sphere() {
         // Points sampled roughly isotropically (random-ish spread in xyz) should
         // produce higher curvature than a flat plane.
-        let pts: Vec<[f32; 3]> = (0..20).map(|i| {
-            let t = i as f32 * 0.314;
-            [t.cos(), t.sin(), (i as f32 * 0.1).sin()]
-        }).collect();
+        let pts: Vec<[f32; 3]> = (0..20)
+            .map(|i| {
+                let t = i as f32 * 0.314;
+                [t.cos(), t.sin(), (i as f32 * 0.1).sin()]
+            })
+            .collect();
         let idxs: Vec<usize> = (0..pts.len()).collect();
         let (_, curv) = pca_normal_and_curvature(&pts, &idxs).unwrap();
         // Not a flat surface — curvature should be notably above 0.
-        assert!(curv > 0.01, "curved surface should have curvature > 0.01, got {curv}");
+        assert!(
+            curv > 0.01,
+            "curved surface should have curvature > 0.01, got {curv}"
+        );
     }
 }

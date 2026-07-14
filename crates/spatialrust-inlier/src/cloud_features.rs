@@ -18,11 +18,10 @@
 //! ```
 
 pub use spatialrust_features::{
-    FeatureEstimator, NeighborhoodProvider, KdTreeNeighborhood,
-    NormalEstimator, NormalEstimationConfig, NormalEstimationResult,
-    orient_normal_towards_viewpoint, orient_normals_consistent, NormalOrientationConfig,
-    BoundaryDetector, BoundaryConfig, BoundaryResult,
-    IssKeypointDetector, IssKeypointConfig, IssKeypointResult,
+    BoundaryConfig, BoundaryDetector, BoundaryResult, FeatureEstimator, IssKeypointConfig,
+    IssKeypointDetector, IssKeypointResult, KdTreeNeighborhood, NeighborhoodProvider,
+    NormalEstimationConfig, NormalEstimationResult, NormalEstimator, NormalOrientationConfig,
+    orient_normal_towards_viewpoint, orient_normals_consistent,
 };
 
 #[cfg(feature = "cloud-features-gpu")]

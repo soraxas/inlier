@@ -35,8 +35,8 @@
 //! println!("{} planes, {} unassigned", scene.planes.len(), scene.unassigned_indices.len());
 //! ```
 
-use crate::region_growing::{region_growing_ransac, RansacMode};
-use crate::plane_ops::{merge_planes, grow_planes, GrowArgs};
+use crate::plane_ops::{GrowArgs, grow_planes, merge_planes};
+use crate::region_growing::{RansacMode, region_growing_ransac};
 
 /// Full parameter set for the dollhouse segmentation pipeline.
 ///
@@ -167,7 +167,10 @@ pub struct DollhouseScene {
 /// Does not panic.  Returns an empty scene for degenerate input (< 3 points).
 pub fn segment_for_dollhouse(pts: &[[f32; 3]], params: &DollhouseParams) -> DollhouseScene {
     if pts.len() < 3 {
-        return DollhouseScene { planes: vec![], unassigned_indices: (0..pts.len()).collect() };
+        return DollhouseScene {
+            planes: vec![],
+            unassigned_indices: (0..pts.len()).collect(),
+        };
     }
 
     let sigma_max = if params.sigma_max > 0.0 {
@@ -245,9 +248,7 @@ pub fn segment_for_dollhouse(pts: &[[f32; 3]], params: &DollhouseParams) -> Doll
             }
         }
     }
-    let unassigned_indices: Vec<usize> = (0..pts.len())
-        .filter(|&i| !inlier_flags[i])
-        .collect();
+    let unassigned_indices: Vec<usize> = (0..pts.len()).filter(|&i| !inlier_flags[i]).collect();
 
     DollhouseScene {
         planes: result_planes,
@@ -323,24 +324,36 @@ pub fn classify_plane(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::normals::{normalize3, cross3};
+    use crate::normals::{cross3, normalize3};
 
     fn synthetic_planes(seed: u32) -> Vec<[f32; 3]> {
         let mut s = seed as u64;
         let mut rng = move || -> f32 {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((s >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0
         };
         let mut out = Vec::new();
         for pi in 0..3 {
             let normal = loop {
                 let (x, y, z) = (rng(), rng(), rng());
-                let len = (x*x+y*y+z*z).sqrt();
-                if len > 0.01 && len <= 1.0 { break normalize3([x, y, z]); }
+                let len = (x * x + y * y + z * z).sqrt();
+                if len > 0.01 && len <= 1.0 {
+                    break normalize3([x, y, z]);
+                }
             };
             let offset = pi as f32 * 2.5;
-            let p0 = [-offset*normal[0], -offset*normal[1], -offset*normal[2]];
-            let up = if normal[2].abs() < 0.9 { [0f32,0.,1.] } else { [1.,0.,0.] };
+            let p0 = [
+                -offset * normal[0],
+                -offset * normal[1],
+                -offset * normal[2],
+            ];
+            let up = if normal[2].abs() < 0.9 {
+                [0f32, 0., 1.]
+            } else {
+                [1., 0., 0.]
+            };
             let t1 = normalize3(cross3(normal, up));
             let t2 = cross3(normal, t1);
             for _ in 0..600 {
@@ -348,9 +361,9 @@ mod tests {
                 let v = rng() * 3.0;
                 let noise = rng() * 0.03;
                 out.push([
-                    p0[0] + u*t1[0] + v*t2[0] + noise*normal[0],
-                    p0[1] + u*t1[1] + v*t2[1] + noise*normal[1],
-                    p0[2] + u*t1[2] + v*t2[2] + noise*normal[2],
+                    p0[0] + u * t1[0] + v * t2[0] + noise * normal[0],
+                    p0[1] + u * t1[1] + v * t2[1] + noise * normal[1],
+                    p0[2] + u * t1[2] + v * t2[2] + noise * normal[2],
                 ]);
             }
         }
@@ -361,8 +374,11 @@ mod tests {
     fn pipeline_finds_three_planes() {
         let pts = synthetic_planes(42);
         let scene = segment_for_dollhouse(&pts, &DollhouseParams::default());
-        assert!(scene.planes.len() >= 2,
-            "expected ≥2 planes, got {}", scene.planes.len());
+        assert!(
+            scene.planes.len() >= 2,
+            "expected ≥2 planes, got {}",
+            scene.planes.len()
+        );
         // All inlier normals should be unit-length.
         for p in &scene.planes {
             let len = (p.normal[0].powi(2) + p.normal[1].powi(2) + p.normal[2].powi(2)).sqrt();

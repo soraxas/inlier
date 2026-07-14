@@ -21,11 +21,9 @@
 //! ```
 
 pub use spatialrust_segmentation::{
-    extract_indices, extract_mask, with_labels,
-    PlaneModel, RansacPlaneSegmenter, RansacPlaneConfig, RansacPlaneSegmentation,
-    EuclideanClusterExtractor, EuclideanClusterConfig, EuclideanClusterResult,
-    DbscanSegmenter, DbscanConfig, DbscanResult,
-    GroundSegmenter, GroundConfig, GroundSegmentation, UpAxis,
-    RegionGrowingSegmenter, RegionGrowingConfig, RegionGrowingResult,
-    RansacSphereSegmenter, RansacCylinderSegmenter,
+    DbscanConfig, DbscanResult, DbscanSegmenter, EuclideanClusterConfig, EuclideanClusterExtractor,
+    EuclideanClusterResult, GroundConfig, GroundSegmentation, GroundSegmenter, PlaneModel,
+    RansacCylinderSegmenter, RansacPlaneConfig, RansacPlaneSegmentation, RansacPlaneSegmenter,
+    RansacSphereSegmenter, RegionGrowingConfig, RegionGrowingResult, RegionGrowingSegmenter,
+    UpAxis, extract_indices, extract_mask, with_labels,
 };

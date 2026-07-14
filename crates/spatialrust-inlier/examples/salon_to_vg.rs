@@ -6,12 +6,12 @@
 
 use std::io::Write;
 
+use spatialrust_inlier::RansacMode;
 use spatialrust_inlier::convert::point_cloud_to_data_matrix;
 use spatialrust_inlier::io::read_point_cloud_file;
-use spatialrust_inlier::RansacMode;
 use spatialrust_inlier::{
-    estimate_frame, find_storeys, refine_up, GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator,
-    RegionGrowing,
+    GlobalPlanePeeling, ManhattanPlanes, PlaneEstimator, RegionGrowing, estimate_frame,
+    find_storeys, refine_up,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,7 +28,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cloud = read_point_cloud_file(input)?;
     let dm = point_cloud_to_data_matrix(&cloud)?;
     let raw: Vec<[f32; 3]> = (0..dm.n_points())
-        .map(|i| [dm.get(i, 0) as f32, dm.get(i, 1) as f32, dm.get(i, 2) as f32])
+        .map(|i| {
+            [
+                dm.get(i, 0) as f32,
+                dm.get(i, 1) as f32,
+                dm.get(i, 2) as f32,
+            ]
+        })
         .collect();
     eprintln!("read {} points from {input}", raw.len());
 
@@ -113,7 +119,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         out.push((nrm, d, local.iter().map(|&li| idx[li]).collect()));
                     }
                 }
-                eprintln!("  storey {si} (h {a:.2}..{b:.2}): {} pts, {walls} walls", idx.len());
+                eprintln!(
+                    "  storey {si} (h {a:.2}..{b:.2}): {} pts, {walls} walls",
+                    idx.len()
+                );
             }
             out
         }
@@ -162,7 +171,13 @@ fn voxel_downsample(pts: &[[f32; 3]], voxel: f32) -> Vec<[f32; 3]> {
         e.1 += 1;
     }
     acc.into_values()
-        .map(|(s, n)| [(s[0] / n as f64) as f32, (s[1] / n as f64) as f32, (s[2] / n as f64) as f32])
+        .map(|(s, n)| {
+            [
+                (s[0] / n as f64) as f32,
+                (s[1] / n as f64) as f32,
+                (s[2] / n as f64) as f32,
+            ]
+        })
         .collect()
 }
 
@@ -184,8 +199,14 @@ fn write_vg(
     writeln!(w, "num_groups: {}", planes.len())?;
 
     let palette = [
-        [0.9f32, 0.3, 0.2], [0.2, 0.7, 0.9], [0.3, 0.85, 0.3], [0.9, 0.75, 0.1],
-        [0.7, 0.3, 0.9], [0.9, 0.2, 0.55], [0.2, 0.6, 0.5], [0.6, 0.6, 0.2],
+        [0.9f32, 0.3, 0.2],
+        [0.2, 0.7, 0.9],
+        [0.3, 0.85, 0.3],
+        [0.9, 0.75, 0.1],
+        [0.7, 0.3, 0.9],
+        [0.9, 0.2, 0.55],
+        [0.2, 0.6, 0.5],
+        [0.6, 0.6, 0.2],
     ];
     for (gi, (n, d, idx)) in planes.iter().enumerate() {
         let c = palette[gi % palette.len()];

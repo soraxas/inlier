@@ -14,10 +14,10 @@
 //!   which is what downstream classification (e.g. dollhouse exterior/interior)
 //!   needs.
 
-use crate::plane::fit_plane_msac;
-use crate::region_growing::{region_growing_ransac_with_progress, RansacMode};
-use crate::spatial_grid::{build_grid, estimate_cell_size, knn};
 use crate::normals::pca_normal_and_curvature;
+use crate::plane::fit_plane_msac;
+use crate::region_growing::{RansacMode, region_growing_ransac_with_progress};
+use crate::spatial_grid::{build_grid, estimate_cell_size, knn};
 
 /// One planar segment: `(unit_normal, plane_offset_d, inlier_indices)`, where a
 /// point `p` on the plane satisfies `normal · p + d ≈ 0`. Indices refer to the
@@ -143,7 +143,9 @@ impl PlaneEstimator for GlobalPlanePeeling {
                     if nb.len() < 3 {
                         [0.0; 3]
                     } else {
-                        pca_normal_and_curvature(pts, &nb).map(|(nv, _)| nv).unwrap_or([0.0; 3])
+                        pca_normal_and_curvature(pts, &nb)
+                            .map(|(nv, _)| nv)
+                            .unwrap_or([0.0; 3])
                     }
                 })
                 .collect()
@@ -202,7 +204,10 @@ impl PlaneEstimator for GlobalPlanePeeling {
             }
             planes.push((nrm, d, inliers));
             remaining = keep;
-            on_progress(0.2 + 0.8 * (1.0 - remaining.len() as f32 / n as f32), "Peeling planes");
+            on_progress(
+                0.2 + 0.8 * (1.0 - remaining.len() as f32 / n as f32),
+                "Peeling planes",
+            );
         }
 
         on_progress(1.0, "Done");
@@ -263,7 +268,9 @@ pub fn compute_normals(pts: &[[f32; 3]], k: usize) -> Vec<[f32; 3]> {
             if nb.len() < 3 {
                 [0.0; 3]
             } else {
-                pca_normal_and_curvature(pts, &nb).map(|(nv, _)| nv).unwrap_or([0.0; 3])
+                pca_normal_and_curvature(pts, &nb)
+                    .map(|(nv, _)| nv)
+                    .unwrap_or([0.0; 3])
             }
         })
         .collect()
@@ -345,7 +352,11 @@ pub fn refine_up(pts: &[[f32; 3]], up0: [f32; 3]) -> [f32; 3] {
     if pts.len() < 3 {
         return up0;
     }
-    let a = if up0[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+    let a = if up0[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
     let mut t1 = cross3(up0, a);
     let n1 = (t1[0] * t1[0] + t1[1] * t1[1] + t1[2] * t1[2]).sqrt();
     t1 = [t1[0] / n1, t1[1] / n1, t1[2] / n1];
@@ -512,7 +523,10 @@ pub fn assign_storeys_columnwise(
     };
     let cell = cell.max(1e-6);
     let key = |p: &[f32; 3]| {
-        ((dot3(*p, h1) / cell).floor() as i64, (dot3(*p, h2) / cell).floor() as i64)
+        (
+            (dot3(*p, h1) / cell).floor() as i64,
+            (dot3(*p, h2) / cell).floor() as i64,
+        )
     };
     let bands: Vec<usize> = pts.iter().map(|p| band_of(dot3(*p, up))).collect();
 
@@ -526,8 +540,8 @@ pub fn assign_storeys_columnwise(
         .iter()
         .map(|(k, v)| {
             let total: u32 = v.iter().sum();
-            let thr = (min_occ_frac * total as f32).max(1.0);
-            (*k, v.iter().map(|&c| c as f32 >= thr).collect())
+            let the = (min_occ_frac * total as f32).max(1.0);
+            (*k, v.iter().map(|&c| c as f32 >= the).collect())
         })
         .collect();
 
@@ -565,7 +579,11 @@ pub fn smooth_storey_labels(
                 for &j in &nb {
                     *counts.entry(cur[j]).or_insert(0) += 1;
                 }
-                counts.into_iter().max_by_key(|&(_, c)| c).map(|(l, _)| l).unwrap_or(cur[i])
+                counts
+                    .into_iter()
+                    .max_by_key(|&(_, c)| c)
+                    .map(|(l, _)| l)
+                    .unwrap_or(cur[i])
             })
             .collect();
         cur = next;
@@ -640,7 +658,10 @@ pub fn build_footprint2d(pts: &[(f32, f32)], cell: f32, close_iters: usize) -> F
     // Flood empty cells from the border (4-connectivity).
     let mut ext = vec![false; nx * ny];
     let mut q = std::collections::VecDeque::new();
-    let mut seed = |i: usize, j: usize, ext: &mut Vec<bool>, q: &mut std::collections::VecDeque<(usize, usize)>| {
+    let mut seed = |i: usize,
+                    j: usize,
+                    ext: &mut Vec<bool>,
+                    q: &mut std::collections::VecDeque<(usize, usize)>| {
         if !occ[at(i, j)] && !ext[at(i, j)] {
             ext[at(i, j)] = true;
             q.push_back((i, j));
@@ -655,7 +676,12 @@ pub fn build_footprint2d(pts: &[(f32, f32)], cell: f32, close_iters: usize) -> F
         seed(nx - 1, j, &mut ext, &mut q);
     }
     while let Some((i, j)) = q.pop_front() {
-        for (a, b) in [(i.wrapping_sub(1), j), (i + 1, j), (i, j.wrapping_sub(1)), (i, j + 1)] {
+        for (a, b) in [
+            (i.wrapping_sub(1), j),
+            (i + 1, j),
+            (i, j.wrapping_sub(1)),
+            (i, j + 1),
+        ] {
             if a < nx && b < ny && !occ[at(a, b)] && !ext[at(a, b)] {
                 ext[at(a, b)] = true;
                 q.push_back((a, b));
@@ -665,7 +691,15 @@ pub fn build_footprint2d(pts: &[(f32, f32)], cell: f32, close_iters: usize) -> F
     // A wall probe must clear the dilation collar (close_iters cells) plus a
     // base 3-cell reach to sit in the flooded exterior.
     let reach = cell * (close_iters as f32 + 3.0);
-    Footprint2D { ext, nx, ny, cell, ox, oy, reach }
+    Footprint2D {
+        ext,
+        nx,
+        ny,
+        cell,
+        ox,
+        oy,
+        reach,
+    }
 }
 
 impl Footprint2D {
@@ -736,7 +770,11 @@ fn dominant_direction(normals: &[[f32; 3]], up: Option<[f32; 3]>) -> [f32; 3] {
 /// and θ+90° reinforce the *same* Manhattan peak instead of cancelling into a
 /// diagonal.
 fn dominant_horizontal(normals: &[[f32; 3]], up: [f32; 3]) -> [f32; 3] {
-    let a = if up[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+    let a = if up[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
     let mut e1 = cross3(up, a);
     let e1n = (e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]).sqrt();
     e1 = [e1[0] / e1n, e1[1] / e1n, e1[2] / e1n];
@@ -777,7 +815,11 @@ fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// centers (merging centers closer than `dist`), then assigns each value to its
 /// nearest center within `dist`. Returns `(center, member_indices)` per plane.
 /// Robust to sparse stray points that would chain single-linkage clusters.
-fn cluster_1d_peaks(mut items: Vec<(f32, usize)>, dist: f32, min_support: usize) -> Vec<(f32, Vec<usize>)> {
+fn cluster_1d_peaks(
+    mut items: Vec<(f32, usize)>,
+    dist: f32,
+    min_support: usize,
+) -> Vec<(f32, Vec<usize>)> {
     if items.len() < min_support {
         return vec![];
     }
@@ -793,9 +835,7 @@ fn cluster_1d_peaks(mut items: Vec<(f32, usize)>, dist: f32, min_support: usize)
     let mut centers: Vec<f32> = Vec::new();
     for i in 0..nb {
         let c = counts[i];
-        if c >= min_support
-            && (i == 0 || c >= counts[i - 1])
-            && (i + 1 == nb || c >= counts[i + 1])
+        if c >= min_support && (i == 0 || c >= counts[i - 1]) && (i + 1 == nb || c >= counts[i + 1])
         {
             let center = lo + (i as f32 + 0.5) * w;
             // Merge with the previous center if within `dist`.
@@ -871,7 +911,11 @@ impl PlaneEstimator for ManhattanPlanes {
             if nv == [0.0; 3] {
                 continue;
             }
-            let d = [dot3(nv, axes[0]).abs(), dot3(nv, axes[1]).abs(), dot3(nv, axes[2]).abs()];
+            let d = [
+                dot3(nv, axes[0]).abs(),
+                dot3(nv, axes[1]).abs(),
+                dot3(nv, axes[2]).abs(),
+            ];
             let a = if d[0] >= d[1] && d[0] >= d[2] {
                 0
             } else if d[1] >= d[2] {
@@ -917,12 +961,20 @@ mod tests {
         let mut pts = Vec::new();
         let mut s: u64 = 42;
         let mut rnd = || {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((s >> 33) as f32 / u32::MAX as f32) - 0.5
         };
-        for _ in 0..600 { pts.push([rnd(), rnd(), 0.0 + 0.01 * rnd()]); }
-        for _ in 0..600 { pts.push([rnd(), 0.0 + 0.01 * rnd(), rnd()]); }
-        for _ in 0..600 { pts.push([0.0 + 0.01 * rnd(), rnd(), rnd()]); }
+        for _ in 0..600 {
+            pts.push([rnd(), rnd(), 0.0 + 0.01 * rnd()]);
+        }
+        for _ in 0..600 {
+            pts.push([rnd(), 0.0 + 0.01 * rnd(), rnd()]);
+        }
+        for _ in 0..600 {
+            pts.push([0.0 + 0.01 * rnd(), rnd(), rnd()]);
+        }
 
         let est = RegionGrowing {
             k: 20,
@@ -937,8 +989,15 @@ mod tests {
 
         let via_trait = est.estimate(&pts);
         let via_free = region_growing_ransac(
-            &pts, est.k, est.angle_thresh, est.min_cluster_size, est.dist_thresh,
-            est.mode, est.sigma_max, est.max_iterations, est.confidence,
+            &pts,
+            est.k,
+            est.angle_thresh,
+            est.min_cluster_size,
+            est.dist_thresh,
+            est.mode,
+            est.sigma_max,
+            est.max_iterations,
+            est.confidence,
         );
         assert_eq!(via_trait.len(), via_free.len());
         for (a, b) in via_trait.iter().zip(via_free.iter()) {
@@ -961,7 +1020,10 @@ mod tests {
         let stray = pts.iter().position(|p| *p == [4.0, 4.0, 4.0]).unwrap();
         labels[stray] = 1;
         let out = smooth_storey_labels(&pts, &labels, 8, 1);
-        assert_eq!(out[stray], 0, "isolated label should flip to its neighbourhood");
+        assert_eq!(
+            out[stray], 0,
+            "isolated label should flip to its neighbourhood"
+        );
     }
 
     #[test]
@@ -972,17 +1034,31 @@ mod tests {
         let mut pts = Vec::new();
         let mut s: u64 = 5;
         let mut rnd = || {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (s >> 40) as f32 / (1u64 << 24) as f32
         };
-        for _ in 0..3000 { pts.push([rnd() * 4.0 - 2.0, rnd() * 4.0 - 2.0, rnd()]); } // ground, all x
-        for _ in 0..1500 { pts.push([rnd() * 2.0 - 2.0, rnd() * 4.0 - 2.0, 2.0 + rnd()]); } // upper, x<0
+        for _ in 0..3000 {
+            pts.push([rnd() * 4.0 - 2.0, rnd() * 4.0 - 2.0, rnd()]);
+        } // ground, all x
+        for _ in 0..1500 {
+            pts.push([rnd() * 2.0 - 2.0, rnd() * 4.0 - 2.0, 2.0 + rnd()]);
+        } // upper, x<0
         // A few stray high points on x>0 (e.g. ceiling grazing) — must NOT be "upper".
-        for _ in 0..40 { pts.push([rnd() * 2.0, rnd() * 4.0 - 2.0, 2.0 + rnd()]); }
+        for _ in 0..40 {
+            pts.push([rnd() * 2.0, rnd() * 4.0 - 2.0, 2.0 + rnd()]);
+        }
 
         let storeys = [(-0.5f32, 1.5f32), (1.5, 3.5)];
         let labels = assign_storeys_columnwise(
-            &pts, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], &storeys, 0.5, 0.2,
+            &pts,
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            &storeys,
+            0.5,
+            0.2,
         );
         // Every "upper" label must sit on x<0 (the real upper-room footprint).
         for (p, &lab) in pts.iter().zip(&labels) {
@@ -992,7 +1068,10 @@ mod tests {
         }
         // The genuine upper room (x<0, z>2) is labeled upper.
         let upper = labels.iter().filter(|&&l| l == 1).count();
-        assert!(upper > 1000, "expected the x<0 upper room labeled upper, got {upper}");
+        assert!(
+            upper > 1000,
+            "expected the x<0 upper room labeled upper, got {upper}"
+        );
     }
 
     #[test]
@@ -1004,26 +1083,34 @@ mod tests {
         let mut pts = Vec::new();
         let mut s: u64 = 11;
         let mut rnd = || {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (s >> 40) as f32 / (1u64 << 24) as f32
         };
-        let mut slab = |pts: &mut Vec<[f32; 3]>, z0: f32, z1: f32, n: usize, rnd: &mut dyn FnMut() -> f32| {
-            for _ in 0..n { pts.push([rnd() * 4.0, rnd() * 4.0, z0 + (z1 - z0) * rnd()]); }
-        };
-        slab(&mut pts, 0.0, 0.5, 2000, &mut rnd);   // floor 1
-        slab(&mut pts, 2.5, 3.0, 2000, &mut rnd);   // ceiling 1
-        slab(&mut pts, 0.5, 2.5, 2600, &mut rnd);   // walls 1 (dense interior)
+        let mut slab =
+            |pts: &mut Vec<[f32; 3]>, z0: f32, z1: f32, n: usize, rnd: &mut dyn FnMut() -> f32| {
+                for _ in 0..n {
+                    pts.push([rnd() * 4.0, rnd() * 4.0, z0 + (z1 - z0) * rnd()]);
+                }
+            };
+        slab(&mut pts, 0.0, 0.5, 2000, &mut rnd); // floor 1
+        slab(&mut pts, 2.5, 3.0, 2000, &mut rnd); // ceiling 1
+        slab(&mut pts, 0.5, 2.5, 2600, &mut rnd); // walls 1 (dense interior)
         // empty neck z∈[3,4]
-        slab(&mut pts, 4.0, 4.5, 2000, &mut rnd);   // floor 2
-        slab(&mut pts, 5.5, 6.0, 2000, &mut rnd);   // ceiling 2
-        slab(&mut pts, 4.5, 5.5, 1300, &mut rnd);   // walls 2
+        slab(&mut pts, 4.0, 4.5, 2000, &mut rnd); // floor 2
+        slab(&mut pts, 5.5, 6.0, 2000, &mut rnd); // ceiling 2
+        slab(&mut pts, 4.5, 5.5, 1300, &mut rnd); // walls 2
 
         // min_height ≈ room scale: heavy-smooth merges each level's internal
         // floor/interior/ceiling structure, and nearby drops collapse to one.
         let storeys = find_storeys(&pts, [0.0, 0.0, 1.0], 0.2, 2.0);
         assert_eq!(storeys.len(), 2, "expected 2 storeys, got {storeys:?}");
         // Split falls at/near the neck z∈[3,4].
-        assert!((2.5..4.1).contains(&storeys[0].1), "split should be near the neck: {storeys:?}");
+        assert!(
+            (2.5..4.1).contains(&storeys[0].1),
+            "split should be near the neck: {storeys:?}"
+        );
     }
 
     #[test]
@@ -1034,12 +1121,20 @@ mod tests {
         let mut pts = Vec::new();
         let mut s: u64 = 3;
         let mut rnd = || {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((s >> 40) as f32 / (1u64 << 24) as f32)
         };
-        for _ in 0..1500 { pts.push([rnd(), rnd(), 0.01 * rnd()]); } // z=0 floor (big)
-        for _ in 0..600 { pts.push([0.01 * rnd(), rnd(), rnd()]); } // x=0 wall
-        for _ in 0..600 { pts.push([rnd(), 0.01 * rnd(), rnd()]); } // y=0 wall
+        for _ in 0..1500 {
+            pts.push([rnd(), rnd(), 0.01 * rnd()]);
+        } // z=0 floor (big)
+        for _ in 0..600 {
+            pts.push([0.01 * rnd(), rnd(), rnd()]);
+        } // x=0 wall
+        for _ in 0..600 {
+            pts.push([rnd(), 0.01 * rnd(), rnd()]);
+        } // y=0 wall
 
         let est = ManhattanPlanes {
             k: 20,
@@ -1048,17 +1143,30 @@ mod tests {
             min_support: 100,
         };
         let planes = est.estimate(&pts);
-        assert!(planes.len() >= 3, "want ≥3 planes across orientations, got {}", planes.len());
+        assert!(
+            planes.len() >= 3,
+            "want ≥3 planes across orientations, got {}",
+            planes.len()
+        );
         // Normals should span all three axes (up to sign), not one direction.
         let axis_of = |n: &[f32; 3]| {
             let a = [n[0].abs(), n[1].abs(), n[2].abs()];
-            if a[0] >= a[1] && a[0] >= a[2] { 0 } else if a[1] >= a[2] { 1 } else { 2 }
+            if a[0] >= a[1] && a[0] >= a[2] {
+                0
+            } else if a[1] >= a[2] {
+                1
+            } else {
+                2
+            }
         };
         let mut seen = [false; 3];
         for p in &planes {
             seen[axis_of(&p.0)] = true;
         }
-        assert!(seen.iter().all(|&s| s), "planes should cover all 3 axes, got {seen:?}");
+        assert!(
+            seen.iter().all(|&s| s),
+            "planes should cover all 3 axes, got {seen:?}"
+        );
     }
 
     #[test]
@@ -1069,14 +1177,22 @@ mod tests {
         let mut pts = Vec::new();
         let mut s: u64 = 7;
         let mut rnd = || {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((s >> 40) as f32 / (1u64 << 24) as f32) - 0.5
         };
         // z=0 plane, two patches with a gap in x (disjoint).
-        for _ in 0..400 { pts.push([rnd() * 0.4 - 0.6, rnd(), 0.01 * rnd()]); }
-        for _ in 0..400 { pts.push([rnd() * 0.4 + 0.6, rnd(), 0.01 * rnd()]); }
+        for _ in 0..400 {
+            pts.push([rnd() * 0.4 - 0.6, rnd(), 0.01 * rnd()]);
+        }
+        for _ in 0..400 {
+            pts.push([rnd() * 0.4 + 0.6, rnd(), 0.01 * rnd()]);
+        }
         // x=1 perpendicular wall.
-        for _ in 0..400 { pts.push([1.0 + 0.01 * rnd(), rnd(), rnd()]); }
+        for _ in 0..400 {
+            pts.push([1.0 + 0.01 * rnd(), rnd(), rnd()]);
+        }
 
         let est = GlobalPlanePeeling {
             k: 20,
@@ -1098,7 +1214,11 @@ mod tests {
             biggest.2.len()
         );
         let covered: usize = planes.iter().map(|p| p.2.len()).sum();
-        assert!(covered as f32 / pts.len() as f32 > 0.8, "coverage {covered}/{}", pts.len());
+        assert!(
+            covered as f32 / pts.len() as f32 > 0.8,
+            "coverage {covered}/{}",
+            pts.len()
+        );
     }
 
     #[test]
@@ -1117,9 +1237,15 @@ mod tests {
         let fp = build_footprint2d(&fp_pts, 0.1, 0);
         // Left edge wall: exterior empty on one side, room on the other.
         let left: Vec<(f32, f32)> = (0..20).map(|i| (0.0, i as f32 * 0.05)).collect();
-        assert!(fp.wall_is_exterior(&left, (1.0, 0.0)), "outer edge must read exterior");
+        assert!(
+            fp.wall_is_exterior(&left, (1.0, 0.0)),
+            "outer edge must read exterior"
+        );
         // Interior partition down the middle: room on both sides.
         let mid: Vec<(f32, f32)> = (0..20).map(|i| (0.5, i as f32 * 0.05)).collect();
-        assert!(!fp.wall_is_exterior(&mid, (1.0, 0.0)), "interior partition must read interior");
+        assert!(
+            !fp.wall_is_exterior(&mid, (1.0, 0.0)),
+            "interior partition must read interior"
+        );
     }
 }

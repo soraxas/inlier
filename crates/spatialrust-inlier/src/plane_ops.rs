@@ -36,8 +36,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::spatial_grid::{estimate_cell_size, build_grid, knn};
 use crate::normals::pca_normal_and_curvature;
+use crate::spatial_grid::{build_grid, estimate_cell_size, knn};
 
 /// Parameters for the grow step.
 ///
@@ -365,14 +365,12 @@ mod tests {
             ([0f32, 0., 1.], 0.0f32, (0..50).collect::<Vec<_>>()),
             ([0f32, 0., 1.], 0.0f32, (50..100).collect::<Vec<_>>()),
         ];
-        let merged = merge_planes(
-            &planes,
-            &pts,
-            5f32.to_radians(),
-            0.1,
-            50,
+        let merged = merge_planes(&planes, &pts, 5f32.to_radians(), 0.1, 50);
+        assert_eq!(
+            merged.len(),
+            1,
+            "two identical planes should merge into one"
         );
-        assert_eq!(merged.len(), 1, "two identical planes should merge into one");
         assert_eq!(merged[0].2.len(), 100);
     }
 
@@ -385,9 +383,7 @@ mod tests {
         all_pts.push([0.5, 0.5, 0.05]); // near-plane leftover
         let n = all_pts.len();
 
-        let planes = vec![
-            ([0f32, 0., 1.], 0.0f32, (0..100).collect::<Vec<_>>()),
-        ];
+        let planes = vec![([0f32, 0., 1.], 0.0f32, (0..100).collect::<Vec<_>>())];
         let args = GrowArgs {
             dist_thresh: 0.1,
             use_normal: false,

@@ -15,6 +15,5 @@
 //! ```
 
 pub use spatialrust_voxelize::{
-    OccupancyGrid, VoxelFill, VoxelGridConfig, voxelize,
-    RangeImage, RangeImageConfig, range_image,
+    OccupancyGrid, RangeImage, RangeImageConfig, VoxelFill, VoxelGridConfig, range_image, voxelize,
 };
