@@ -185,9 +185,15 @@ impl Plane3 {
     pub fn new(a: f64, b: f64, c: f64, d: f64) -> Self {
         let norm = (a * a + b * b + c * c).sqrt();
         if norm < 1e-10 {
-            Self { normal: Vector3::new(0.0, 0.0, 1.0), d: 0.0 }
+            Self {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            }
         } else {
-            Self { normal: Vector3::new(a / norm, b / norm, c / norm), d: d / norm }
+            Self {
+                normal: Vector3::new(a / norm, b / norm, c / norm),
+                d: d / norm,
+            }
         }
     }
 

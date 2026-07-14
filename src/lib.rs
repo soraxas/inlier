@@ -195,8 +195,8 @@ pub use api::{
     estimate_fundamental_matrix, estimate_homography, estimate_line, estimate_plane,
     estimate_rigid_transform,
 };
-pub use settings::ScoringType;
 pub use models::Plane3;
+pub use settings::ScoringType;
 
 pub mod pipeline;
 pub use pipeline::{CorePipeline, Pipeline, PipelineResult};

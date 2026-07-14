@@ -5,7 +5,6 @@ use crate::types::DataMatrix;
 #[cfg(feature = "graph-cut")]
 use crate::samplers::{KdTreeNeighborhoodGraph, NeighborhoodGraph};
 
-
 /// Least Squares local optimizer that refits the model using all inliers.
 ///
 /// This requires the estimator to support non-minimal fitting (i.e., fitting

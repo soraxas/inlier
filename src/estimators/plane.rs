@@ -28,11 +28,7 @@ impl PlaneEstimator {
         Vector3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
     }
 
-    fn fit_pca(
-        data: &DataMatrix,
-        sample: &[usize],
-        weights: Option<&[f64]>,
-    ) -> Option<Plane3> {
+    fn fit_pca(data: &DataMatrix, sample: &[usize], weights: Option<&[f64]>) -> Option<Plane3> {
         let mut sum_w = 0.0_f64;
         let mut centroid = Vector3::zeros();
 
@@ -56,11 +52,7 @@ impl PlaneEstimator {
         let eig = SymmetricEigen::new(cov);
         // Plane normal = eigenvector of the SMALLEST eigenvalue.
         let min_col = (0..3)
-            .min_by(|&i, &j| {
-                eig.eigenvalues[i]
-                    .partial_cmp(&eig.eigenvalues[j])
-                    .unwrap()
-            })
+            .min_by(|&i, &j| eig.eigenvalues[i].partial_cmp(&eig.eigenvalues[j]).unwrap())
             .unwrap_or(0);
         let normal: Vector3<f64> = eig.eigenvectors.column(min_col).into();
         let norm = normal.norm();
@@ -137,7 +129,7 @@ mod tests {
     use super::*;
 
     fn make_plane_data(n: usize, normal: Vector3<f64>, d: f64, noise: f64) -> DataMatrix {
-        use rand::{SeedableRng, rngs::SmallRng, Rng};
+        use rand::{Rng, SeedableRng, rngs::SmallRng};
         let mut rng = SmallRng::seed_from_u64(42);
         let mut data = DataMatrix::zeros(n, 3);
         // Pick two vectors orthogonal to normal
@@ -164,15 +156,25 @@ mod tests {
     #[test]
     fn minimal_fit_xy_plane() {
         let mut data = DataMatrix::zeros(3, 3);
-        data.set(0, 0, 0.0); data.set(0, 1, 0.0); data.set(0, 2, 0.0);
-        data.set(1, 0, 1.0); data.set(1, 1, 0.0); data.set(1, 2, 0.0);
-        data.set(2, 0, 0.0); data.set(2, 1, 1.0); data.set(2, 2, 0.0);
+        data.set(0, 0, 0.0);
+        data.set(0, 1, 0.0);
+        data.set(0, 2, 0.0);
+        data.set(1, 0, 1.0);
+        data.set(1, 1, 0.0);
+        data.set(1, 2, 0.0);
+        data.set(2, 0, 0.0);
+        data.set(2, 1, 1.0);
+        data.set(2, 2, 0.0);
 
         let est = PlaneEstimator::new();
         let models = est.estimate_model(&data, &[0, 1, 2]);
         assert_eq!(models.len(), 1);
         let plane = &models[0];
-        assert!((plane.normal.z.abs() - 1.0).abs() < 1e-6, "normal should be Z: {:?}", plane.normal);
+        assert!(
+            (plane.normal.z.abs() - 1.0).abs() < 1e-6,
+            "normal should be Z: {:?}",
+            plane.normal
+        );
         assert!(plane.distance(0.5, 0.5, 0.0) < 1e-6);
     }
 
@@ -187,6 +189,9 @@ mod tests {
         assert_eq!(models.len(), 1);
         let plane = &models[0];
         let dot = plane.normal.dot(&normal).abs();
-        assert!(dot > 0.999, "normal should align with ground truth: dot={dot}");
+        assert!(
+            dot > 0.999,
+            "normal should align with ground truth: dot={dot}"
+        );
     }
 }

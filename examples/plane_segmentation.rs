@@ -9,10 +9,10 @@
 //!   cargo run --example plane_segmentation --features "spatialrust-inlier/filtering spatialrust-inlier/io"
 
 use spatialrust_inlier::{
+    PointCloud, PointCloudBuilder, StandardSchemas,
     filter::{PointCloudFilter, VoxelGridDownsample, VoxelGridDownsampleConfig},
     io::read_point_cloud_file,
     plane::estimate_plane_from_cloud,
-    PointCloud, PointCloudBuilder, StandardSchemas,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,8 +29,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loaded {} points.", cloud.len());
 
     // Voxel downsample to speed up RANSAC
-    let cloud = VoxelGridDownsample::new(VoxelGridDownsampleConfig::centroid(0.05))
-        .filter(&cloud)?;
+    let cloud =
+        VoxelGridDownsample::new(VoxelGridDownsampleConfig::centroid(0.05)).filter(&cloud)?;
     println!("After voxel (5 cm): {} points.", cloud.len());
 
     // Fit plane with inlier's RANSAC (MSAC scoring + IRLS local optimizer)
@@ -60,7 +60,9 @@ fn synthetic_cloud() -> PointCloud {
     let mut seed: u64 = 0xdeadbeef;
 
     let mut rng = move || -> f32 {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let mut h = DefaultHasher::new();
         seed.hash(&mut h);
         (h.finish() as f32) / (u64::MAX as f32)

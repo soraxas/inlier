@@ -586,10 +586,9 @@ pub fn estimate_plane(
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
 
-    let scoring_builder =
-        MsacScoring::new(threshold, |data: &DataMatrix, model: &Plane3, idx| {
-            model.distance(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
-        });
+    let scoring_builder = MsacScoring::new(threshold, |data: &DataMatrix, model: &Plane3, idx| {
+        model.distance(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
+    });
     let scoring = match settings.point_priors.as_ref() {
         Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
         _ => scoring_builder,

@@ -9,6 +9,7 @@
 //!   cargo run --example full_pipeline --features "spatialrust-inlier/full"   # synthetic data
 
 use spatialrust_inlier::{
+    PointCloud, PointCloudBuilder, StandardSchemas,
     cloud_features::{NormalEstimationConfig, NormalEstimator},
     convert::point_cloud_with_normals_to_data_matrix,
     filter::{PointCloudFilter, VoxelGridDownsample, VoxelGridDownsampleConfig},
@@ -16,7 +17,6 @@ use spatialrust_inlier::{
     plane::estimate_plane_from_cloud,
     segmentation::{EuclideanClusterConfig, EuclideanClusterExtractor},
     voxelize::{VoxelGridConfig, voxelize},
-    PointCloud, PointCloudBuilder, StandardSchemas,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,14 +33,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[1] Loaded          {} points", raw.len());
 
     // ── 2. Voxel downsample ──────────────────────────────────────────────────
-    let cloud = VoxelGridDownsample::new(VoxelGridDownsampleConfig::centroid(0.05))
-        .filter(&raw)?;
+    let cloud = VoxelGridDownsample::new(VoxelGridDownsampleConfig::centroid(0.05)).filter(&raw)?;
     println!("[2] Voxel (5 cm)    {} points", cloud.len());
 
     // ── 3. Normal estimation (enables NAPSAC in inlier) ──────────────────────
-    let (cloud_n, diag) =
-        NormalEstimator::new(NormalEstimationConfig::k_neighbors(16))
-            .estimate_with_diagnostics(&cloud)?;
+    let (cloud_n, diag) = NormalEstimator::new(NormalEstimationConfig::k_neighbors(16))
+        .estimate_with_diagnostics(&cloud)?;
     println!(
         "[3] Normals         ok={} invalid={}",
         diag.valid_count, diag.invalid_count
@@ -54,15 +52,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plane = estimate_plane_from_cloud(&cloud, 0.05, None)?;
     println!(
         "[4] Plane           normal=[{:.3},{:.3},{:.3}] d={:.3}  inliers={}  iters={}",
-        plane.normal[0], plane.normal[1], plane.normal[2], plane.d,
-        plane.inlier_cloud.len(), plane.iterations,
+        plane.normal[0],
+        plane.normal[1],
+        plane.normal[2],
+        plane.d,
+        plane.inlier_cloud.len(),
+        plane.iterations,
     );
 
     // ── 5. Cluster the non-ground residuals ──────────────────────────────────
-    let clusters = EuclideanClusterExtractor::new(
-        EuclideanClusterConfig::with_tolerance(0.15, 20),
-    )
-    .extract(&plane.outlier_cloud)?;
+    let clusters = EuclideanClusterExtractor::new(EuclideanClusterConfig::with_tolerance(0.15, 20))
+        .extract(&plane.outlier_cloud)?;
     println!(
         "[5] Clusters        {} found in {} outlier points",
         clusters.cluster_count,
@@ -91,7 +91,9 @@ fn synthetic_scene() -> PointCloud {
     let mut seed: u64 = 0xcafe_babe;
 
     let mut rng = move || -> f32 {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((seed >> 33) as f32) / (u32::MAX as f32)
     };
 
@@ -116,7 +118,11 @@ fn synthetic_scene() -> PointCloud {
     // Random noise
     for _ in 0..200 {
         builder
-            .push_point([(rng() - 0.5) * 20.0, (rng() - 0.5) * 20.0, rng() * 4.0 + 1.5])
+            .push_point([
+                (rng() - 0.5) * 20.0,
+                (rng() - 0.5) * 20.0,
+                rng() * 4.0 + 1.5,
+            ])
             .unwrap();
     }
 
