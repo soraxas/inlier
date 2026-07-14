@@ -11,16 +11,8 @@
 
 use crate::core::Scoring;
 use crate::types::DataMatrix;
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-
-type SigmaLutMap = HashMap<(usize, u64), Vec<(f64, f64)>>;
-
 // Precomputed gamma tables generated at build time for common (dof, k) pairs.
 include!(concat!(env!("OUT_DIR"), "/sigma_lut.rs"));
-
-#[allow(clippy::type_complexity)]
-static SIGMA_LUT: OnceLock<Mutex<SigmaLutMap>> = OnceLock::new();
 
 /// Scalar score storing an inlier count and a floating-point quality value.
 ///
@@ -713,6 +705,19 @@ where
     residual_fn: F,
     priors: Option<Vec<f64>>,
     _marker: std::marker::PhantomData<M>,
+    /// Precomputed at construction: `(1/sigma_max) * c_n * 2^((dof+1)/2)`.
+    rho_scalar: f64,
+    /// Precomputed: `sigma_max^2`.
+    sigma_sq: f64,
+    /// Precomputed: `k_quantile * sigma_max` (hard truncation threshold).
+    k_sigma: f64,
+    /// Precomputed: `1 / sigma_max` for fast t_norm computation.
+    inv_sigma: f64,
+    /// Per-struct LUT: `(upper_ig, lower_ig)` sampled over `[0, k_quantile]`.
+    /// Eliminates the global `SIGMA_LUT` mutex on every `rho()` call.
+    lut: Vec<(f64, f64)>,
+    /// `upper_ig` at `t = k_quantile` (the boundary constant in ρ term2).
+    lut_upper_k: f64,
 }
 
 impl<M, F> SigmaConsensusScoring<M, F>
@@ -720,19 +725,17 @@ where
     F: Fn(&DataMatrix, &M, usize) -> f64,
 {
     pub fn new(sigma_max: f64, degrees_of_freedom: usize, residual_fn: F) -> Self {
-        Self {
-            sigma_max,
-            degrees_of_freedom,
-            k_quantile: 3.64, // ~0.99 chi quantile (common choice in the paper)
-            residual_fn,
-            priors: None,
-            _marker: std::marker::PhantomData,
-        }
+        Self::with_k_internal(sigma_max, degrees_of_freedom, 3.64, residual_fn, None)
     }
 
-    pub fn with_k(mut self, k: f64) -> Self {
-        self.k_quantile = k;
-        self
+    pub fn with_k(self, k: f64) -> Self {
+        Self::with_k_internal(
+            self.sigma_max,
+            self.degrees_of_freedom,
+            k,
+            self.residual_fn,
+            self.priors,
+        )
     }
 
     pub fn with_priors(mut self, priors: &[f64]) -> Self {
@@ -740,57 +743,64 @@ where
         self
     }
 
-    fn c_n(&self) -> f64 {
-        let n = self.degrees_of_freedom as f64;
-        (2.0f64.powf(n / 2.0) * gamma_fn(n / 2.0)).recip()
+    fn with_k_internal(
+        sigma_max: f64,
+        degrees_of_freedom: usize,
+        k_quantile: f64,
+        residual_fn: F,
+        priors: Option<Vec<f64>>,
+    ) -> Self {
+        let n = degrees_of_freedom as f64;
+        let c_n = (2.0f64.powf(n / 2.0) * gamma_fn(n / 2.0)).recip();
+        let power = 2.0f64.powf((n + 1.0) / 2.0);
+        let rho_scalar = (1.0 / sigma_max) * c_n * power;
+        let sigma_sq = sigma_max * sigma_max;
+
+        // Build LUT: (upper_ig, lower_ig) over [0, k_quantile] with SIGMA_LUT_SAMPLES entries.
+        let step = k_quantile / (SIGMA_LUT_SAMPLES as f64 - 1.0);
+        let mut lut = Vec::with_capacity(SIGMA_LUT_SAMPLES);
+        for i in 0..SIGMA_LUT_SAMPLES {
+            let t = i as f64 * step;
+            let x = t * t / 2.0;
+            let upper = upper_incomplete_gamma((n - 1.0) / 2.0, x);
+            let lower = lower_incomplete_gamma((n + 1.0) / 2.0, x);
+            lut.push((upper, lower));
+        }
+        let lut_upper_k = lut.last().map(|p| p.0).unwrap_or(0.0);
+
+        Self {
+            sigma_max,
+            degrees_of_freedom,
+            k_quantile,
+            residual_fn,
+            priors,
+            _marker: std::marker::PhantomData,
+            rho_scalar,
+            sigma_sq,
+            k_sigma: k_quantile * sigma_max,
+            inv_sigma: 1.0 / sigma_max,
+            lut,
+            lut_upper_k,
+        }
     }
 
-    fn lut_lookup(&self, t_norm: f64) -> (f64, f64, f64) {
-        let key = (self.degrees_of_freedom, self.k_quantile.to_bits());
-        let map = SIGMA_LUT.get_or_init(|| Mutex::new(HashMap::new()));
-        let mut guard = map.lock().expect("gamma LUT lock poisoned");
-        let table = guard.entry(key).or_insert_with(|| {
-            let step = self.k_quantile / (SIGMA_LUT_SAMPLES as f64 - 1.0);
-            let mut table = Vec::with_capacity(SIGMA_LUT_SAMPLES);
-            for i in 0..SIGMA_LUT_SAMPLES {
-                let t = i as f64 * step;
-                let x = t * t / 2.0;
-                let upper = upper_incomplete_gamma((self.degrees_of_freedom as f64 - 1.0) / 2.0, x);
-                let lower = lower_incomplete_gamma((self.degrees_of_freedom as f64 + 1.0) / 2.0, x);
-                table.push((upper, lower));
-            }
-            table
-        });
-        let clamped = t_norm.clamp(0.0, self.k_quantile);
-        let pos = clamped / self.k_quantile * (table.len() as f64 - 1.0);
-        let idx = pos.floor() as usize;
+    #[inline]
+    fn rho(&self, r: f64) -> f64 {
+        let r_clamped = r.min(self.k_sigma);
+        let t_norm = r_clamped * self.inv_sigma;
+
+        // Linear interpolation into per-struct LUT — no mutex, no HashMap.
+        let pos = (t_norm / self.k_quantile) * (self.lut.len() as f64 - 1.0);
+        let idx = (pos as usize).min(self.lut.len() - 2);
         let frac = pos - idx as f64;
-        let (u0, l0) = table[idx];
-        let (u1, l1) = if idx + 1 < table.len() {
-            table[idx + 1]
-        } else {
-            (u0, l0)
-        };
+        let (u0, l0) = self.lut[idx];
+        let (u1, l1) = self.lut[idx + 1];
         let upper = u0 + frac * (u1 - u0);
         let lower = l0 + frac * (l1 - l0);
-        let upper_k = table.last().map(|p| p.0).unwrap_or(upper);
-        (upper, lower, upper_k)
-    }
 
-    fn rho(&self, r: f64) -> f64 {
-        let k_sigma = self.k_quantile * self.sigma_max;
-        let r_clamped = r.min(k_sigma);
-        let n = self.degrees_of_freedom as f64;
-        let c_n = self.c_n();
-        let power = 2.0f64.powf((n + 1.0) / 2.0);
-        let sigma_sq = self.sigma_max * self.sigma_max;
-        let t_norm = r_clamped / self.sigma_max;
-        let (upper_term, lower, upper_k) = self.lut_lookup(t_norm);
-
-        let term1 = (sigma_sq / 2.0) * lower;
-        let term2 = (r_clamped * r_clamped / 4.0) * (upper_term - upper_k);
-
-        (1.0 / self.sigma_max) * c_n * power * (term1 + term2)
+        let term1 = (self.sigma_sq / 2.0) * lower;
+        let term2 = (r_clamped * r_clamped / 4.0) * (upper - self.lut_upper_k);
+        self.rho_scalar * (term1 + term2)
     }
 }
 
@@ -1012,7 +1022,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{MsacScoring, RansacInlierCountScoring, Score};
+    use super::{
+        MsacScoring, RansacInlierCountScoring, Score, SigmaConsensusScoring,
+        lower_incomplete_gamma, upper_incomplete_gamma,
+    };
     use crate::core::Scoring;
     use crate::types::DataMatrix;
 
@@ -1063,5 +1076,69 @@ mod tests {
         // MSAC score should be negative and finite (since it's -cost).
         assert!(s.value.is_finite());
         assert!(s.value < 0.0);
+    }
+
+    fn sigma_consensus_rho_direct(sigma_max: f64, dof: usize, k: f64, r: f64) -> f64 {
+        let r_clamped = r.min(k * sigma_max);
+        let n = dof as f64;
+        let c_n = (2.0f64.powf(n / 2.0) * super::gamma_fn(n / 2.0)).recip();
+        let power = 2.0f64.powf((n + 1.0) / 2.0);
+        let sigma_sq = sigma_max * sigma_max;
+        let t_norm = r_clamped / sigma_max;
+        let x = t_norm * t_norm / 2.0;
+
+        let upper_term = upper_incomplete_gamma((n - 1.0) / 2.0, x);
+        let lower = lower_incomplete_gamma((n + 1.0) / 2.0, x);
+        let upper_k = upper_incomplete_gamma((n - 1.0) / 2.0, k * k / 2.0);
+
+        let term1 = (sigma_sq / 2.0) * lower;
+        let term2 = (r_clamped * r_clamped / 4.0) * (upper_term - upper_k);
+
+        (1.0 / sigma_max) * c_n * power * (term1 + term2)
+    }
+
+    #[test]
+    fn sigma_consensus_rho_matches_direct_formula() {
+        let sigma_max = 2.5;
+        let dof = 2;
+        let k = 3.64;
+        let scoring = SigmaConsensusScoring::new(sigma_max, dof, |_d, _m: &UnitModel, _row| 0.0);
+
+        for r in [0.0, 0.1, 0.5, 1.0, 2.5, 6.0, 9.1, 12.0] {
+            let expected = sigma_consensus_rho_direct(sigma_max, dof, k, r);
+            let actual = scoring.rho(r);
+            let tolerance = 1e-5_f64.max(expected.abs() * 1e-4);
+
+            assert!(
+                (actual - expected).abs() <= tolerance,
+                "rho({r}) = {actual}, expected {expected}, tolerance {tolerance}"
+            );
+        }
+    }
+
+    #[test]
+    fn sigma_consensus_scoring_applies_threshold_k_and_priors() {
+        let data = DataMatrix::from_row_slice(5, 1, &[0.2, -0.4, 1.0, 1.6, 4.0]);
+        let model = UnitModel;
+        let priors = [1.0, 0.5, 2.0, 1.0, 3.0];
+        let sigma_max = 0.5;
+        let k = 2.0;
+        let scoring =
+            SigmaConsensusScoring::new(sigma_max, 2, |d, _m: &UnitModel, row| d.get(row, 0))
+                .with_priors(&priors)
+                .with_k(k);
+        let mut inliers = Vec::new();
+        let s: Score = scoring.score(&data, &model, &mut inliers);
+
+        assert_eq!(scoring.threshold(), 1.0);
+        assert_eq!(s.inlier_count, 3);
+        assert_eq!(inliers, vec![0, 1, 2]);
+
+        let expected_loss: f64 = [0.2_f64, 0.4, 1.0, 1.6, 4.0]
+            .into_iter()
+            .zip(priors)
+            .map(|(r, prior)| prior * scoring.rho(r))
+            .sum();
+        assert!((s.value + expected_loss).abs() < 1e-12);
     }
 }
