@@ -3,7 +3,8 @@ use crate::samplers::UniformRandomSampler;
 use crate::types::DataMatrix;
 
 #[cfg(feature = "graph-cut")]
-use petgraph::graph::UnGraph;
+use crate::samplers::{KdTreeNeighborhoodGraph, NeighborhoodGraph};
+
 
 /// Least Squares local optimizer that refits the model using all inliers.
 ///
@@ -337,6 +338,9 @@ where
     k_neighbors: usize,
     smooth_weight: f64,
     max_iterations: usize,
+    /// KD-tree neighbor graph over 2D image coords, cached per unique n_points.
+    kd_graph: KdTreeNeighborhoodGraph<2>,
+    cached_n: usize,
 }
 
 #[cfg(feature = "graph-cut")]
@@ -353,11 +357,14 @@ where
             k_neighbors: 8,
             smooth_weight: 0.5,
             max_iterations: 5,
+            kd_graph: KdTreeNeighborhoodGraph::<2>::new(8),
+            cached_n: 0,
         }
     }
 
     pub fn with_k_neighbors(mut self, k: usize) -> Self {
         self.k_neighbors = k.max(1);
+        self.kd_graph = KdTreeNeighborhoodGraph::<2>::new(k.max(1));
         self
     }
 
@@ -366,27 +373,20 @@ where
         self
     }
 
-    fn build_graph(&self, data: &DataMatrix) -> UnGraph<(), f64> {
+    /// Ensure the KD-tree is built for the current data (2D image coords, cols 0-1).
+    /// O(n log n) via kiddo; cached — only rebuilds when n_points changes.
+    fn ensure_graph(&mut self, data: &DataMatrix) {
         let n = data.n_points();
-        let mut graph: UnGraph<(), f64> = UnGraph::default();
-        let nodes: Vec<_> = (0..n).map(|_| graph.add_node(())).collect();
-
-        for i in 0..n {
-            let mut dists: Vec<(usize, f64)> = (0..n)
-                .filter(|&j| j != i)
-                .map(|j| {
-                    let diff = data.get_point(i) - data.get_point(j);
-                    let dist = diff.norm();
-                    (j, dist)
-                })
-                .collect();
-            dists.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-            for &(j, dist) in dists.iter().take(self.k_neighbors.min(n.saturating_sub(1))) {
-                graph.update_edge(nodes[i], nodes[j], dist);
+        if n != self.cached_n {
+            // Build a 2-column DataMatrix from just the image coords (cols 0, 1).
+            let mut pts2d = DataMatrix::zeros(n, 2);
+            for i in 0..n {
+                pts2d.set(i, 0, data.get(i, 0));
+                pts2d.set(i, 1, data.get(i, 1));
             }
+            self.kd_graph.initialize(&pts2d);
+            self.cached_n = n;
         }
-
-        graph
     }
 }
 
@@ -410,7 +410,11 @@ where
             return (model.clone(), best_score.clone(), inliers.to_vec());
         }
 
-        let graph = self.build_graph(data);
+        // Build (or reuse) KD-tree neighbor graph — O(n log n), cached per n.
+        self.ensure_graph(data);
+        let thresh = self.threshold.max(1e-9);
+        let smooth_weight = self.smooth_weight;
+
         let mut labels = vec![false; n];
         for &idx in inliers {
             if idx < n {
@@ -422,29 +426,26 @@ where
             let mut changed = false;
             let mut new_labels = labels.clone();
 
-            for node in graph.node_indices() {
-                let idx = node.index();
-                let residual = (self.residual_fn)(data, model, idx).abs();
-                let unary_in = residual / self.threshold.max(1e-9);
+            for i in 0..n {
+                let residual = (self.residual_fn)(data, model, i).abs();
+                let unary_in = residual / thresh;
                 let unary_out = 1.0;
 
-                let mut smooth_in = 0.0;
-                let mut smooth_out = 0.0;
-                for neighbor in graph.neighbors(node) {
-                    let n_label = labels[neighbor.index()];
-                    if n_label {
-                        smooth_out += self.smooth_weight;
+                let mut smooth_in = 0.0f64;
+                let mut smooth_out = 0.0f64;
+                for &nb in self.kd_graph.neighbors(i) {
+                    if labels[nb] {
+                        smooth_out += smooth_weight;
                     } else {
-                        smooth_in += self.smooth_weight;
+                        smooth_in += smooth_weight;
                     }
                 }
 
-                let e_in = unary_in + smooth_in;
-                let e_out = unary_out + smooth_out;
-                new_labels[idx] = e_in <= e_out;
-                if new_labels[idx] != labels[idx] {
+                let new_label = (unary_in + smooth_in) <= (unary_out + smooth_out);
+                if new_label != labels[i] {
                     changed = true;
                 }
+                new_labels[i] = new_label;
             }
 
             labels = new_labels;
