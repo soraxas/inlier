@@ -109,6 +109,11 @@ coverage-doctests lcov='lcov.info': ensure-nextest ensure-llvm-cov
   RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report --doc --workspace
   RUSTUP_TOOLCHAIN=nightly cargo llvm-cov report --doctests --lcov --output-path "{{lcov}}"
 
+# Run deterministic, synthetic end-to-end estimator benchmarks. Real-world benchmark assets
+# belong in the inlier-data submodule.
+bench-estimators:
+  cargo bench --bench estimators
+
 example-assets:
   cargo run --example homography_estimation
   uv run --group dev python python/demo_homography_scene.py

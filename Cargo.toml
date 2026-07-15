@@ -154,3 +154,7 @@ required-features = ["spatialrust-inlier/full"]
 [[bench]]
 name = "teaser_comparison"
 harness = false
+
+[[bench]]
+name = "estimators"
+harness = false
