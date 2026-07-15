@@ -20,6 +20,17 @@ impl FundamentalEstimator {
         Self
     }
 
+    /// Project an eight-point estimate onto the rank-two fundamental-matrix manifold.
+    fn enforce_rank_two(&self, matrix: Matrix3<f64>) -> Matrix3<f64> {
+        let svd = SVD::new(matrix, true, true);
+        let (Some(u), Some(v_t)) = (svd.u, svd.v_t) else {
+            return matrix;
+        };
+        let mut singular_values = svd.singular_values;
+        singular_values[2] = 0.0;
+        u * Matrix3::from_diagonal(&singular_values) * v_t
+    }
+
     /// Normalize points for numerical stability (Hartley normalization).
     fn normalize_points(
         &self,
@@ -216,7 +227,7 @@ impl FundamentalEstimator {
                 }
             }
 
-            models.push(FundamentalMatrix::new(f));
+            models.push(FundamentalMatrix::new(self.enforce_rank_two(f)));
         }
 
         models
@@ -312,7 +323,7 @@ impl Estimator for FundamentalEstimator {
         }
 
         // Denormalize: F = T2^T * F_norm * T1
-        let f = t2.transpose() * f_norm * t1;
+        let f = t2.transpose() * self.enforce_rank_two(f_norm) * t1;
 
         vec![FundamentalMatrix::new(f)]
     }
@@ -388,7 +399,7 @@ impl Estimator for FundamentalEstimator {
         }
 
         // Denormalize: F = T2^T * F_norm * T1
-        let f = t2.transpose() * f_norm * t1;
+        let f = t2.transpose() * self.enforce_rank_two(f_norm) * t1;
 
         vec![FundamentalMatrix::new(f)]
     }
@@ -403,5 +414,19 @@ impl Estimator for FundamentalEstimator {
         // Basic sanity check: determinant should be small (rank-2 constraint)
         let det = model.f.determinant().abs();
         det < 1e-3 * _threshold.max(1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rank_two_projection_removes_the_smallest_singular_value() {
+        let estimator = FundamentalEstimator::new();
+        let matrix = Matrix3::new(1.0, 2.0, 3.0, 0.5, -1.0, 4.0, 2.0, 0.25, 1.0);
+        let projected = estimator.enforce_rank_two(matrix);
+
+        assert!(projected.determinant().abs() < 1e-12);
     }
 }
