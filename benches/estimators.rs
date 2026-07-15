@@ -8,7 +8,7 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 use inlier::{
     MetasacSettings, estimate_absolute_pose, estimate_essential_matrix,
     estimate_fundamental_matrix, estimate_homography, estimate_line, estimate_plane,
-    estimate_rigid_transform, types::DataMatrix,
+    estimate_rigid_transform, settings::ScoringType, types::DataMatrix,
 };
 use nalgebra::{Matrix3, Rotation3, Vector3};
 use std::time::Duration;
@@ -45,6 +45,36 @@ impl Scene {
     }
 }
 
+#[derive(Clone, Copy)]
+enum RobustMethod {
+    Ransac,
+    Msac,
+    Magsac,
+    MagsacPlusPlus,
+}
+
+impl RobustMethod {
+    const ALL: [Self; 4] = [Self::Ransac, Self::Msac, Self::Magsac, Self::MagsacPlusPlus];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Ransac => "ransac",
+            Self::Msac => "msac",
+            Self::Magsac => "magsac",
+            Self::MagsacPlusPlus => "magsac_pp",
+        }
+    }
+
+    fn scoring(self) -> ScoringType {
+        match self {
+            Self::Ransac => ScoringType::Ransac,
+            Self::Msac => ScoringType::Msac,
+            Self::Magsac => ScoringType::Magsac,
+            Self::MagsacPlusPlus => ScoringType::MagsacPlusPlus,
+        }
+    }
+}
+
 struct DeterministicRng(u64);
 
 impl DeterministicRng {
@@ -69,12 +99,13 @@ impl DeterministicRng {
     }
 }
 
-fn settings(seed: u64) -> MetasacSettings {
+fn settings(seed: u64, method: RobustMethod) -> MetasacSettings {
     MetasacSettings {
         min_iterations: 400,
         max_iterations: 400,
         max_sampling_attempts: 100,
         rng_seed: Some(seed),
+        scoring: method.scoring(),
         ..Default::default()
     }
 }
@@ -271,131 +302,133 @@ fn benchmark_estimators(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(1));
     group.measurement_time(Duration::from_secs(3));
 
-    for scene in Scene::ALL {
-        let seed = SEED ^ (scene as u64);
-        let settings = settings(seed);
-        let (source, target) = homography_correspondences(scene, 256);
-        group.bench_with_input(
-            BenchmarkId::new("homography", scene.name()),
-            &(source, target, settings.clone()),
-            |b, (source, target, settings)| {
-                b.iter(|| {
-                    black_box(
-                        estimate_homography(
-                            black_box(source),
-                            black_box(target),
-                            0.5,
-                            Some(settings.clone()),
+    for method in RobustMethod::ALL {
+        for scene in Scene::ALL {
+            let seed = SEED ^ (scene as u64) ^ ((method as u64) << 8);
+            let settings = settings(seed, method);
+            let (source, target) = homography_correspondences(scene, 256);
+            group.bench_with_input(
+                BenchmarkId::new(format!("homography/{}", method.name()), scene.name()),
+                &(source, target, settings.clone()),
+                |b, (source, target, settings)| {
+                    b.iter(|| {
+                        black_box(
+                            estimate_homography(
+                                black_box(source),
+                                black_box(target),
+                                0.5,
+                                Some(settings.clone()),
+                            )
+                            .expect("benchmark scene must estimate a homography"),
                         )
-                        .expect("benchmark scene must estimate a homography"),
-                    )
-                });
-            },
-        );
+                    });
+                },
+            );
 
-        let (source, target) = image_correspondences(scene, 256);
-        group.bench_with_input(
-            BenchmarkId::new("fundamental", scene.name()),
-            &(source, target, settings.clone()),
-            |b, (source, target, settings)| {
-                b.iter(|| {
-                    black_box(
-                        estimate_fundamental_matrix(
-                            black_box(source),
-                            black_box(target),
-                            0.01,
-                            Some(settings.clone()),
+            let (source, target) = image_correspondences(scene, 256);
+            group.bench_with_input(
+                BenchmarkId::new(format!("fundamental/{}", method.name()), scene.name()),
+                &(source, target, settings.clone()),
+                |b, (source, target, settings)| {
+                    b.iter(|| {
+                        black_box(
+                            estimate_fundamental_matrix(
+                                black_box(source),
+                                black_box(target),
+                                0.01,
+                                Some(settings.clone()),
+                            )
+                            .expect("benchmark scene must estimate a fundamental matrix"),
                         )
-                        .expect("benchmark scene must estimate a fundamental matrix"),
-                    )
-                });
-            },
-        );
+                    });
+                },
+            );
 
-        let (source, target) = image_correspondences(scene, 256);
-        group.bench_with_input(
-            BenchmarkId::new("essential", scene.name()),
-            &(source, target, settings.clone()),
-            |b, (source, target, settings)| {
-                b.iter(|| {
-                    black_box(
-                        estimate_essential_matrix(
-                            black_box(source),
-                            black_box(target),
-                            0.01,
-                            Some(settings.clone()),
+            let (source, target) = image_correspondences(scene, 256);
+            group.bench_with_input(
+                BenchmarkId::new(format!("essential/{}", method.name()), scene.name()),
+                &(source, target, settings.clone()),
+                |b, (source, target, settings)| {
+                    b.iter(|| {
+                        black_box(
+                            estimate_essential_matrix(
+                                black_box(source),
+                                black_box(target),
+                                0.01,
+                                Some(settings.clone()),
+                            )
+                            .expect("benchmark scene must estimate an essential matrix"),
                         )
-                        .expect("benchmark scene must estimate an essential matrix"),
-                    )
-                });
-            },
-        );
+                    });
+                },
+            );
 
-        let points = line_points(scene, 256);
-        group.bench_with_input(
-            BenchmarkId::new("line", scene.name()),
-            &(points, settings.clone()),
-            |b, (points, settings)| {
-                b.iter(|| {
-                    black_box(
-                        estimate_line(black_box(points), 0.05, Some(settings.clone()))
-                            .expect("benchmark scene must estimate a line"),
-                    )
-                });
-            },
-        );
-
-        let points = plane_points(scene, 256);
-        group.bench_with_input(
-            BenchmarkId::new("plane", scene.name()),
-            &(points, settings.clone()),
-            |b, (points, settings)| {
-                b.iter(|| {
-                    black_box(
-                        estimate_plane(black_box(points), 0.05, Some(settings.clone()))
-                            .expect("benchmark scene must estimate a plane"),
-                    )
-                });
-            },
-        );
-
-        let (source, target) = rigid_correspondences(scene, 256);
-        group.bench_with_input(
-            BenchmarkId::new("rigid_transform", scene.name()),
-            &(source, target, settings.clone()),
-            |b, (source, target, settings)| {
-                b.iter(|| {
-                    black_box(
-                        estimate_rigid_transform(
-                            black_box(source),
-                            black_box(target),
-                            0.05,
-                            Some(settings.clone()),
+            let points = line_points(scene, 256);
+            group.bench_with_input(
+                BenchmarkId::new(format!("line/{}", method.name()), scene.name()),
+                &(points, settings.clone()),
+                |b, (points, settings)| {
+                    b.iter(|| {
+                        black_box(
+                            estimate_line(black_box(points), 0.05, Some(settings.clone()))
+                                .expect("benchmark scene must estimate a line"),
                         )
-                        .expect("benchmark scene must estimate a rigid transform"),
-                    )
-                });
-            },
-        );
+                    });
+                },
+            );
 
-        let (world, image) = absolute_pose_correspondences(scene, 128);
-        group.bench_with_input(
-            BenchmarkId::new("absolute_pose", scene.name()),
-            &(world, image, settings.clone()),
-            |b, (world, image, settings)| {
-                b.iter(|| {
-                    black_box(
-                        estimate_absolute_pose(
-                            black_box(world),
-                            black_box(image),
-                            0.01,
-                            Some(settings.clone()),
+            let points = plane_points(scene, 256);
+            group.bench_with_input(
+                BenchmarkId::new(format!("plane/{}", method.name()), scene.name()),
+                &(points, settings.clone()),
+                |b, (points, settings)| {
+                    b.iter(|| {
+                        black_box(
+                            estimate_plane(black_box(points), 0.05, Some(settings.clone()))
+                                .expect("benchmark scene must estimate a plane"),
                         )
-                        .expect("benchmark scene must estimate an absolute pose"),
-                    )
-                });
-            },
-        );
+                    });
+                },
+            );
+
+            let (source, target) = rigid_correspondences(scene, 256);
+            group.bench_with_input(
+                BenchmarkId::new(format!("rigid_transform/{}", method.name()), scene.name()),
+                &(source, target, settings.clone()),
+                |b, (source, target, settings)| {
+                    b.iter(|| {
+                        black_box(
+                            estimate_rigid_transform(
+                                black_box(source),
+                                black_box(target),
+                                0.05,
+                                Some(settings.clone()),
+                            )
+                            .expect("benchmark scene must estimate a rigid transform"),
+                        )
+                    });
+                },
+            );
+
+            let (world, image) = absolute_pose_correspondences(scene, 128);
+            group.bench_with_input(
+                BenchmarkId::new(format!("absolute_pose/{}", method.name()), scene.name()),
+                &(world, image, settings.clone()),
+                |b, (world, image, settings)| {
+                    b.iter(|| {
+                        black_box(
+                            estimate_absolute_pose(
+                                black_box(world),
+                                black_box(image),
+                                0.01,
+                                Some(settings.clone()),
+                            )
+                            .expect("benchmark scene must estimate an absolute pose"),
+                        )
+                    });
+                },
+            );
+        }
     }
 
     group.finish();
