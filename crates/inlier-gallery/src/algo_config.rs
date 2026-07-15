@@ -38,14 +38,11 @@ impl RansacAlgo {
         let mut s = MetasacSettings::default();
         s.inlier_threshold = threshold;
         s.rng_seed = seed;
-        // MAGSAC++ uses a tighter confidence-weighted threshold; we map it to
-        // the Magsac scoring type (the crate uses sigma-consensus internally
-        // when confidence is high) and tighten the confidence slightly.
         s.scoring = match self {
             Self::Simple => ScoringType::Ransac,
             Self::Msac => ScoringType::Msac,
             Self::Magsac => ScoringType::Magsac,
-            Self::MagsacPP => ScoringType::Magsac,
+            Self::MagsacPP => ScoringType::MagsacPlusPlus,
         };
         if self == Self::MagsacPP {
             s.confidence = 0.999;

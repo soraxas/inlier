@@ -16,6 +16,7 @@ pub enum ScoringType {
     Ransac,
     Msac,
     Magsac,
+    MagsacPlusPlus,
     Minpran,
     Acransac,
     Gau,

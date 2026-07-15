@@ -4,8 +4,7 @@
 //! similar to the Python API.
 
 use crate::choices::SamplerChoice;
-use crate::core::MetaSAC;
-use crate::core::NoopInlierSelector;
+use crate::core::{MetaSAC, NoopInlierSelector, Scoring};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, PlaneEstimator, RigidTransformEstimator,
@@ -15,8 +14,10 @@ use crate::models::{
 };
 use crate::optimisers::LeastSquaresOptimizer;
 use crate::samplers::{ProsacSampler, UniformRandomSampler};
-use crate::scoring::{MsacScoring, RansacInlierCountScoring, Score};
-use crate::settings::{MetasacSettings, SamplerType};
+use crate::scoring::{
+    MagsacScoring, MsacScoring, RansacInlierCountScoring, Score, SigmaConsensusScoring,
+};
+use crate::settings::{MetasacSettings, SamplerType, ScoringType};
 use crate::types::DataMatrix;
 use nalgebra::{Vector2, Vector3};
 
@@ -31,6 +32,137 @@ pub struct EstimationResult<M> {
     pub score: Score,
     /// Number of iterations performed.
     pub iterations: usize,
+}
+
+type Residual<M> = fn(&DataMatrix, &M, usize) -> f64;
+
+/// Runtime scoring selection for the high-level estimation APIs.
+enum ApiScoring<M> {
+    Ransac(RansacInlierCountScoring<M, Residual<M>>),
+    Msac(MsacScoring<M, Residual<M>>),
+    Magsac(MagsacScoring<M, Residual<M>>),
+    MagsacPlusPlus(SigmaConsensusScoring<M, Residual<M>>),
+}
+
+impl<M> Scoring<M> for ApiScoring<M> {
+    type Score = Score;
+
+    fn threshold(&self) -> f64 {
+        match self {
+            Self::Ransac(scoring) => scoring.threshold(),
+            Self::Msac(scoring) => scoring.threshold(),
+            Self::Magsac(scoring) => scoring.threshold(),
+            Self::MagsacPlusPlus(scoring) => scoring.threshold(),
+        }
+    }
+
+    fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Score {
+        match self {
+            Self::Ransac(scoring) => scoring.score(data, model, inliers_out),
+            Self::Msac(scoring) => scoring.score(data, model, inliers_out),
+            Self::Magsac(scoring) => scoring.score(data, model, inliers_out),
+            Self::MagsacPlusPlus(scoring) => scoring.score(data, model, inliers_out),
+        }
+    }
+}
+
+fn api_scoring<M>(
+    scoring_type: ScoringType,
+    threshold: f64,
+    degrees_of_freedom: usize,
+    priors: Option<&[f64]>,
+    residual: Residual<M>,
+) -> Result<ApiScoring<M>, String> {
+    let scoring = match scoring_type {
+        ScoringType::Ransac => {
+            let scoring = RansacInlierCountScoring::new(threshold, residual);
+            ApiScoring::Ransac(match priors {
+                Some(priors) => scoring.with_priors(priors),
+                None => scoring,
+            })
+        }
+        ScoringType::Msac => {
+            let scoring = MsacScoring::new(threshold, residual);
+            ApiScoring::Msac(match priors {
+                Some(priors) => scoring.with_priors(priors),
+                None => scoring,
+            })
+        }
+        ScoringType::Magsac => {
+            let scoring = MagsacScoring::new(threshold, residual)
+                .with_sigma_max(threshold)
+                .with_degrees_of_freedom(degrees_of_freedom);
+            ApiScoring::Magsac(match priors {
+                Some(priors) => scoring.with_priors(priors),
+                None => scoring,
+            })
+        }
+        ScoringType::MagsacPlusPlus => {
+            // SigmaConsensusScoring uses k * sigma_max as its inlier cutoff.
+            let scoring =
+                SigmaConsensusScoring::new(threshold / 3.64, degrees_of_freedom, residual);
+            ApiScoring::MagsacPlusPlus(match priors {
+                Some(priors) => scoring.with_priors(priors),
+                None => scoring,
+            })
+        }
+        unsupported => {
+            return Err(format!(
+                "scoring mode {unsupported:?} is not implemented by the high-level API"
+            ));
+        }
+    };
+    Ok(scoring)
+}
+
+fn homography_residual(data: &DataMatrix, model: &Homography, idx: usize) -> f64 {
+    let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+    let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
+    let p1_home = Vector3::new(p1.x, p1.y, 1.0);
+    let p2_home = Vector3::new(p2.x, p2.y, 1.0);
+    let p2_pred = model.h * p1_home;
+    let p1_pred = model.h.transpose() * p2_home;
+    let err1 = (p2 - Vector2::new(p2_pred.x / p2_pred.z, p2_pred.y / p2_pred.z)).norm();
+    let err2 = (p1 - Vector2::new(p1_pred.x / p1_pred.z, p1_pred.y / p1_pred.z)).norm();
+    (err1 + err2) / 2.0
+}
+
+fn fundamental_residual(data: &DataMatrix, model: &FundamentalMatrix, idx: usize) -> f64 {
+    let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+    let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
+    crate::bundle_adjustment::sampson_error(&model.f, &p1, &p2)
+}
+
+fn essential_residual(data: &DataMatrix, model: &EssentialMatrix, idx: usize) -> f64 {
+    let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+    let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
+    crate::bundle_adjustment::sampson_error(&model.e, &p1, &p2)
+}
+
+fn absolute_pose_residual(data: &DataMatrix, model: &AbsolutePose, idx: usize) -> f64 {
+    let p_2d = Vector2::new(data.get(idx, 0), data.get(idx, 1));
+    let p_3d = Vector3::new(data.get(idx, 2), data.get(idx, 3), data.get(idx, 4));
+    crate::bundle_adjustment::reprojection_error(
+        model.rotation.to_rotation_matrix().matrix(),
+        &model.translation.vector,
+        &p_2d,
+        &p_3d,
+    )
+}
+
+fn line_residual(data: &DataMatrix, model: &Line, idx: usize) -> f64 {
+    model.distance_to_point(data.get(idx, 0), data.get(idx, 1))
+}
+
+fn rigid_transform_residual(data: &DataMatrix, model: &RigidTransform, idx: usize) -> f64 {
+    let p1 = nalgebra::Point3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2));
+    let p2 = Vector3::new(data.get(idx, 3), data.get(idx, 4), data.get(idx, 5));
+    let p1_rot = model.rotation.transform_point(&p1);
+    (p2 - (p1_rot.coords + model.translation.vector)).norm()
+}
+
+fn plane_residual(data: &DataMatrix, model: &Plane3, idx: usize) -> f64 {
+    model.distance(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
 }
 
 /// Estimate a homography matrix from 2D point correspondences.
@@ -74,26 +206,16 @@ pub fn estimate_homography(
         }
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
-    let scoring_builder =
-        RansacInlierCountScoring::new(threshold, |data, model: &Homography, idx| {
-            // Compute symmetric transfer error
-            let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
-            let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
-            let p1_home = Vector3::new(p1.x, p1.y, 1.0);
-            let p2_home = Vector3::new(p2.x, p2.y, 1.0);
-
-            let p2_pred = model.h * p1_home;
-            let p1_pred = model.h.transpose() * p2_home;
-
-            let err1 = (p2 - Vector2::new(p2_pred.x / p2_pred.z, p2_pred.y / p2_pred.z)).norm();
-            let err2 = (p1 - Vector2::new(p1_pred.x / p1_pred.z, p1_pred.y / p1_pred.z)).norm();
-
-            (err1 + err2) / 2.0
-        });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
+    let scoring = api_scoring(
+        settings.scoring,
+        threshold,
+        2,
+        settings
+            .point_priors
+            .as_deref()
+            .filter(|priors| priors.len() == n),
+        homography_residual,
+    )?;
     let local_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
     let termination = crate::core::RansacTerminationCriterion {
@@ -166,17 +288,16 @@ pub fn estimate_fundamental_matrix(
         }
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
-    let scoring_builder =
-        RansacInlierCountScoring::new(threshold, |data, model: &FundamentalMatrix, idx| {
-            // Compute Sampson error
-            let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
-            let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
-            crate::bundle_adjustment::sampson_error(&model.f, &p1, &p2)
-        });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
+    let scoring = api_scoring(
+        settings.scoring,
+        threshold,
+        1,
+        settings
+            .point_priors
+            .as_deref()
+            .filter(|priors| priors.len() == n),
+        fundamental_residual,
+    )?;
     let local_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
     let termination = crate::core::RansacTerminationCriterion {
@@ -249,17 +370,16 @@ pub fn estimate_essential_matrix(
         }
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
-    let scoring_builder =
-        RansacInlierCountScoring::new(threshold, |data, model: &EssentialMatrix, idx| {
-            // Compute Sampson error
-            let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
-            let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
-            crate::bundle_adjustment::sampson_error(&model.e, &p1, &p2)
-        });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
+    let scoring = api_scoring(
+        settings.scoring,
+        threshold,
+        1,
+        settings
+            .point_priors
+            .as_deref()
+            .filter(|priors| priors.len() == n),
+        essential_residual,
+    )?;
     let local_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
     let termination = crate::core::RansacTerminationCriterion {
@@ -333,21 +453,16 @@ pub fn estimate_absolute_pose(
         }
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
-    let scoring_builder = MsacScoring::new(threshold, |data, model: &AbsolutePose, idx| {
-        // Compute reprojection error
-        let p_2d = Vector2::new(data.get(idx, 0), data.get(idx, 1));
-        let p_3d = Vector3::new(data.get(idx, 2), data.get(idx, 3), data.get(idx, 4));
-        crate::bundle_adjustment::reprojection_error(
-            model.rotation.to_rotation_matrix().matrix(),
-            &model.translation.vector,
-            &p_2d,
-            &p_3d,
-        )
-    });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
+    let scoring = api_scoring(
+        settings.scoring,
+        threshold,
+        2,
+        settings
+            .point_priors
+            .as_deref()
+            .filter(|priors| priors.len() == n),
+        absolute_pose_residual,
+    )?;
     let local_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
     let termination = crate::core::RansacTerminationCriterion {
@@ -447,14 +562,16 @@ pub fn estimate_line(
         }
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
-    let scoring_builder = RansacInlierCountScoring::new(threshold, |data, model: &Line, idx| {
-        // Compute distance from point to line
-        model.distance_to_point(data.get(idx, 0), data.get(idx, 1))
-    });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
+    let scoring = api_scoring(
+        settings.scoring,
+        threshold,
+        1,
+        settings
+            .point_priors
+            .as_deref()
+            .filter(|priors| priors.len() == n),
+        line_residual,
+    )?;
     let local_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
     let termination = crate::core::RansacTerminationCriterion {
@@ -532,17 +649,16 @@ pub fn estimate_rigid_transform(
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
 
-    let scoring_builder =
-        RansacInlierCountScoring::new(threshold, |data, model: &RigidTransform, idx| {
-            let p1 = nalgebra::Point3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2));
-            let p2 = Vector3::new(data.get(idx, 3), data.get(idx, 4), data.get(idx, 5));
-            let p1_rot = model.rotation.transform_point(&p1);
-            (p2 - (p1_rot.coords + model.translation.vector)).norm()
-        });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
+    let scoring = api_scoring(
+        settings.scoring,
+        threshold,
+        3,
+        settings
+            .point_priors
+            .as_deref()
+            .filter(|priors| priors.len() == n),
+        rigid_transform_residual,
+    )?;
 
     let local_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
@@ -613,13 +729,16 @@ pub fn estimate_plane(
         _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
     };
 
-    let scoring_builder = MsacScoring::new(threshold, |data: &DataMatrix, model: &Plane3, idx| {
-        model.distance(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
-    });
-    let scoring = match settings.point_priors.as_ref() {
-        Some(priors) if priors.len() == n => scoring_builder.with_priors(priors),
-        _ => scoring_builder,
-    };
+    let scoring = api_scoring(
+        settings.scoring,
+        threshold,
+        1,
+        settings
+            .point_priors
+            .as_deref()
+            .filter(|priors| priors.len() == n),
+        plane_residual,
+    )?;
 
     let local_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
     let final_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));

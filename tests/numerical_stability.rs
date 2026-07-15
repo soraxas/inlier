@@ -193,12 +193,12 @@ PlaneFitSnapshot {
     inliers: 90,
     iterations: 250,
     normal_ppm: [
-        209578,
-        -429224,
-        878547,
+        209446,
+        -429610,
+        878389,
     ],
-    d_ppm: -1699987,
-    max_inlier_residual_ppm: 650,
+    d_ppm: -1699925,
+    max_inlier_residual_ppm: 1050,
 }
 "###);
 }
