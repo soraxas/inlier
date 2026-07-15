@@ -12,7 +12,26 @@ edition = "2021"
 threads = ["dep:rayon", "inlier/rayon", "spatialrust-inlier/rayon", "dep:wasm-bindgen-rayon"]
 
 [dependencies]
-bevy = { version = "0.19.0", default-features = false, features = ["2d", "3d", "ui"] }
+bevy = { version = "0.19.0", default-features = false, features = [
+    "2d_bevy_render",
+    "3d_bevy_render",
+    "bevy_clipboard",
+    "bevy_ui_widgets",
+    "bevy_winit",
+    "custom_cursor",
+    "default_app",
+    "default_font",
+    "multi_threaded",
+    "picking",
+    "scene",
+    "std",
+    "sysinfo_plugin",
+    "ui_api",
+    "ui_bevy_render",
+    "wayland",
+    "webgl2",
+    "x11",
+] }
 bevy_egui = "0.40.0"
 spatialrust-inlier = { path = "../spatialrust-inlier", features = ["io", "filtering", "segmentation"] }
 inlier = { path = "../..", default-features = false, features = ["io"] }
