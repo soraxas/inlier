@@ -27,7 +27,7 @@ build-backend = "maturin"
 [tool.maturin]
 python-source = "python"
 module-name = "inlier._inlier_rs"
-features = ["python", "rayon", "kornia-pnp", "graph-cut", "p3p"]
+features = ["python"]
 
 [dependency-groups]
 dev = [

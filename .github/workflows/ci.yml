@@ -21,6 +21,16 @@ jobs:
         run: cargo check -p inlier --features python --lib
       - name: Run doctests
         run: cargo test --doc --workspace
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - name: Fetch Python test data package
+        run: git clone --depth 1 https://github.com/soraxas/inlier-data ../inlier-data
+      - name: Run Python tests
+        run: |
+          uv run --no-project --with maturin maturin develop --release -F python --skip-install
+          PYTHONPATH=python uv run --no-project --with pytest --with numpy --with-editable ../inlier-data pytest tests/python
 
   coverage:
     runs-on: ubuntu-latest

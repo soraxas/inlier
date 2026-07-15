@@ -93,8 +93,9 @@ check-rust-python:
 test-rust-doc:
   cargo test --doc --workspace
 
-test-python:
-  uv run pytest
+test-python profile='--release':
+  uv run --no-project --with maturin maturin develop {{profile}} -F python --skip-install
+  PYTHONPATH=python uv run --no-project --with pytest --with numpy --with-editable ../inlier-data pytest tests/python
 
 coverage: ensure-nextest ensure-llvm-cov
   rustup component add llvm-tools-preview
