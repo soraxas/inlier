@@ -5,7 +5,7 @@ use crate::estimators::fundamental::FundamentalEstimator;
 use crate::models::EssentialMatrix;
 use crate::nister_stewenius::five_points_relative_pose;
 use crate::types::DataMatrix;
-use nalgebra::{Matrix3, SVD, UnitVector3, Vector3};
+use nalgebra::{Matrix3, SMatrix, SVD, UnitVector3, Vector3};
 
 /// Essential matrix estimator using 8-point algorithm with essential matrix constraints.
 /// Uses the 5-point Nister-Stewenius algorithm for minimal samples.
@@ -23,9 +23,6 @@ impl EssentialEstimator {
     }
 
     /// Five-point Nister-Stewenius solver for essential matrix.
-    ///
-    /// Uses the Nister-Stewenius implementation to solve for essential matrix
-    /// from 5 point correspondences. Returns up to 10 solutions.
     fn estimate_five_point_nister(
         &self,
         data: &DataMatrix,
@@ -35,44 +32,22 @@ impl EssentialEstimator {
             return Vec::new();
         }
 
-        // Extract 5 point correspondences and convert to normalized 3D vectors
-        // Data format: [x1, y1, x2, y2] for each row
-        // For essential matrix, we assume calibrated cameras (normalized coordinates)
         let mut a = [UnitVector3::new_unchecked(Vector3::new(0.0, 1.0, 0.0)); 5];
         let mut b = [UnitVector3::new_unchecked(Vector3::new(0.0, 1.0, 0.0)); 5];
-
         for (i, &idx) in sample.iter().enumerate() {
             if idx >= data.n_points() || data.n_dims() < 4 {
                 return Vec::new();
             }
-
-            // Extract 2D points
-            let x1 = data.get(idx, 0);
-            let y1 = data.get(idx, 1);
-            let x2 = data.get(idx, 2);
-            let y2 = data.get(idx, 3);
-
-            // Convert to normalized 3D homogeneous coordinates (calibrated camera)
-            // For essential matrix, we assume normalized image coordinates
-            // If the data is not normalized, we should normalize it first
-            let v1 = Vector3::new(x1, y1, 1.0);
-            let v2 = Vector3::new(x2, y2, 1.0);
-
-            // Normalize to unit vectors
+            let v1 = Vector3::new(data.get(idx, 0), data.get(idx, 1), 1.0);
+            let v2 = Vector3::new(data.get(idx, 2), data.get(idx, 3), 1.0);
             let norm1 = v1.norm();
-            if norm1 < 1e-10 {
-                return Vec::new(); // Degenerate point
+            let norm2 = v2.norm();
+            if !norm1.is_finite() || !norm2.is_finite() || norm1 < 1e-10 || norm2 < 1e-10 {
+                return Vec::new();
             }
             a[i] = UnitVector3::new_unchecked(v1 / norm1);
-
-            let norm2 = v2.norm();
-            if norm2 < 1e-10 {
-                return Vec::new(); // Degenerate point
-            }
             b[i] = UnitVector3::new_unchecked(v2 / norm2);
         }
-
-        // Call the Nister-Stewenius solver
         five_points_relative_pose(&a, &b).collect()
     }
 
@@ -102,10 +77,10 @@ impl Estimator for EssentialEstimator {
     type Model = EssentialMatrix;
 
     fn sample_size(&self) -> usize {
-        5 // Now using 5-point Nister solver
+        5
     }
 
-    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
+    fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
         if sample.len() < self.sample_size() {
             return false;
         }
@@ -117,7 +92,40 @@ impl Estimator for EssentialEstimator {
                 }
             }
         }
-        true
+
+        // The five-point action-matrix solver is ill-conditioned when the
+        // epipolar design matrix loses rank. Reject those samples before the
+        // eigenvalue decomposition.
+        let mut design = SMatrix::<f64, 5, 9>::zeros();
+        for (row, &index) in sample.iter().take(5).enumerate() {
+            if index >= data.n_points() || data.n_dims() < 4 {
+                return false;
+            }
+            let x1 = data.get(index, 0);
+            let y1 = data.get(index, 1);
+            let x2 = data.get(index, 2);
+            let y2 = data.get(index, 3);
+            if ![x1, y1, x2, y2].iter().all(|value| value.is_finite()) {
+                return false;
+            }
+            design.row_mut(row).copy_from_slice(&[
+                x2 * x1,
+                x2 * y1,
+                x2,
+                y2 * x1,
+                y2 * y1,
+                y2,
+                x1,
+                y1,
+                1.0,
+            ]);
+        }
+        let singular_values = SVD::new(design, false, false).singular_values;
+        let largest = singular_values[0];
+        largest.is_finite()
+            && largest > f64::EPSILON
+            && singular_values[4].is_finite()
+            && singular_values[4] > largest * 1e-8
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
@@ -126,12 +134,12 @@ impl Estimator for EssentialEstimator {
             return Vec::new();
         }
 
-        // Use 5-point Nister solver for exactly 5 points
+        // Use 5-point Nister solver for exactly 5 points.
         if n == 5 {
             return self.estimate_five_point_nister(data, sample);
         }
 
-        // For 6+ points, use 8-point + constraints
+        // For 6+ points, use 8-point + constraints.
         let fundamental_est = FundamentalEstimator::new();
         let f_models = fundamental_est.estimate_model(data, sample);
 

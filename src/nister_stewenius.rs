@@ -40,6 +40,13 @@ type NullspaceMat = OMatrix<f64, U9, U4>;
 type ConstraintMat = OMatrix<f64, U10, U20>;
 type Square10 = OMatrix<f64, U10, U10>;
 
+fn bounded_action_schur(
+    at: Square10,
+    max_iterations: usize,
+) -> Option<nalgebra::linalg::Schur<f64, U10>> {
+    at.try_schur(EIGEN_CONVERGENCE, max_iterations)
+}
+
 fn encode_epipolar_equation(
     a: &[UnitVector3<f64>; 5],
     b: &[UnitVector3<f64>; 5],
@@ -213,7 +220,13 @@ fn essentials_from_action_ebasis(
     at: Square10,
     eb: NullspaceMat,
 ) -> impl Iterator<Item = EssentialMatrix> {
-    let eigenvalues = at.complex_eigenvalues();
+    // `complex_eigenvalues` uses an unbounded Schur decomposition. On
+    // near-degenerate real correspondences it can spend hours iterating.
+    // Bound the decomposition and reject that minimal sample on nonconvergence.
+    let Some(schur) = bounded_action_schur(at, EIGEN_ITERATIONS) else {
+        return Vec::new().into_iter();
+    };
+    let eigenvalues = schur.complex_eigenvalues();
     (0..eigenvalues.len())
         .filter_map(move |i| {
             let e = eigenvalues[i];
@@ -227,6 +240,8 @@ fn essentials_from_action_ebasis(
         })
         .map(move |vector| Matrix3::from_iterator((eb * vector).iter().copied()))
         .map(EssentialMatrix::new)
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// Takes in two sets of normalized key points.
@@ -325,6 +340,7 @@ impl Default for NisterStewenius {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::time::{Duration, Instant};
 
     fn vec_to_poly_basis(v: Vector4<f64>) -> PolyBasisVec {
         let mut res = PolyBasisVec::zeros();
@@ -441,5 +457,22 @@ mod test {
 
             assert_eq!(old, new);
         }
+    }
+
+    #[test]
+    fn action_eigensolve_respects_iteration_budget() {
+        // A dense, non-normal action matrix needs iterative Schur reduction.
+        // A one-iteration budget must fail promptly instead of falling back to
+        // the unbounded `complex_eigenvalues` path.
+        let action = Square10::from_fn(|row, column| {
+            if row == column {
+                1.0
+            } else {
+                ((row * 17 + column * 11 + 3) as f64).sin()
+            }
+        });
+        let start = Instant::now();
+        assert!(bounded_action_schur(action, 1).is_none());
+        assert!(start.elapsed() < Duration::from_secs(1));
     }
 }
