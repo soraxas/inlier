@@ -62,13 +62,51 @@ wasm-dev-threads:
 maturin-dev profile='--release' +args='':
   uv run maturin develop {{profile}} -F python {{args}}
 
-[parallel]
-test: test-rust test-python
+test: test-rust test-rust-doc check-rust-python test-python
 
-test-rust profile='--release':
-  cargo nextest run {{profile}}
+ensure-nextest:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if cargo nextest --version >/dev/null 2>&1; then
+    exit 0
+  fi
+  if cargo binstall --version >/dev/null 2>&1; then
+    cargo binstall cargo-nextest --secure
+  else
+    cargo install cargo-nextest --locked
+  fi
+
+ensure-llvm-cov:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if cargo llvm-cov --version >/dev/null 2>&1; then
+    exit 0
+  fi
+  cargo install cargo-llvm-cov --locked
+
+test-rust profile='--release': ensure-nextest
+  cargo nextest run --workspace --all-targets {{profile}}
+
+check-rust-python:
+  cargo check -p inlier --features python --lib
+
+test-rust-doc:
+  cargo test --doc --workspace
+
 test-python:
   uv run pytest
+
+coverage: ensure-nextest ensure-llvm-cov
+  rustup component add llvm-tools-preview
+  cargo llvm-cov nextest --workspace --all-targets
+
+coverage-doctests lcov='lcov.info': ensure-nextest ensure-llvm-cov
+  #!/usr/bin/env bash
+  set -euo pipefail
+  rustup toolchain install nightly --component llvm-tools-preview
+  RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report nextest --workspace --all-targets
+  RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report --doc --workspace
+  RUSTUP_TOOLCHAIN=nightly cargo llvm-cov report --doctests --lcov --output-path "{{lcov}}"
 
 example-assets:
   cargo run --example homography_estimation
