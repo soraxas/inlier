@@ -35,6 +35,7 @@ jobs:
           PYTHONPATH=python uv run --no-project --with pytest --with numpy --with-editable ../inlier-data pytest tests/python
 
   coverage:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
