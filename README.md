@@ -1,5 +1,7 @@
 # Inlier
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/soraxas/inlier?utm_source=badge)
+
 `inlier` is a rust library for robust model fitting.
 It exposes idiomatic Rust API with
 pluggable estimators, samplers, scoring functions, and optimizers.
