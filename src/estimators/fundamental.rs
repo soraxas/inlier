@@ -4,7 +4,7 @@ use crate::core::Estimator;
 use crate::models::FundamentalMatrix;
 use crate::types::DataMatrix;
 use crate::utils::solve_cubic_real;
-use nalgebra::{DMatrix, DVector, Matrix3, SVD};
+use nalgebra::{DMatrix, Matrix3, SVD};
 
 /// Fundamental matrix estimator using the 8-point algorithm.
 pub struct FundamentalEstimator;
@@ -102,16 +102,28 @@ impl FundamentalEstimator {
         true
     }
 
-    /// Seven-point fundamental matrix solver (matches C++ implementation).
-    /// Returns up to 3 solutions by solving a cubic equation.
+    /// Seven-point fundamental matrix solver.
+    ///
+    /// Correspondences are normalized before finding the two-dimensional null
+    /// space. This avoids the scale sensitivity of solving the cubic directly
+    /// in pixel coordinates.
     fn estimate_seven_point(&self, data: &DataMatrix, sample: &[usize]) -> Vec<FundamentalMatrix> {
-        // Build 7x9 coefficient matrix
-        let mut coefficients = DMatrix::<f64>::zeros(7, 9);
-        for (i, &idx) in sample.iter().enumerate() {
-            let x0 = data.get(idx, 0);
-            let y0 = data.get(idx, 1);
-            let x1 = data.get(idx, 2);
-            let y1 = data.get(idx, 3);
+        let mut normalized = DMatrix::<f64>::zeros(0, 0);
+        let mut t1 = Matrix3::<f64>::zeros();
+        let mut t2 = Matrix3::<f64>::zeros();
+        if !self.normalize_points(data, sample, &mut normalized, &mut t1, &mut t2) {
+            return Vec::new();
+        }
+
+        // Pad the seven equations to a square matrix. Nalgebra's rectangular
+        // SVD exposes only a thin V^T, while the square decomposition retains
+        // both null-space vectors needed by the seven-point algorithm.
+        let mut coefficients = DMatrix::<f64>::zeros(9, 9);
+        for i in 0..7 {
+            let x0 = normalized[(i, 0)];
+            let y0 = normalized[(i, 1)];
+            let x1 = normalized[(i, 2)];
+            let y1 = normalized[(i, 3)];
 
             coefficients[(i, 0)] = x1 * x0;
             coefficients[(i, 1)] = x1 * y0;
@@ -125,7 +137,7 @@ impl FundamentalEstimator {
         }
 
         // Find null space using SVD (last 2 columns of V correspond to null space)
-        let svd = SVD::new(coefficients.clone(), false, true);
+        let svd = SVD::new(coefficients, false, true);
         let vt = match svd.v_t {
             Some(vt) => vt,
             None => return Vec::new(),
@@ -141,54 +153,30 @@ impl FundamentalEstimator {
         let f1 = v.column(7);
         let f2 = v.column(8);
 
-        // Compute cubic polynomial coefficients for det(lambda*f1 + mu*f2) = 0
-        // where we set mu = 1 and solve for lambda
-        // The determinant is a cubic in lambda
-        // Compute determinant coefficients manually (matching C++ implementation)
-        // det(F) = F[0]*(F[4]*F[8] - F[5]*F[7]) - F[1]*(F[3]*F[8] - F[5]*F[6]) + F[2]*(F[3]*F[7] - F[4]*F[6])
-        // f1 and f2 are stored in column-major order: [f00, f10, f20, f01, f11, f21, f02, f12, f22]
-        let idx = |r: usize, c: usize| c * 3 + r;
+        let matrix_from_vector =
+            |vector: nalgebra::DVectorView<'_, f64>| Matrix3::from_row_slice(vector.as_slice());
+        let f1 = matrix_from_vector(f1);
+        let f2 = matrix_from_vector(f2);
+        // The two null-space basis matrices are arbitrary. Choose the one
+        // with the larger determinant as the cubic direction so its leading
+        // coefficient is not spuriously zero.
+        let (f1, f2) = if f1.determinant().abs() >= f2.determinant().abs() {
+            (f1, f2)
+        } else {
+            (f2, f1)
+        };
 
-        let f1_0 = f1[idx(0, 0)];
-        let f1_1 = f1[idx(0, 1)];
-        let f1_2 = f1[idx(0, 2)];
-        let f1_3 = f1[idx(1, 0)];
-        let f1_4 = f1[idx(1, 1)];
-        let f1_5 = f1[idx(1, 2)];
-        let f1_6 = f1[idx(2, 0)];
-        let f1_7 = f1[idx(2, 1)];
-        let f1_8 = f1[idx(2, 2)];
-
-        let f2_0 = f2[idx(0, 0)];
-        let f2_1 = f2[idx(0, 1)];
-        let f2_2 = f2[idx(0, 2)];
-        let f2_3 = f2[idx(1, 0)];
-        let f2_4 = f2[idx(1, 1)];
-        let f2_5 = f2[idx(1, 2)];
-        let f2_6 = f2[idx(2, 0)];
-        let f2_7 = f2[idx(2, 1)];
-        let f2_8 = f2[idx(2, 2)];
-
-        // Compute cubic coefficients (matching C++ code exactly)
-        let c3 = f1_0 * (f1_4 * f1_8 - f1_5 * f1_7) - f1_1 * (f1_3 * f1_8 - f1_5 * f1_6)
-            + f1_2 * (f1_3 * f1_7 - f1_4 * f1_6);
-
-        let c2 = f1_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7)
-            + f2_0 * (f1_4 * f1_8 - f1_5 * f1_7)
-            - f1_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6)
-            - f2_1 * (f1_3 * f1_8 - f1_5 * f1_6)
-            + f1_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6)
-            + f2_2 * (f1_3 * f1_7 - f1_4 * f1_6);
-
-        let c1 = f1_0 * (f2_4 * f2_8 - f2_5 * f2_7)
-            + f2_0 * (f1_4 * f2_8 + f2_4 * f1_8 - f1_5 * f2_7 - f2_5 * f1_7)
-            - f1_1 * (f2_3 * f2_8 - f2_5 * f2_6)
-            - f2_1 * (f1_3 * f2_8 + f2_3 * f1_8 - f1_5 * f2_6 - f2_5 * f1_6)
-            + f1_2 * (f2_3 * f2_7 - f2_4 * f2_6)
-            + f2_2 * (f1_3 * f2_7 + f2_3 * f1_7 - f1_4 * f2_6 - f2_4 * f1_6);
-
-        let c0 = f2_0 * (f2_4 * f2_8 - f2_5 * f2_7) - f2_1 * (f2_3 * f2_8 - f2_5 * f2_6)
-            + f2_2 * (f2_3 * f2_7 - f2_4 * f2_6);
+        // det(lambda * f1 + f2) is cubic. Evaluating it at -1, 0, 1, and 2
+        // avoids error-prone hand indexing of the null-space basis.
+        let determinant = |lambda: f64| (lambda * f1 + f2).determinant();
+        let d_minus_one = determinant(-1.0);
+        let c0 = determinant(0.0);
+        let d_one = determinant(1.0);
+        let d_two = determinant(2.0);
+        let c2 = (d_one + d_minus_one) * 0.5 - c0;
+        let c1_plus_c3 = (d_one - d_minus_one) * 0.5;
+        let c3 = (d_two - c0 - 4.0 * c2 - 2.0 * c1_plus_c3) / 6.0;
+        let c1 = c1_plus_c3 - c3;
 
         // Normalize polynomial (divide by c3 to get monic form)
         if c3.abs() < 1e-10_f64 {
@@ -207,27 +195,11 @@ impl FundamentalEstimator {
         let mut models = Vec::new();
         for root in roots.iter().take(n_roots) {
             let lambda = *root;
-            // F = lambda * f1 + f2
-            let mut f_vec = DVector::<f64>::zeros(9);
-            for j in 0..9 {
-                f_vec[j] = lambda * f1[j] + f2[j];
-            }
-
-            // Normalize
-            let norm = f_vec.norm();
+            let f = t2.transpose() * (lambda * f1 + f2) * t1;
+            let norm = f.norm();
             if norm > 1e-10 {
-                f_vec /= norm;
+                models.push(FundamentalMatrix::new(self.enforce_rank_two(f / norm)));
             }
-
-            // Reshape into 3x3 matrix
-            let mut f = Matrix3::<f64>::zeros();
-            for r in 0..3 {
-                for c in 0..3 {
-                    f[(r, c)] = f_vec[r * 3 + c];
-                }
-            }
-
-            models.push(FundamentalMatrix::new(self.enforce_rank_two(f)));
         }
 
         models
@@ -238,7 +210,7 @@ impl Estimator for FundamentalEstimator {
     type Model = FundamentalMatrix;
 
     fn sample_size(&self) -> usize {
-        8
+        7
     }
 
     fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
@@ -296,21 +268,24 @@ impl Estimator for FundamentalEstimator {
             a[(i, 8)] = 1.0;
         }
 
-        // Solve via SVD: the solution is the right singular vector
-        // corresponding to the smallest singular value of A^T A
-        let ata = &a.transpose() * &a;
-        let svd = SVD::new(ata, false, true);
+        // Solve A f = 0 directly. Forming A^T A would square the condition
+        // number and materially degrades estimates on difficult image pairs.
+        let a = if a.nrows() < a.ncols() {
+            let mut padded = DMatrix::<f64>::zeros(a.ncols(), a.ncols());
+            padded.rows_mut(0, a.nrows()).copy_from(&a);
+            padded
+        } else {
+            a
+        };
+        let svd = SVD::new(a, false, true);
         let vt = match svd.v_t {
             Some(vt) => vt,
             None => return Vec::new(),
         };
-        let v = vt.transpose();
-
-        // Last column corresponds to smallest singular value
-        let last_col = v.column(v.ncols() - 1);
+        let last_row = vt.row(vt.nrows() - 1);
 
         // Check for NaN
-        if last_col.iter().any(|&x| x.is_nan()) {
+        if last_row.iter().any(|&x| !x.is_finite()) {
             return Vec::new();
         }
 
@@ -318,7 +293,7 @@ impl Estimator for FundamentalEstimator {
         let mut f_norm = Matrix3::<f64>::zeros();
         for r in 0..3 {
             for c in 0..3 {
-                f_norm[(r, c)] = last_col[3 * r + c];
+                f_norm[(r, c)] = last_row[3 * r + c];
             }
         }
 
@@ -373,20 +348,24 @@ impl Estimator for FundamentalEstimator {
             a[(i, 8)] = weight;
         }
 
-        // Solve via SVD: A^T * A * f = 0
-        let ata = &a.transpose() * &a;
-        let svd = SVD::new(ata, false, true);
+        // Solve A f = 0 directly to preserve the conditioning gained from
+        // Hartley normalization.
+        let a = if a.nrows() < a.ncols() {
+            let mut padded = DMatrix::<f64>::zeros(a.ncols(), a.ncols());
+            padded.rows_mut(0, a.nrows()).copy_from(&a);
+            padded
+        } else {
+            a
+        };
+        let svd = SVD::new(a, false, true);
         let vt = match svd.v_t {
             Some(vt) => vt,
             None => return Vec::new(),
         };
-        let v = vt.transpose();
-
-        // Last column corresponds to smallest singular value
-        let last_col = v.column(v.ncols() - 1);
+        let last_row = vt.row(vt.nrows() - 1);
 
         // Check for NaN
-        if last_col.iter().any(|&x| x.is_nan()) {
+        if last_row.iter().any(|&x| !x.is_finite()) {
             return Vec::new();
         }
 
@@ -394,7 +373,7 @@ impl Estimator for FundamentalEstimator {
         let mut f_norm = Matrix3::<f64>::zeros();
         for r in 0..3 {
             for c in 0..3 {
-                f_norm[(r, c)] = last_col[3 * r + c];
+                f_norm[(r, c)] = last_row[3 * r + c];
             }
         }
 
@@ -421,6 +400,57 @@ impl Estimator for FundamentalEstimator {
 mod tests {
     use super::*;
 
+    fn calibrated_translation_correspondences(
+        count: usize,
+        pixel_scale: f64,
+        offset: (f64, f64),
+    ) -> DataMatrix {
+        let points = [
+            (-0.7, -0.4, 2.1),
+            (0.2, -0.6, 2.6),
+            (0.8, -0.2, 3.4),
+            (-0.5, 0.3, 2.8),
+            (0.1, 0.5, 3.1),
+            (0.6, 0.7, 2.4),
+            (-0.3, 0.8, 3.7),
+            (0.9, 0.1, 4.2),
+            (-0.8, 0.6, 3.3),
+        ];
+        let translation = (0.35, -0.12, 0.18);
+        let (sin_angle, cos_angle) = 0.27_f64.sin_cos();
+        let mut data = DataMatrix::zeros(count, 4);
+        for (index, &(x, y, z)) in points.iter().take(count).enumerate() {
+            data.set(index, 0, offset.0 + pixel_scale * x / z);
+            data.set(index, 1, offset.1 + pixel_scale * y / z);
+            let rotated_x = cos_angle * x + sin_angle * z;
+            let rotated_z = -sin_angle * x + cos_angle * z;
+            data.set(
+                index,
+                2,
+                offset.0 + pixel_scale * (rotated_x + translation.0) / (rotated_z + translation.2),
+            );
+            data.set(
+                index,
+                3,
+                offset.1 + pixel_scale * (y + translation.1) / (rotated_z + translation.2),
+            );
+        }
+        data
+    }
+
+    fn mean_sampson_error(data: &DataMatrix, model: &FundamentalMatrix) -> f64 {
+        (0..data.n_points())
+            .map(|index| {
+                crate::bundle_adjustment::sampson_error(
+                    &model.f,
+                    &nalgebra::Vector2::new(data.get(index, 0), data.get(index, 1)),
+                    &nalgebra::Vector2::new(data.get(index, 2), data.get(index, 3)),
+                )
+            })
+            .sum::<f64>()
+            / data.n_points() as f64
+    }
+
     #[test]
     fn rank_two_projection_removes_the_smallest_singular_value() {
         let estimator = FundamentalEstimator::new();
@@ -428,5 +458,45 @@ mod tests {
         let projected = estimator.enforce_rank_two(matrix);
 
         assert!(projected.determinant().abs() < 1e-12);
+    }
+
+    #[test]
+    fn seven_point_minimal_solver_recovers_an_exact_epipolar_model() {
+        let estimator = FundamentalEstimator::new();
+        let data = calibrated_translation_correspondences(7, 1.0, (0.0, 0.0));
+        let sample: Vec<_> = (0..7).collect();
+
+        assert_eq!(estimator.sample_size(), 7);
+        assert!(estimator.is_valid_sample(&data, &sample));
+
+        let models = estimator.estimate_model(&data, &sample);
+        assert!(
+            models
+                .iter()
+                .any(|model| mean_sampson_error(&data, model) < 1e-12),
+            "seven-point solver errors: {:?}",
+            models
+                .iter()
+                .map(|model| mean_sampson_error(&data, model))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn eight_point_fit_is_stable_for_large_pixel_coordinates() {
+        let estimator = FundamentalEstimator::new();
+        let data = calibrated_translation_correspondences(9, 4_000.0, (1.0e7, -8.0e6));
+        let sample: Vec<_> = (0..9).collect();
+
+        let models = estimator.estimate_model(&data, &sample);
+        let model = models
+            .first()
+            .expect("eight-point solver should produce a model");
+        assert!(model.f.iter().all(|value| value.is_finite()));
+        let error = mean_sampson_error(&data, model);
+        assert!(
+            error < 1e-5,
+            "large-coordinate fit should retain a small Sampson error, got {error}"
+        );
     }
 }
