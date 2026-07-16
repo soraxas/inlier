@@ -232,8 +232,15 @@ fn essentials_from_action_ebasis(
             let e = eigenvalues[i];
             if e.im == 0.0 {
                 let e = e.re;
-                // Solve for the eigen vector.
-                compute_eigenvector(&at, e).map(|v| v.fixed_rows::<4>(5).into_owned())
+                // The action basis is [x^2, xy, y^2, xz, yz, z^2, x, y, z, 1].
+                // Recover affine coordinates from the final four entries; using
+                // a raw slice of the eigenvector produces matrices that fit only
+                // the sampled points rather than the actual essential roots.
+                compute_eigenvector(&at, e).and_then(|v| {
+                    let scale = v[9];
+                    (scale.abs() > SVD_NULL_THRESHOLD)
+                        .then(|| Vector4::new(v[6] / scale, v[7] / scale, v[8] / scale, 1.0))
+                })
             } else {
                 None
             }
@@ -340,7 +347,50 @@ impl Default for NisterStewenius {
 #[cfg(test)]
 mod test {
     use super::*;
+    use nalgebra::Vector3;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn five_point_solver_recovers_a_calibrated_essential_matrix() {
+        let world_points = [
+            Vector3::new(-0.7, -0.4, 2.1),
+            Vector3::new(0.2, -0.6, 2.6),
+            Vector3::new(0.8, -0.2, 3.4),
+            Vector3::new(-0.5, 0.3, 2.8),
+            Vector3::new(0.1, 0.5, 3.1),
+            Vector3::new(0.6, 0.7, 2.4),
+        ];
+        let translation = Vector3::new(0.35, -0.12, 0.18);
+        let (sin_angle, cos_angle) = 0.27_f64.sin_cos();
+        let rotation = Matrix3::new(
+            cos_angle, 0.0, sin_angle, 0.0, 1.0, 0.0, -sin_angle, 0.0, cos_angle,
+        );
+        let points1 = world_points.map(UnitVector3::new_normalize);
+        let points2 =
+            world_points.map(|point| UnitVector3::new_normalize(rotation * point + translation));
+
+        let sample1 = std::array::from_fn(|index| points1[index]);
+        let sample2 = std::array::from_fn(|index| points2[index]);
+        let models: Vec<_> = five_points_relative_pose(&sample1, &sample2).collect();
+        assert!(
+            !models.is_empty(),
+            "five-point solver returned no candidates"
+        );
+        let residual = |model: &EssentialMatrix| {
+            points1
+                .iter()
+                .zip(&points2)
+                .map(|(point1, point2)| {
+                    (point2.into_inner().transpose() * model.e * point1.into_inner())[0].abs()
+                })
+                .fold(0.0_f64, f64::max)
+        };
+        assert!(
+            models.iter().any(|model| residual(model) < 1e-8),
+            "five-point residuals: {:?}",
+            models.iter().map(residual).collect::<Vec<_>>()
+        );
+    }
 
     fn vec_to_poly_basis(v: Vector4<f64>) -> PolyBasisVec {
         let mut res = PolyBasisVec::zeros();

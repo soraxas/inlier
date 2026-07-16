@@ -1,16 +1,14 @@
-//! Essential matrix estimator using a constrained eight-point solver.
+//! Essential matrix estimator using calibrated five-point hypotheses.
 
 use crate::core::Estimator;
 use crate::estimators::fundamental::FundamentalEstimator;
 use crate::models::EssentialMatrix;
+use crate::nister_stewenius::five_points_relative_pose;
 use crate::types::DataMatrix;
-use nalgebra::{Matrix3, SVD};
+use nalgebra::{Matrix3, SVD, UnitVector3, Vector3};
 
-/// Essential matrix estimator using the eight-point algorithm with essential constraints.
-///
-/// The Nister-Stewenius five-point action-matrix solver is retained separately
-/// for future work, but the public estimator uses the stable constrained
-/// eight-point path.
+/// Essential matrix estimator using Nister-Stewenius five-point hypotheses and
+/// constrained eight-point non-minimal refinement.
 pub struct EssentialEstimator;
 
 impl Default for EssentialEstimator {
@@ -50,6 +48,10 @@ impl Estimator for EssentialEstimator {
     type Model = EssentialMatrix;
 
     fn sample_size(&self) -> usize {
+        5
+    }
+
+    fn non_minimal_sample_size(&self) -> usize {
         8
     }
 
@@ -75,7 +77,22 @@ impl Estimator for EssentialEstimator {
             return Vec::new();
         }
 
-        // Use the constrained eight-point solver for stable minimal estimates.
+        if n == self.sample_size() {
+            let points1: [UnitVector3<f64>; 5] = std::array::from_fn(|index| {
+                let row = sample[index];
+                UnitVector3::new_normalize(Vector3::new(data.get(row, 0), data.get(row, 1), 1.0))
+            });
+            let points2: [UnitVector3<f64>; 5] = std::array::from_fn(|index| {
+                let row = sample[index];
+                UnitVector3::new_normalize(Vector3::new(data.get(row, 2), data.get(row, 3), 1.0))
+            });
+            return five_points_relative_pose(&points1, &points2)
+                .filter(|model| model.e.iter().all(|value| value.is_finite()))
+                .collect();
+        }
+
+        // Local optimization and final fitting use a constrained eight-point
+        // estimate, which is more stable than reusing a minimal five-point fit.
         let fundamental_est = FundamentalEstimator::new();
         let f_models = fundamental_est.estimate_model(data, sample);
 
@@ -96,6 +113,9 @@ impl Estimator for EssentialEstimator {
         sample: &[usize],
         weights: Option<&[f64]>,
     ) -> Vec<Self::Model> {
+        if sample.len() < self.non_minimal_sample_size() {
+            return Vec::new();
+        }
         // Use fundamental matrix estimator and then enforce essential constraints
         let fundamental_est = FundamentalEstimator::new();
         let f_models = fundamental_est.estimate_model_nonminimal(data, sample, weights);
