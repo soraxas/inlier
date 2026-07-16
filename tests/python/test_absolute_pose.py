@@ -37,11 +37,14 @@ def test_absolute_pose():
     points_2d_norm = np.array(
         [(inv_k @ np.array([u, v, 1.0]))[:2] for u, v in points_2d]
     )
+    # The estimator consumes calibrated coordinates, so convert the intended
+    # half-pixel reprojection tolerance by the mean focal length.
+    threshold = 0.5 / float(np.mean([intrinsics[0, 0], intrinsics[1, 1]]))
 
     settings = inlier.MetasacSettings(
         min_iterations=100,
         max_iterations=900,
-        inlier_threshold=0.5,
+        inlier_threshold=threshold,
         confidence=0.999,
         rng_seed=0,
         sampler="uniform",
@@ -50,7 +53,7 @@ def test_absolute_pose():
     result = inlier.estimate_absolute_pose_py(
         points_3d.tolist(),
         points_2d_norm.tolist(),
-        threshold=0.5,
+        threshold=threshold,
         settings=settings,
     )
 
