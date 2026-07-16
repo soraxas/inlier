@@ -1,14 +1,16 @@
-//! Essential matrix estimator using 5-point Nister-Stewenius algorithm.
+//! Essential matrix estimator using a constrained eight-point solver.
 
 use crate::core::Estimator;
 use crate::estimators::fundamental::FundamentalEstimator;
 use crate::models::EssentialMatrix;
-use crate::nister_stewenius::five_points_relative_pose;
 use crate::types::DataMatrix;
-use nalgebra::{Matrix3, SMatrix, SVD, UnitVector3, Vector3};
+use nalgebra::{Matrix3, SVD};
 
-/// Essential matrix estimator using 8-point algorithm with essential matrix constraints.
-/// Uses the 5-point Nister-Stewenius algorithm for minimal samples.
+/// Essential matrix estimator using the eight-point algorithm with essential constraints.
+///
+/// The Nister-Stewenius five-point action-matrix solver is retained separately
+/// for future work, but the public estimator uses the stable constrained
+/// eight-point path.
 pub struct EssentialEstimator;
 
 impl Default for EssentialEstimator {
@@ -20,35 +22,6 @@ impl Default for EssentialEstimator {
 impl EssentialEstimator {
     pub fn new() -> Self {
         Self
-    }
-
-    /// Five-point Nister-Stewenius solver for essential matrix.
-    fn estimate_five_point_nister(
-        &self,
-        data: &DataMatrix,
-        sample: &[usize],
-    ) -> Vec<EssentialMatrix> {
-        if sample.len() != 5 {
-            return Vec::new();
-        }
-
-        let mut a = [UnitVector3::new_unchecked(Vector3::new(0.0, 1.0, 0.0)); 5];
-        let mut b = [UnitVector3::new_unchecked(Vector3::new(0.0, 1.0, 0.0)); 5];
-        for (i, &idx) in sample.iter().enumerate() {
-            if idx >= data.n_points() || data.n_dims() < 4 {
-                return Vec::new();
-            }
-            let v1 = Vector3::new(data.get(idx, 0), data.get(idx, 1), 1.0);
-            let v2 = Vector3::new(data.get(idx, 2), data.get(idx, 3), 1.0);
-            let norm1 = v1.norm();
-            let norm2 = v2.norm();
-            if !norm1.is_finite() || !norm2.is_finite() || norm1 < 1e-10 || norm2 < 1e-10 {
-                return Vec::new();
-            }
-            a[i] = UnitVector3::new_unchecked(v1 / norm1);
-            b[i] = UnitVector3::new_unchecked(v2 / norm2);
-        }
-        five_points_relative_pose(&a, &b).collect()
     }
 
     /// Enforce essential matrix constraints: det(E) = 0 and two equal singular values.
@@ -77,7 +50,7 @@ impl Estimator for EssentialEstimator {
     type Model = EssentialMatrix;
 
     fn sample_size(&self) -> usize {
-        5
+        8
     }
 
     fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
@@ -93,39 +66,7 @@ impl Estimator for EssentialEstimator {
             }
         }
 
-        // The five-point action-matrix solver is ill-conditioned when the
-        // epipolar design matrix loses rank. Reject those samples before the
-        // eigenvalue decomposition.
-        let mut design = SMatrix::<f64, 5, 9>::zeros();
-        for (row, &index) in sample.iter().take(5).enumerate() {
-            if index >= data.n_points() || data.n_dims() < 4 {
-                return false;
-            }
-            let x1 = data.get(index, 0);
-            let y1 = data.get(index, 1);
-            let x2 = data.get(index, 2);
-            let y2 = data.get(index, 3);
-            if ![x1, y1, x2, y2].iter().all(|value| value.is_finite()) {
-                return false;
-            }
-            design.row_mut(row).copy_from_slice(&[
-                x2 * x1,
-                x2 * y1,
-                x2,
-                y2 * x1,
-                y2 * y1,
-                y2,
-                x1,
-                y1,
-                1.0,
-            ]);
-        }
-        let singular_values = SVD::new(design, false, false).singular_values;
-        let largest = singular_values[0];
-        largest.is_finite()
-            && largest > f64::EPSILON
-            && singular_values[4].is_finite()
-            && singular_values[4] > largest * 1e-8
+        (0..data.n_points()).all(|index| (0..4).all(|column| data.get(index, column).is_finite()))
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
@@ -134,12 +75,7 @@ impl Estimator for EssentialEstimator {
             return Vec::new();
         }
 
-        // Use 5-point Nister solver for exactly 5 points.
-        if n == 5 {
-            return self.estimate_five_point_nister(data, sample);
-        }
-
-        // For 6+ points, use 8-point + constraints.
+        // Use the constrained eight-point solver for stable minimal estimates.
         let fundamental_est = FundamentalEstimator::new();
         let f_models = fundamental_est.estimate_model(data, sample);
 

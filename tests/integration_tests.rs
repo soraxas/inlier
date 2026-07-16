@@ -6,6 +6,7 @@
 use inlier::{
     presets::rigid_registration_pipeline, types::DataMatrix, utils::combine_input_points_33, *,
 };
+use nalgebra::{Matrix3, Rotation3, Vector3};
 
 #[test]
 fn test_estimate_homography_synthetic() {
@@ -93,6 +94,59 @@ fn test_estimate_essential_matrix_synthetic() {
             "Should find some inliers if estimation succeeds"
         );
     }
+}
+
+#[test]
+fn test_estimate_essential_matrix_recovers_nonplanar_pose() {
+    let rotation = Rotation3::from_euler_angles(0.12, -0.08, 0.04);
+    let translation = Vector3::new(0.3, -0.1, 0.2);
+    let mut points1 = DataMatrix::zeros(24, 2);
+    let mut points2 = DataMatrix::zeros(24, 2);
+
+    for index in 0..24 {
+        let point = Vector3::new(
+            (index % 6) as f64 * 0.18 - 0.45,
+            (index / 6) as f64 * 0.14 - 0.2,
+            2.5 + (index % 5) as f64 * 0.35,
+        );
+        let transformed = rotation * point + translation;
+        points1.set(index, 0, point.x / point.z);
+        points1.set(index, 1, point.y / point.z);
+        points2.set(index, 0, transformed.x / transformed.z);
+        points2.set(index, 1, transformed.y / transformed.z);
+    }
+
+    let settings = MetasacSettings {
+        min_iterations: 100,
+        max_iterations: 100,
+        rng_seed: Some(0xE551_EE55),
+        ..MetasacSettings::default()
+    };
+    let result = estimate_essential_matrix(&points1, &points2, 1e-6, Some(settings))
+        .expect("non-planar calibrated correspondences should estimate an essential matrix");
+    assert_eq!(result.inliers.len(), 24);
+
+    let skew_translation = Matrix3::new(
+        0.0,
+        -translation.z,
+        translation.y,
+        translation.z,
+        0.0,
+        -translation.x,
+        -translation.y,
+        translation.x,
+        0.0,
+    );
+    let expected = skew_translation * rotation.matrix();
+    let estimated = result.model.e / result.model.e.norm();
+    let expected = expected / expected.norm();
+    let sign_invariant_error = (estimated - expected)
+        .norm()
+        .min((estimated + expected).norm());
+    assert!(
+        sign_invariant_error < 1e-5,
+        "essential matrix error: {sign_invariant_error}"
+    );
 }
 
 #[test]
