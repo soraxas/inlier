@@ -121,7 +121,13 @@ fn homography_residual(data: &DataMatrix, model: &Homography, idx: usize) -> f64
     let p1_home = Vector3::new(p1.x, p1.y, 1.0);
     let p2_home = Vector3::new(p2.x, p2.y, 1.0);
     let p2_pred = model.h * p1_home;
-    let p1_pred = model.h.transpose() * p2_home;
+    let Some(inverse) = model.h.try_inverse() else {
+        return f64::MAX;
+    };
+    let p1_pred = inverse * p2_home;
+    if p2_pred.z.abs() < 1e-12 || p1_pred.z.abs() < 1e-12 {
+        return f64::MAX;
+    }
     let err1 = (p2 - Vector2::new(p2_pred.x / p2_pred.z, p2_pred.y / p2_pred.z)).norm();
     let err2 = (p1 - Vector2::new(p1_pred.x / p1_pred.z, p1_pred.y / p1_pred.z)).norm();
     (err1 + err2) / 2.0

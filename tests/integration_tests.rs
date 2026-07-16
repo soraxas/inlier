@@ -39,6 +39,34 @@ fn test_estimate_homography_synthetic() {
 }
 
 #[test]
+fn test_estimate_homography_projective_transform() {
+    let homography = Matrix3::new(
+        1.042, -0.003, -12.4, 0.006, 1.038, 3.1, 0.00001, -0.00002, 1.0,
+    );
+    let n_points = 20;
+    let mut points1 = DataMatrix::zeros(n_points, 2);
+    let mut points2 = DataMatrix::zeros(n_points, 2);
+    for index in 0..n_points {
+        let source = Vector3::new((index % 5) as f64 * 125.0, (index / 5) as f64 * 100.0, 1.0);
+        let target = homography * source;
+        points1.set(index, 0, source.x);
+        points1.set(index, 1, source.y);
+        points2.set(index, 0, target.x / target.z);
+        points2.set(index, 1, target.y / target.z);
+    }
+
+    let settings = MetasacSettings {
+        min_iterations: 1_000,
+        max_iterations: 1_000,
+        rng_seed: Some(7),
+        ..Default::default()
+    };
+    let result = estimate_homography(&points1, &points2, 1e-3, Some(settings))
+        .expect("projective homography should be estimated");
+    assert_eq!(result.inliers.len(), n_points);
+}
+
+#[test]
 fn test_estimate_fundamental_matrix_synthetic() {
     // Create synthetic 2D point correspondences
     // Points on a plane with some noise

@@ -170,11 +170,11 @@ impl Estimator for HomographyEstimator {
             inhomogeneous[2 * i + 1] = -weight_y2;
         }
 
-        // Solve using QR decomposition (like C++ colPivHouseholderQr)
-        let qr = coefficients.col_piv_qr();
-        let h = match qr.solve(&inhomogeneous) {
-            Some(h) => h,
-            None => return Vec::new(),
+        // Solve the overdetermined system with SVD. nalgebra's ColPivQR solver
+        // only supports square systems; local optimization supplies 2N x 8.
+        let h = match coefficients.svd(true, true).solve(&inhomogeneous, 1e-12) {
+            Ok(h) => h,
+            Err(_) => return Vec::new(),
         };
 
         // Check for NaN
