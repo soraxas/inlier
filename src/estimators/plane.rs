@@ -79,7 +79,7 @@ impl PlaneEstimator {
         let eig = SymmetricEigen::new(cov);
         // Plane normal = eigenvector of the SMALLEST eigenvalue.
         let min_col = (0..3)
-            .min_by(|&i, &j| eig.eigenvalues[i].partial_cmp(&eig.eigenvalues[j]).unwrap())
+            .min_by(|&i, &j| eig.eigenvalues[i].total_cmp(&eig.eigenvalues[j]))
             .unwrap_or(0);
         let normal: Vector3<f64> = eig.eigenvectors.column(min_col).into();
         let norm = normal.norm();

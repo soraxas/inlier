@@ -221,8 +221,9 @@ impl Estimator for AbsolutePoseEstimator {
 
         // Enforce orthogonality via SVD
         let r_svd = SVD::new(r, true, true);
-        let u_r = r_svd.u.unwrap();
-        let vt_r = r_svd.v_t.unwrap();
+        let (Some(u_r), Some(vt_r)) = (r_svd.u, r_svd.v_t) else {
+            return Vec::new();
+        };
         let v_r = vt_r.transpose();
         let r_ortho = u_r * v_r.transpose();
 

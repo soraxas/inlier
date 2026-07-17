@@ -31,7 +31,13 @@ impl ScalarTLSEstimator {
     pub fn estimate(&self, measurements: &[f64], ranges: &[f64]) -> Option<(f64, Vec<bool>)> {
         let n = measurements.len();
 
-        if n == 0 || measurements.len() != ranges.len() {
+        if n == 0
+            || measurements.len() != ranges.len()
+            || measurements.iter().any(|value| !value.is_finite())
+            || ranges
+                .iter()
+                .any(|range| !range.is_finite() || *range <= 0.0)
+        {
             return None;
         }
 
@@ -48,7 +54,7 @@ impl ScalarTLSEstimator {
         }
 
         // Sort boundaries in ascending order
-        boundaries.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        boundaries.sort_by(|a, b| a.0.total_cmp(&b.0));
 
         // Compute weights (inverse squared ranges)
         let weights: Vec<f64> = ranges.iter().map(|r| 1.0 / (r * r)).collect();
@@ -91,7 +97,7 @@ impl ScalarTLSEstimator {
         let min_idx = x_cost
             .iter()
             .enumerate()
-            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .min_by(|a, b| a.1.total_cmp(b.1))
             .map(|(idx, _)| idx)?;
 
         let estimate = x_hat[min_idx];
@@ -157,6 +163,18 @@ mod tests {
         assert_eq!(inliers.len(), 6);
         assert!(inliers[0..5].iter().all(|&x| x));
         assert!(!inliers[5]);
+    }
+
+    #[test]
+    fn rejects_non_finite_measurements_and_invalid_ranges() {
+        let estimator = ScalarTLSEstimator::new();
+        assert!(estimator.estimate(&[1.0, f64::NAN], &[0.1, 0.1]).is_none());
+        assert!(estimator.estimate(&[1.0, 2.0], &[0.1, 0.0]).is_none());
+        assert!(
+            estimator
+                .estimate(&[1.0, 2.0], &[0.1, f64::INFINITY])
+                .is_none()
+        );
     }
 
     #[test]

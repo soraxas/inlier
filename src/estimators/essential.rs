@@ -23,13 +23,13 @@ impl EssentialEstimator {
     }
 
     /// Enforce essential matrix constraints: det(E) = 0 and two equal singular values.
-    fn enforce_essential_constraints(&self, f: Matrix3<f64>) -> Matrix3<f64> {
+    fn enforce_essential_constraints(&self, f: Matrix3<f64>) -> Option<Matrix3<f64>> {
         // SVD: E = U * diag(s1, s2, s3) * V^T
         // For essential matrix: s1 = s2, s3 = 0
         let svd = SVD::new(f, true, true);
-        let u = svd.u.unwrap();
+        let u = svd.u?;
         let s = svd.singular_values;
-        let vt = svd.v_t.unwrap();
+        let vt = svd.v_t?;
 
         // Average the first two singular values and set third to zero
         let avg_s = (s[0] + s[1]) / 2.0;
@@ -40,7 +40,7 @@ impl EssentialEstimator {
 
         // Reconstruct: E = U * diag(avg_s, avg_s, 0) * V^T
         let s_diag = nalgebra::Matrix3::<f64>::from_diagonal(&s_essential);
-        u * s_diag * vt
+        Some(u * s_diag * vt)
     }
 }
 
@@ -105,7 +105,9 @@ impl Estimator for EssentialEstimator {
 
         // Convert fundamental matrix to essential matrix by enforcing constraints
         let f = f_models[0].f;
-        let e = self.enforce_essential_constraints(f);
+        let Some(e) = self.enforce_essential_constraints(f) else {
+            return Vec::new();
+        };
 
         vec![EssentialMatrix::new(e)]
     }
@@ -129,7 +131,9 @@ impl Estimator for EssentialEstimator {
 
         // Convert fundamental matrix to essential matrix by enforcing constraints
         let f = f_models[0].f;
-        let e = self.enforce_essential_constraints(f);
+        let Some(e) = self.enforce_essential_constraints(f) else {
+            return Vec::new();
+        };
 
         vec![EssentialMatrix::new(e)]
     }
