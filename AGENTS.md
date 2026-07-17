@@ -37,3 +37,38 @@ cargo bench --bench estimators -- --list
 cargo bench --bench components -- --quick
 cargo bench --bench rejection -- --quick
 ```
+
+## Property Tests And Fuzzing
+
+`proptest` is the default tool for structured algorithm invariants. Add or
+extend properties in `tests/estimator_safety.rs` for finite output, scale
+stability, valid-input round trips, and degenerate-input rejection.
+
+`cargo-fuzz` targets untrusted byte input and must assert semantic safety, not
+only absence of panics. Run the bounded public API target with:
+
+```bash
+just fuzz-public-api 60
+```
+
+Keep fuzz corpora and artifacts out of git. Use `cargo mutants` as a targeted,
+scheduled quality check for `src/core.rs`, `src/api.rs`, `src/estimators/`, and
+`src/scoring.rs`; do not make the full mutation suite a pull-request gate.
+
+### Practical Priority
+
+Every pull request runs `cargo nextest run`; coverage is collected with
+`cargo llvm-cov nextest`; add focused `proptest` cases for changed numerical or
+domain logic.
+
+Nightly CI should run targeted `cargo mutants --package inlier` and short
+`cargo-fuzz` campaigns. Weekly CI should run the full mutation suite and
+longer fuzzing campaigns. Run Miri when code introduces unsafe behavior or
+subtle memory assumptions; use Loom for concurrent algorithms and Kani only
+for small, critical bounded proofs.
+
+For runtime regressions, use Criterion (already used through CodSpeed) for
+statistical microbenchmarks. Use Iai-Callgrind when instruction-level,
+noise-resistant measurements are required in CI. These are performance tools,
+not replacements for nextest, coverage, mutation testing, property tests, or
+fuzzing.

@@ -178,6 +178,9 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python
 examples/*.png
 examples/assets/
+fuzz/artifacts/
+fuzz/corpus/
+fuzz/target/
 
 # Large sample point cloud (bundled by trunk at build time, not versioned)
 SALON.ply

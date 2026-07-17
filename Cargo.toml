@@ -4,7 +4,7 @@ members = [
     "crates/spatialrust-inlier",
     "crates/inlier-gallery",
 ]
-exclude = ["vendor"]
+exclude = ["vendor", "fuzz"]
 resolver = "2"
 
 # Required so SpatialRust crates (vendored via submodule) can resolve

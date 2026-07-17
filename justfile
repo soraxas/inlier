@@ -84,6 +84,14 @@ ensure-llvm-cov:
   fi
   cargo install cargo-llvm-cov --locked
 
+ensure-cargo-fuzz:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if cargo fuzz --version >/dev/null 2>&1; then
+    exit 0
+  fi
+  cargo install cargo-fuzz --locked
+
 test-rust profile='--release': ensure-nextest
   cargo nextest run --workspace --all-targets {{profile}}
 
@@ -108,6 +116,11 @@ coverage-doctests lcov='lcov.info': ensure-nextest ensure-llvm-cov
   RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report nextest --workspace --all-targets
   RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report --doc --workspace
   RUSTUP_TOOLCHAIN=nightly cargo llvm-cov report --doctests --lcov --output-path "{{lcov}}"
+
+# Coverage-guided public API input safety fuzzing. Use a bounded run locally
+# or in scheduled CI; corpus and crash artifacts are intentionally ignored.
+fuzz-public-api duration='60': ensure-cargo-fuzz
+  cargo fuzz run public_api -- -max_total_time={{duration}}
 
 # Run deterministic, synthetic end-to-end estimator benchmarks. Real-world benchmark assets
 # belong in the inlier-data submodule.
