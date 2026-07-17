@@ -134,6 +134,42 @@ fn high_level_apis_reject_non_finite_coordinates_and_invalid_thresholds() {
 }
 
 #[test]
+fn high_level_apis_reject_invalid_ransac_settings() {
+    let points = DataMatrix::from_row_slice(2, 2, &[0.0, 0.0, 1.0, 1.0]);
+    let cases = [
+        MetasacSettings {
+            min_iterations: 2,
+            max_iterations: 1,
+            ..Default::default()
+        },
+        MetasacSettings {
+            max_sampling_attempts: 0,
+            ..Default::default()
+        },
+        MetasacSettings {
+            confidence: f64::NAN,
+            ..Default::default()
+        },
+        MetasacSettings {
+            point_priors: Some(vec![1.0]),
+            ..Default::default()
+        },
+        MetasacSettings {
+            point_priors: Some(vec![1.0, -1.0]),
+            ..Default::default()
+        },
+        MetasacSettings {
+            point_priors: Some(vec![1.0, f64::NAN]),
+            ..Default::default()
+        },
+    ];
+
+    for settings in cases {
+        assert!(estimate_line(&points, 1.0, Some(settings)).is_err());
+    }
+}
+
+#[test]
 fn test_estimate_fundamental_matrix_synthetic() {
     // Create synthetic 2D point correspondences
     // Points on a plane with some noise

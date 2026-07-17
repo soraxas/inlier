@@ -55,6 +55,30 @@ fn validate_finite_matrix(points: &DataMatrix, name: &str) -> Result<(), String>
     Ok(())
 }
 
+fn validate_settings(settings: &MetasacSettings, point_count: usize) -> Result<(), String> {
+    if settings.min_iterations > settings.max_iterations {
+        return Err("min_iterations must not exceed max_iterations".to_string());
+    }
+    if settings.max_sampling_attempts == 0 {
+        return Err("max_sampling_attempts must be greater than zero".to_string());
+    }
+    if !settings.confidence.is_finite() || !(0.0..=1.0).contains(&settings.confidence) {
+        return Err("confidence must be finite and in the range [0, 1]".to_string());
+    }
+    if let Some(priors) = &settings.point_priors {
+        if priors.len() != point_count {
+            return Err("point_priors must have one value per input point".to_string());
+        }
+        if priors
+            .iter()
+            .any(|prior| !prior.is_finite() || *prior < 0.0)
+        {
+            return Err("point_priors must contain finite, non-negative values".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// Runtime scoring selection for the high-level estimation APIs.
 enum ApiScoring<M> {
     Ransac(RansacInlierCountScoring<M, Residual<M>>),
@@ -261,16 +285,14 @@ pub fn estimate_homography(
     }
 
     let settings = settings_opt.unwrap_or_default();
+    validate_settings(&settings, n)?;
     let estimator = HomographyEstimator::new();
     let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
         2,
-        settings
-            .point_priors
-            .as_deref()
-            .filter(|priors| priors.len() == n),
+        settings.point_priors.as_deref(),
         homography_residual,
     )?;
     let local_optimizer = api_optimizer(settings.local_optimization, HomographyEstimator::new())?;
@@ -341,16 +363,14 @@ pub fn estimate_fundamental_matrix(
     }
 
     let settings = settings_opt.unwrap_or_default();
+    validate_settings(&settings, n)?;
     let estimator = FundamentalEstimator::new();
     let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
         1,
-        settings
-            .point_priors
-            .as_deref()
-            .filter(|priors| priors.len() == n),
+        settings.point_priors.as_deref(),
         fundamental_residual,
     )?;
     let local_optimizer = api_optimizer(settings.local_optimization, FundamentalEstimator::new())?;
@@ -421,16 +441,14 @@ pub fn estimate_essential_matrix(
     }
 
     let settings = settings_opt.unwrap_or_default();
+    validate_settings(&settings, n)?;
     let estimator = EssentialEstimator::new();
     let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
         1,
-        settings
-            .point_priors
-            .as_deref()
-            .filter(|priors| priors.len() == n),
+        settings.point_priors.as_deref(),
         essential_residual,
     )?;
     let local_optimizer = api_optimizer(settings.local_optimization, EssentialEstimator::new())?;
@@ -502,16 +520,14 @@ pub fn estimate_absolute_pose(
     }
 
     let settings = settings_opt.unwrap_or_default();
+    validate_settings(&settings, n)?;
     let estimator = AbsolutePoseEstimator::new();
     let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
         2,
-        settings
-            .point_priors
-            .as_deref()
-            .filter(|priors| priors.len() == n),
+        settings.point_priors.as_deref(),
         absolute_pose_residual,
     )?;
     let local_optimizer = api_optimizer(settings.local_optimization, AbsolutePoseEstimator::new())?;
@@ -601,16 +617,14 @@ pub fn estimate_line(
     }
 
     let settings = settings_opt.unwrap_or_default();
+    validate_settings(&settings, n)?;
     let estimator = LineEstimator::new();
     let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
         1,
-        settings
-            .point_priors
-            .as_deref()
-            .filter(|priors| priors.len() == n),
+        settings.point_priors.as_deref(),
         line_residual,
     )?;
     let local_optimizer = api_optimizer(settings.local_optimization, LineEstimator::new())?;
@@ -678,6 +692,7 @@ pub fn estimate_rigid_transform(
     }
 
     let settings = settings_opt.unwrap_or_default();
+    validate_settings(&settings, n)?;
     let estimator = RigidTransformEstimator::new();
     let sampler = api_sampler(&settings)?;
 
@@ -685,10 +700,7 @@ pub fn estimate_rigid_transform(
         settings.scoring,
         threshold,
         3,
-        settings
-            .point_priors
-            .as_deref()
-            .filter(|priors| priors.len() == n),
+        settings.point_priors.as_deref(),
         rigid_transform_residual,
     )?;
 
@@ -749,6 +761,7 @@ pub fn estimate_plane(
     validate_finite_matrix(points, "points")?;
 
     let settings = settings_opt.unwrap_or_default();
+    validate_settings(&settings, n)?;
     let estimator = PlaneEstimator::new();
 
     let sampler = api_sampler(&settings)?;
@@ -757,10 +770,7 @@ pub fn estimate_plane(
         settings.scoring,
         threshold,
         1,
-        settings
-            .point_priors
-            .as_deref()
-            .filter(|priors| priors.len() == n),
+        settings.point_priors.as_deref(),
         plane_residual,
     )?;
 
