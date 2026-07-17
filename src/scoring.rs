@@ -510,7 +510,7 @@ fn gamma_fn(x: f64) -> f64 {
 }
 
 /// Regularized lower incomplete gamma P(a, x) via series expansion or continued fraction.
-fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
+fn regularized_lower_gamma_with_ln_gamma(a: f64, x: f64, ln_gamma_a: f64) -> f64 {
     if x < 0.0 || a <= 0.0 {
         return 0.0;
     }
@@ -527,7 +527,7 @@ fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
                 break;
             }
         }
-        sum * (-x + a * x.ln() - ln_gamma(a)).exp()
+        sum * (-x + a * x.ln() - ln_gamma_a).exp()
     } else {
         // Continued fraction for upper; then 1 - Q
         let mut b = x + 1.0 - a;
@@ -552,8 +552,12 @@ fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
                 break;
             }
         }
-        1.0 - (-x + a * x.ln() - ln_gamma(a)).exp() * h
+        1.0 - (-x + a * x.ln() - ln_gamma_a).exp() * h
     }
+}
+
+fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
+    regularized_lower_gamma_with_ln_gamma(a, x, ln_gamma(a))
 }
 
 fn lower_incomplete_gamma(a: f64, x: f64) -> f64 {
@@ -612,8 +616,14 @@ where
         self
     }
 
-    /// Compute MAGSAC-style loss for a given squared residual
-    fn compute_loss(&self, r_sq: f64) -> f64 {
+    fn compute_loss_with_constants(
+        &self,
+        r_sq: f64,
+        gamma_plus: f64,
+        gamma_minus: f64,
+        ln_gamma_plus: f64,
+        ln_gamma_minus: f64,
+    ) -> f64 {
         let thresh_sq = self.threshold * self.threshold;
         let sigma_max_sq = self.sigma_max * self.sigma_max;
         let two_sigma_max_sq = 2.0 * sigma_max_sq;
@@ -625,16 +635,18 @@ where
 
             let residual_norm = r_sq / two_sigma_max_sq;
 
-            // Lower incomplete gamma via γ(a, x) = Γ(a) - Γ(a, x)
-            let gamma_a = gamma_fn(n_plus_1_per_2);
-            let upper_gamma_lower = upper_incomplete_gamma(n_plus_1_per_2, residual_norm);
-            let lower_gamma = gamma_a - upper_gamma_lower;
-
-            let upper_gamma = upper_incomplete_gamma(n_minus_1_per_2, residual_norm);
-            let value0 = upper_incomplete_gamma(n_minus_1_per_2, 0.0);
+            let lower_gamma =
+                regularized_lower_gamma_with_ln_gamma(n_plus_1_per_2, residual_norm, ln_gamma_plus)
+                    * gamma_plus;
+            let upper_gamma = gamma_minus
+                - regularized_lower_gamma_with_ln_gamma(
+                    n_minus_1_per_2,
+                    residual_norm,
+                    ln_gamma_minus,
+                ) * gamma_minus;
 
             // MAGSAC loss formula
-            sigma_max_sq / 2.0 * lower_gamma + sigma_max_sq / 4.0 * (upper_gamma - value0)
+            sigma_max_sq / 2.0 * lower_gamma + sigma_max_sq / 4.0 * (upper_gamma - gamma_minus)
         } else {
             // Outlier: fixed loss
             self.threshold * self.threshold
@@ -655,6 +667,12 @@ where
     fn score(&self, data: &DataMatrix, model: &M, inliers_out: &mut Vec<usize>) -> Self::Score {
         let n = data.n_points();
         let thresh_sq = self.threshold * self.threshold;
+        let n_plus_1_per_2 = (self.degrees_of_freedom + 1) as f64 / 2.0;
+        let n_minus_1_per_2 = (self.degrees_of_freedom - 1) as f64 / 2.0;
+        let gamma_plus = gamma_fn(n_plus_1_per_2);
+        let gamma_minus = gamma_fn(n_minus_1_per_2);
+        let ln_gamma_plus = ln_gamma(n_plus_1_per_2);
+        let ln_gamma_minus = ln_gamma(n_minus_1_per_2);
         inliers_out.clear();
 
         let mut inlier_count = 0usize;
@@ -671,7 +689,13 @@ where
             let r = (self.residual_fn)(data, model, i);
             let r_sq = r * r;
 
-            let loss = self.compute_loss(r_sq);
+            let loss = self.compute_loss_with_constants(
+                r_sq,
+                gamma_plus,
+                gamma_minus,
+                ln_gamma_plus,
+                ln_gamma_minus,
+            );
             cost += w * loss;
 
             // Still track inliers for compatibility
@@ -1023,7 +1047,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        MsacScoring, RansacInlierCountScoring, Score, SigmaConsensusScoring,
+        MagsacScoring, MsacScoring, RansacInlierCountScoring, Score, SigmaConsensusScoring,
         lower_incomplete_gamma, upper_incomplete_gamma,
     };
     use crate::core::Scoring;
@@ -1076,6 +1100,45 @@ mod tests {
         // MSAC score should be negative and finite (since it's -cost).
         assert!(s.value.is_finite());
         assert!(s.value < 0.0);
+    }
+
+    #[test]
+    fn magsac_scoring_matches_the_direct_incomplete_gamma_formula() {
+        let threshold = 0.5;
+        let sigma_max = 0.8;
+        let degrees_of_freedom = 2;
+        let residuals = [0.05, 0.2, 0.49, 0.7];
+        let mut data = DataMatrix::zeros(residuals.len(), 1);
+        for (index, residual) in residuals.iter().enumerate() {
+            data.set(index, 0, *residual);
+        }
+
+        let scoring = MagsacScoring::new(threshold, |d, _m: &UnitModel, row| d.get(row, 0))
+            .with_sigma_max(sigma_max)
+            .with_degrees_of_freedom(degrees_of_freedom);
+        let mut inliers = Vec::new();
+        let score = scoring.score(&data, &UnitModel, &mut inliers);
+
+        let n_plus = (degrees_of_freedom + 1) as f64 / 2.0;
+        let n_minus = (degrees_of_freedom - 1) as f64 / 2.0;
+        let expected_cost = residuals
+            .iter()
+            .map(|residual| {
+                let residual_sq = residual * residual;
+                if residual_sq >= threshold * threshold {
+                    return threshold * threshold;
+                }
+                let x = residual_sq / (2.0 * sigma_max * sigma_max);
+                let lower = super::gamma_fn(n_plus) - upper_incomplete_gamma(n_plus, x);
+                let upper = upper_incomplete_gamma(n_minus, x);
+                let upper_at_zero = upper_incomplete_gamma(n_minus, 0.0);
+                sigma_max * sigma_max * 0.5 * lower
+                    + sigma_max * sigma_max * 0.25 * (upper - upper_at_zero)
+            })
+            .sum::<f64>();
+
+        assert_eq!(inliers, vec![0, 1, 2]);
+        assert!((score.value + expected_cost).abs() < 1e-12);
     }
 
     fn sigma_consensus_rho_direct(sigma_max: f64, dof: usize, k: f64, r: f64) -> f64 {
