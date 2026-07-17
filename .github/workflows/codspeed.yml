@@ -8,6 +8,10 @@ on:
   # performance analysis in order to generate initial data.
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   id-token: write # for OpenID Connect authentication with CodSpeed
