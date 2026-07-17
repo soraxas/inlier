@@ -386,7 +386,13 @@ impl Estimator for FundamentalEstimator {
             let x2 = normalized[(i, 2)];
             let y2 = normalized[(i, 3)];
 
-            let weight = weights.map(|w| w[idx]).unwrap_or(1.0);
+            let weight = match weights {
+                Some(weights) => match weights.get(idx) {
+                    Some(weight) if weight.is_finite() && *weight >= 0.0 => *weight,
+                    _ => return Vec::new(),
+                },
+                None => 1.0,
+            };
             let w_x0 = weight * x1;
             let w_y0 = weight * y1;
             let w_x1 = weight * x2;
@@ -548,6 +554,24 @@ mod tests {
         }
 
         assert!(!estimator.is_valid_sample(&data, &[0, 1, 2, 3, 4, 5, 6]));
+    }
+
+    #[test]
+    fn nonminimal_fit_rejects_invalid_weights() {
+        let estimator = FundamentalEstimator::new();
+        let data = calibrated_translation_correspondences(8, 1.0, (0.0, 0.0));
+        let sample: Vec<_> = (0..8).collect();
+
+        assert!(
+            estimator
+                .estimate_model_nonminimal(&data, &sample, Some(&[1.0; 7]))
+                .is_empty()
+        );
+        assert!(
+            estimator
+                .estimate_model_nonminimal(&data, &sample, Some(&[f64::NAN; 8]))
+                .is_empty()
+        );
     }
 
     #[test]

@@ -117,6 +117,16 @@ impl Estimator for LineEstimator {
         if n < self.sample_size() {
             return Vec::new();
         }
+        if let Some(weights) = weights {
+            for &idx in sample {
+                let Some(weight) = weights.get(idx) else {
+                    return Vec::new();
+                };
+                if !weight.is_finite() || *weight < 0.0 {
+                    return Vec::new();
+                }
+            }
+        }
 
         // Least squares fitting: minimize sum of squared distances
         // Distance from point (x, y) to line ax + by + c = 0 is |ax + by + c|
@@ -245,5 +255,23 @@ mod tests {
         data.set(1, 0, f64::NAN);
 
         assert!(!estimator.is_valid_sample(&data, &[0, 1]));
+    }
+
+    #[test]
+    fn nonminimal_fit_rejects_invalid_weights() {
+        let estimator = LineEstimator::new();
+        let data = DataMatrix::from_row_slice(3, 2, &[0.0, 0.0, 1.0, 1.0, 2.0, 2.0]);
+        let sample = [0, 1, 2];
+
+        assert!(
+            estimator
+                .estimate_model_nonminimal(&data, &sample, Some(&[1.0; 2]))
+                .is_empty()
+        );
+        assert!(
+            estimator
+                .estimate_model_nonminimal(&data, &sample, Some(&[f64::INFINITY; 3]))
+                .is_empty()
+        );
     }
 }

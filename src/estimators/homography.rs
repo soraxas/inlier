@@ -136,10 +136,13 @@ impl HomographyEstimator {
             let y1 = normalized[(row, 1)];
             let x2 = normalized[(row, 2)];
             let y2 = normalized[(row, 3)];
-            let weight = weights.map(|values| values[sample[row]]).unwrap_or(1.0);
-            if !weight.is_finite() || weight < 0.0 {
-                return None;
-            }
+            let weight = match weights {
+                Some(values) => match values.get(sample[row]) {
+                    Some(weight) if weight.is_finite() && *weight >= 0.0 => *weight,
+                    _ => return None,
+                },
+                None => 1.0,
+            };
             let weight = weight.sqrt();
 
             coefficients[(2 * row, 0)] = -weight * x1;
@@ -293,5 +296,34 @@ impl Estimator for HomographyEstimator {
     ) -> bool {
         let determinant = model.h.determinant().abs();
         determinant > 1e-4 && determinant < 1e4
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nonminimal_fit_rejects_invalid_weights() {
+        let data = DataMatrix::from_row_slice(
+            4,
+            4,
+            &[
+                0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 1.0, 0.0, 1.0, 1.0, 2.0, 1.0, 1.0, 2.0, 2.0,
+            ],
+        );
+        let estimator = HomographyEstimator::new();
+        let sample = [0, 1, 2, 3];
+
+        assert!(
+            estimator
+                .estimate_model_nonminimal(&data, &sample, Some(&[1.0; 3]))
+                .is_empty()
+        );
+        assert!(
+            estimator
+                .estimate_model_nonminimal(&data, &sample, Some(&[-1.0; 4]))
+                .is_empty()
+        );
     }
 }
