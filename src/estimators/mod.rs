@@ -73,25 +73,28 @@ mod tests {
 
     #[test]
     fn fundamental_estimator_produces_valid_model() {
-        // Create 8 point correspondences for fundamental matrix estimation
-        // Use more realistic correspondences with some rotation/translation
+        // Project non-planar 3-D points into two calibrated cameras. A single
+        // image homography would leave the fundamental matrix underdetermined.
         let mut data = DataMatrix::zeros(8, 4);
         let points = [
-            (0.0, 0.0, 10.0, 10.0),
-            (10.0, 0.0, 20.0, 10.0),
-            (0.0, 10.0, 10.0, 20.0),
-            (10.0, 10.0, 20.0, 20.0),
-            (5.0, 5.0, 15.0, 15.0),
-            (15.0, 5.0, 25.0, 15.0),
-            (5.0, 15.0, 15.0, 25.0),
-            (15.0, 15.0, 25.0, 25.0),
+            (-0.9, -0.6, 3.2),
+            (-0.3, 0.7, 4.1),
+            (0.4, -0.5, 3.7),
+            (0.8, 0.2, 5.0),
+            (-0.7, 0.4, 4.6),
+            (0.1, -0.8, 3.5),
+            (0.6, 0.9, 4.3),
+            (-0.5, -0.1, 5.2),
         ];
+        let (sin_angle, cos_angle) = 0.2_f64.sin_cos();
 
-        for (i, (x1, y1, x2, y2)) in points.iter().enumerate() {
-            data.set(i, 0, *x1);
-            data.set(i, 1, *y1);
-            data.set(i, 2, *x2);
-            data.set(i, 3, *y2);
+        for (i, &(x, y, z)) in points.iter().enumerate() {
+            data.set(i, 0, x / z);
+            data.set(i, 1, y / z);
+            let rotated_x = cos_angle * x + sin_angle * z;
+            let rotated_z = -sin_angle * x + cos_angle * z;
+            data.set(i, 2, (rotated_x + 0.3) / (rotated_z + 0.2));
+            data.set(i, 3, (y - 0.1) / (rotated_z + 0.2));
         }
 
         let estimator = FundamentalEstimator::new();

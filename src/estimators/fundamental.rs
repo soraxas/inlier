@@ -54,6 +54,22 @@ pub(crate) fn has_non_collinear_2d_sample(
     })
 }
 
+fn has_sufficient_design_rank(singular_values: &nalgebra::DVector<f64>, rank: usize) -> bool {
+    let Some(&largest) = singular_values.get(0) else {
+        return false;
+    };
+    let Some(&smallest_required) = singular_values.get(rank.saturating_sub(1)) else {
+        return false;
+    };
+
+    largest.is_finite()
+        && smallest_required.is_finite()
+        && largest > 0.0
+        // Hartley-normalized rows should have comparable scale. A smaller
+        // singular value indicates an effectively rank-deficient design matrix.
+        && smallest_required > 1e-10 * largest
+}
+
 /// Fundamental matrix estimator using the 8-point algorithm.
 pub struct FundamentalEstimator;
 
@@ -186,6 +202,9 @@ impl FundamentalEstimator {
 
         // Find null space using SVD (last 2 columns of V correspond to null space)
         let svd = SVD::new(coefficients, false, true);
+        if !has_sufficient_design_rank(&svd.singular_values, 7) {
+            return Vec::new();
+        }
         let vt = match svd.v_t {
             Some(vt) => vt,
             None => return Vec::new(),
@@ -329,6 +348,9 @@ impl Estimator for FundamentalEstimator {
             a
         };
         let svd = SVD::new(a, false, true);
+        if !has_sufficient_design_rank(&svd.singular_values, 8) {
+            return Vec::new();
+        }
         let vt = match svd.v_t {
             Some(vt) => vt,
             None => return Vec::new(),
@@ -419,6 +441,9 @@ impl Estimator for FundamentalEstimator {
             a
         };
         let svd = SVD::new(a, false, true);
+        if !has_sufficient_design_rank(&svd.singular_values, n.min(8)) {
+            return Vec::new();
+        }
         let vt = match svd.v_t {
             Some(vt) => vt,
             None => return Vec::new(),
@@ -554,6 +579,34 @@ mod tests {
         }
 
         assert!(!estimator.is_valid_sample(&data, &[0, 1, 2, 3, 4, 5, 6]));
+    }
+
+    #[test]
+    fn solver_rejects_rank_deficient_planar_correspondences() {
+        let mut data = DataMatrix::zeros(7, 4);
+        for (row, (x, y)) in [
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
+            (1.0, 1.0),
+            (2.0, 0.5),
+            (0.5, 2.0),
+            (1.5, 1.5),
+        ]
+        .iter()
+        .enumerate()
+        {
+            data.set(row, 0, *x);
+            data.set(row, 1, *y);
+            // A single image homography makes the epipolar system ambiguous.
+            data.set(row, 2, x + 3.0);
+            data.set(row, 3, y - 2.0);
+        }
+        let estimator = FundamentalEstimator::new();
+        let sample = [0, 1, 2, 3, 4, 5, 6];
+
+        assert!(estimator.is_valid_sample(&data, &sample));
+        assert!(estimator.estimate_model(&data, &sample).is_empty());
     }
 
     #[test]
