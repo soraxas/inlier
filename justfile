@@ -128,7 +128,8 @@ coverage-doctests lcov='lcov.info': ensure-nextest ensure-llvm-cov
 # Coverage-guided public API input safety fuzzing. Use a bounded run locally
 # or in scheduled CI; corpus and crash artifacts are intentionally ignored.
 fuzz-public-api duration='60': ensure-cargo-fuzz
-  cargo fuzz run public_api -- -max_total_time={{duration}}
+  rustup toolchain install nightly --profile minimal
+  cargo +nightly fuzz run public_api -- -max_total_time={{duration}}
 
 # Target control flow and validation rather than expensive floating-point kernels.
 mutants path='src/core.rs': ensure-cargo-mutants
