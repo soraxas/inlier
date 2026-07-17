@@ -115,6 +115,21 @@ fn api_scoring<M>(
     Ok(scoring)
 }
 
+fn api_sampler(settings: &MetasacSettings) -> Result<SamplerChoice, String> {
+    match settings.sampler {
+        SamplerType::Uniform => Ok(SamplerChoice::Uniform(UniformRandomSampler::new(
+            settings.rng_seed,
+        ))),
+        SamplerType::Prosac => Ok(SamplerChoice::Prosac(ProsacSampler::new(
+            100_000,
+            settings.rng_seed,
+        ))),
+        unsupported => Err(format!(
+            "sampler {unsupported:?} is not implemented by the high-level API; use Uniform or Prosac"
+        )),
+    }
+}
+
 fn homography_residual(data: &DataMatrix, model: &Homography, idx: usize) -> f64 {
     let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
     let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
@@ -206,12 +221,7 @@ pub fn estimate_homography(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = HomographyEstimator::new();
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
-    };
+    let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
@@ -288,12 +298,7 @@ pub fn estimate_fundamental_matrix(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = FundamentalEstimator::new();
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
-    };
+    let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
@@ -370,12 +375,7 @@ pub fn estimate_essential_matrix(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = EssentialEstimator::new();
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
-    };
+    let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
@@ -453,12 +453,7 @@ pub fn estimate_absolute_pose(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = AbsolutePoseEstimator::new();
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
-    };
+    let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
@@ -562,12 +557,7 @@ pub fn estimate_line(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = LineEstimator::new();
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
-    };
+    let sampler = api_sampler(&settings)?;
     let scoring = api_scoring(
         settings.scoring,
         threshold,
@@ -648,12 +638,7 @@ pub fn estimate_rigid_transform(
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = RigidTransformEstimator::new();
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
-    };
+    let sampler = api_sampler(&settings)?;
 
     let scoring = api_scoring(
         settings.scoring,
@@ -728,12 +713,7 @@ pub fn estimate_plane(
     let settings = settings_opt.unwrap_or_default();
     let estimator = PlaneEstimator::new();
 
-    let sampler = match settings.sampler {
-        SamplerType::Prosac => {
-            SamplerChoice::Prosac(ProsacSampler::new(100_000, settings.rng_seed))
-        }
-        _ => SamplerChoice::Uniform(UniformRandomSampler::new(settings.rng_seed)),
-    };
+    let sampler = api_sampler(&settings)?;
 
     let scoring = api_scoring(
         settings.scoring,
