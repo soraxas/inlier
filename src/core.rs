@@ -241,6 +241,21 @@ pub trait Estimator {
         sample: &[usize],
         threshold: f64,
     ) -> bool;
+
+    /// Validate a scored model against its provisional consensus set.
+    ///
+    /// Most estimators accept the score-derived inliers unchanged. Models with
+    /// additional geometric ambiguity, such as a fundamental matrix, can
+    /// reject a consensus that is unstable under a secondary residual.
+    fn is_valid_consensus(
+        &self,
+        _data: &DataMatrix,
+        _model: &Self::Model,
+        _inliers: &[usize],
+        _threshold: f64,
+    ) -> bool {
+        true
+    }
 }
 
 /// Sampler responsible for drawing minimal samples from the data.
@@ -925,6 +940,14 @@ where
                             )
                         }
                     });
+
+                    if !self
+                        .estimator
+                        .is_valid_consensus(data, &model, &tmp_inliers, threshold)
+                    {
+                        self.diagnostics.rejected_models += 1;
+                        continue;
+                    }
 
                     let better = match &self.best_score {
                         None => true,

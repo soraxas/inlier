@@ -488,6 +488,41 @@ impl Estimator for FundamentalEstimator {
             // residual instead of an absolute determinant.
             && model.f.determinant().abs() / norm.powi(3) < 1e-6
     }
+
+    fn is_valid_consensus(
+        &self,
+        data: &DataMatrix,
+        model: &Self::Model,
+        inliers: &[usize],
+        threshold: f64,
+    ) -> bool {
+        if data.n_dims() < 4 || !threshold.is_finite() || threshold <= 0.0 {
+            return false;
+        }
+        let required = self.sample_size().max(inliers.len() / 2);
+        let threshold_squared = threshold * threshold;
+        let mut passing = 0;
+        for &index in inliers {
+            if index >= data.n_points() {
+                return false;
+            }
+            let x1 = nalgebra::Vector3::new(data.get(index, 0), data.get(index, 1), 1.0);
+            let x2 = nalgebra::Vector3::new(data.get(index, 2), data.get(index, 3), 1.0);
+            let constraint = (x2.transpose() * model.f * x1)[0];
+            let line2 = model.f * x1;
+            let line1 = model.f.transpose() * x2;
+            let denominator = line1.x.mul_add(line1.x, line1.y * line1.y)
+                + line2.x.mul_add(line2.x, line2.y * line2.y);
+            let squared_distance = constraint * constraint / denominator;
+            if squared_distance.is_finite() && squared_distance <= threshold_squared {
+                passing += 1;
+                if passing >= required {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 #[cfg(test)]
