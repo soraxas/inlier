@@ -32,9 +32,7 @@ pub fn create_progress_bar_if_large(
 }
 
 #[cfg(not(feature = "progress"))]
-pub fn create_progress_bar(_total: u64, _message: &str) -> () {
-    ()
-}
+pub fn create_progress_bar(_total: u64, _message: &str) {}
 
 #[cfg(not(feature = "progress"))]
 pub fn create_progress_bar_if_large(_total: u64, _message: &str, _threshold: u64) -> Option<()> {

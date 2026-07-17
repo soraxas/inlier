@@ -80,10 +80,7 @@ pub fn voxel_downsample(points: &DataMatrix, voxel_size: f64) -> DataMatrix {
             let vy = (y / voxel_size).floor() as i32;
             let vz = (z / voxel_size).floor() as i32;
 
-            voxel_map
-                .entry((vx, vy, vz))
-                .or_insert_with(Vec::new)
-                .push(i);
+            voxel_map.entry((vx, vy, vz)).or_default().push(i);
         }
     }
 

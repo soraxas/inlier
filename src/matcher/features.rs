@@ -355,17 +355,18 @@ impl FasterPFH {
                     );
 
                     if let Some(&n_feat_idx) = point_to_feature.get(&key) {
-                        if i != n_feat_idx {
-                            if let Some((f1, f2, f3)) = self.compute_pair_features(
-                                &feat.point,
-                                &feat.normal,
-                                &features[n_feat_idx].point,
-                                &features[n_feat_idx].normal,
-                            ) {
-                                self.add_to_histogram(&mut spfh_histograms[i][0], f1);
-                                self.add_to_histogram(&mut spfh_histograms[i][1], f2);
-                                self.add_to_histogram(&mut spfh_histograms[i][2], f3);
-                            }
+                        if i == n_feat_idx {
+                            continue;
+                        }
+                        if let Some((f1, f2, f3)) = self.compute_pair_features(
+                            &feat.point,
+                            &feat.normal,
+                            &features[n_feat_idx].point,
+                            &features[n_feat_idx].normal,
+                        ) {
+                            self.add_to_histogram(&mut spfh_histograms[i][0], f1);
+                            self.add_to_histogram(&mut spfh_histograms[i][1], f2);
+                            self.add_to_histogram(&mut spfh_histograms[i][2], f3);
                         }
                     }
                 }
@@ -434,7 +435,7 @@ impl FasterPFH {
 
         #[cfg(not(feature = "rayon"))]
         {
-            for (i, feat) in features.iter_mut().enumerate() {
+            for feat in features.iter_mut() {
                 #[cfg(feature = "progress")]
                 pb2.inc(1);
 
