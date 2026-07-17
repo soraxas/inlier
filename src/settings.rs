@@ -170,8 +170,8 @@ impl Default for MetasacSettings {
             scoring: ScoringType::Magsac,
             sampler: SamplerType::Uniform,
             neighborhood: NeighborhoodType::Grid,
-            local_optimization: LocalOptimizationType::NestedRansac,
-            final_optimization: LocalOptimizationType::Irls,
+            local_optimization: LocalOptimizationType::Lsq,
+            final_optimization: LocalOptimizationType::Lsq,
             termination_criterion: TerminationType::Ransac,
             inlier_selector: InlierSelectorType::None,
             ar_sampler_settings: ArSamplerSettings::default(),
@@ -199,8 +199,8 @@ mod tests {
         assert_eq!(cfg.scoring, ScoringType::Magsac);
         assert_eq!(cfg.sampler, SamplerType::Uniform);
         assert_eq!(cfg.neighborhood, NeighborhoodType::Grid);
-        assert_eq!(cfg.local_optimization, LocalOptimizationType::NestedRansac);
-        assert_eq!(cfg.final_optimization, LocalOptimizationType::Irls);
+        assert_eq!(cfg.local_optimization, LocalOptimizationType::Lsq);
+        assert_eq!(cfg.final_optimization, LocalOptimizationType::Lsq);
         assert_eq!(cfg.termination_criterion, TerminationType::Ransac);
         assert_eq!(cfg.inlier_selector, InlierSelectorType::None);
         assert!(cfg.point_priors.is_none());

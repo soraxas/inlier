@@ -915,10 +915,14 @@ where
                         &self.best_model,
                         &self.best_score,
                     ) {
-                        let (refined_model, refined_score, refined_inliers) =
+                        let (refined_model, _, _) =
                             lo.run(data, &self.best_inliers, best_model, best_score);
+                        let mut refined_inliers = Vec::new();
+                        let refined_score =
+                            self.scoring
+                                .score(data, &refined_model, &mut refined_inliers);
 
-                        if refined_score > *best_score {
+                        if refined_score >= *best_score {
                             self.best_model = Some(refined_model);
                             self.best_score = Some(refined_score);
                             self.best_inliers = refined_inliers;
@@ -958,10 +962,14 @@ where
             &self.best_score,
         ) && self.best_inliers.len() > sample_size
         {
-            let (refined_model, refined_score, refined_inliers) =
+            let (refined_model, _, _) =
                 final_opt.run(data, &self.best_inliers, best_model, best_score);
+            let mut refined_inliers = Vec::new();
+            let refined_score = self
+                .scoring
+                .score(data, &refined_model, &mut refined_inliers);
 
-            if refined_score > *best_score {
+            if refined_score >= *best_score {
                 self.best_model = Some(refined_model);
                 self.best_score = Some(refined_score);
                 self.best_inliers = refined_inliers;
@@ -978,7 +986,7 @@ mod tests {
     use crate::types::DataMatrix;
 
     #[derive(Clone, Debug)]
-    struct MockModel;
+    struct MockModel(bool);
 
     #[derive(Clone, Debug, PartialEq, PartialOrd)]
     struct MockScore(f64);
@@ -997,7 +1005,7 @@ mod tests {
         }
 
         fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
-            vec![MockModel]
+            vec![MockModel(false)]
         }
 
         fn is_valid_model(
@@ -1054,13 +1062,14 @@ mod tests {
         fn score(
             &self,
             _data: &DataMatrix,
-            _model: &MockModel,
+            model: &MockModel,
             inliers_out: &mut Vec<usize>,
         ) -> Self::Score {
-            // Pretend all points are inliers with a fixed score.
+            // A refined model must be rescored before it can replace the
+            // original hypothesis.
             inliers_out.clear();
             inliers_out.push(0);
-            MockScore(1.0)
+            MockScore(if model.0 { 2.0 } else { 1.0 })
         }
     }
 
@@ -1071,11 +1080,11 @@ mod tests {
             &mut self,
             _data: &DataMatrix,
             inliers: &[usize],
-            model: &MockModel,
+            _model: &MockModel,
             best_score: &MockScore,
         ) -> (MockModel, MockScore, Vec<usize>) {
-            // Return the same model and score, with the same inliers.
-            (model.clone(), best_score.clone(), inliers.to_vec())
+            // Deliberately return the stale score: MetaSAC must recompute it.
+            (MockModel(true), best_score.clone(), inliers.to_vec())
         }
     }
 
@@ -1147,6 +1156,8 @@ mod tests {
             !pipeline.best_inliers.is_empty(),
             "Best inliers should not be empty"
         );
+        assert_eq!(pipeline.best_score, Some(MockScore(2.0)));
+        assert!(pipeline.best_model.expect("model").0);
         // We don't assert an exact iteration count here, only that `run`
         // completed without panicking and produced a consistent result.
     }

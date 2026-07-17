@@ -3,7 +3,7 @@
 //! These tests verify that the estimation functions work correctly with
 //! synthetic data and produce reasonable results.
 
-use inlier::settings::SamplerType;
+use inlier::settings::{LocalOptimizationType, SamplerType};
 use inlier::{
     presets::rigid_registration_pipeline, types::DataMatrix, utils::combine_input_points_33, *,
 };
@@ -338,6 +338,18 @@ fn test_high_level_api_rejects_unimplemented_sampler() {
     let error = estimate_line(&points, 0.1, Some(settings))
         .expect_err("NAPSAC is not available through the high-level API");
     assert!(error.contains("sampler Napsac is not implemented"));
+}
+
+#[test]
+fn test_high_level_api_rejects_unimplemented_optimizer() {
+    let points = DataMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]);
+    let settings = MetasacSettings {
+        local_optimization: LocalOptimizationType::Irls,
+        ..Default::default()
+    };
+    let error = estimate_line(&points, 0.1, Some(settings))
+        .expect_err("IRLS is not available through the high-level API");
+    assert!(error.contains("local optimization Irls is not implemented"));
 }
 
 #[test]

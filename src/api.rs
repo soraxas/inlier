@@ -3,8 +3,8 @@
 //! This module provides user-friendly functions for estimating geometric models
 //! similar to the Python API.
 
-use crate::choices::SamplerChoice;
-use crate::core::{MetaSAC, NoopInlierSelector, Scoring};
+use crate::choices::{LocalOptimizerChoice, SamplerChoice};
+use crate::core::{Estimator, MetaSAC, NoopInlierSelector, Scoring};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, PlaneEstimator, RigidTransformEstimator,
@@ -17,7 +17,7 @@ use crate::samplers::{ProsacSampler, UniformRandomSampler};
 use crate::scoring::{
     MagsacScoring, MsacScoring, RansacInlierCountScoring, Score, SigmaConsensusScoring,
 };
-use crate::settings::{MetasacSettings, SamplerType, ScoringType};
+use crate::settings::{LocalOptimizationType, MetasacSettings, SamplerType, ScoringType};
 use crate::types::DataMatrix;
 use nalgebra::{Vector2, Vector3};
 
@@ -130,6 +130,25 @@ fn api_sampler(settings: &MetasacSettings) -> Result<SamplerChoice, String> {
     }
 }
 
+fn api_optimizer<E>(
+    optimization: LocalOptimizationType,
+    estimator: E,
+) -> Result<Option<LocalOptimizerChoice<E::Model, Score>>, String>
+where
+    E: Estimator + Send + Sync + 'static,
+    E::Model: Clone + Send + Sync + 'static,
+{
+    match optimization {
+        LocalOptimizationType::None => Ok(None),
+        LocalOptimizationType::Lsq => Ok(Some(LocalOptimizerChoice::Dyn(Box::new(
+            LeastSquaresOptimizer::new(estimator),
+        )))),
+        unsupported => Err(format!(
+            "local optimization {unsupported:?} is not implemented by the high-level API; use None or Lsq"
+        )),
+    }
+}
+
 fn homography_residual(data: &DataMatrix, model: &Homography, idx: usize) -> f64 {
     let p1 = Vector2::new(data.get(idx, 0), data.get(idx, 1));
     let p2 = Vector2::new(data.get(idx, 2), data.get(idx, 3));
@@ -232,8 +251,8 @@ pub fn estimate_homography(
             .filter(|priors| priors.len() == n),
         homography_residual,
     )?;
-    let local_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(HomographyEstimator::new()));
+    let local_optimizer = api_optimizer(settings.local_optimization, HomographyEstimator::new())?;
+    let final_optimizer = api_optimizer(settings.final_optimization, HomographyEstimator::new())?;
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
@@ -309,8 +328,8 @@ pub fn estimate_fundamental_matrix(
             .filter(|priors| priors.len() == n),
         fundamental_residual,
     )?;
-    let local_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(FundamentalEstimator::new()));
+    let local_optimizer = api_optimizer(settings.local_optimization, FundamentalEstimator::new())?;
+    let final_optimizer = api_optimizer(settings.final_optimization, FundamentalEstimator::new())?;
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
@@ -386,8 +405,8 @@ pub fn estimate_essential_matrix(
             .filter(|priors| priors.len() == n),
         essential_residual,
     )?;
-    let local_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(EssentialEstimator::new()));
+    let local_optimizer = api_optimizer(settings.local_optimization, EssentialEstimator::new())?;
+    let final_optimizer = api_optimizer(settings.final_optimization, EssentialEstimator::new())?;
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
@@ -464,8 +483,8 @@ pub fn estimate_absolute_pose(
             .filter(|priors| priors.len() == n),
         absolute_pose_residual,
     )?;
-    let local_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(AbsolutePoseEstimator::new()));
+    let local_optimizer = api_optimizer(settings.local_optimization, AbsolutePoseEstimator::new())?;
+    let final_optimizer = api_optimizer(settings.final_optimization, AbsolutePoseEstimator::new())?;
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
@@ -568,8 +587,8 @@ pub fn estimate_line(
             .filter(|priors| priors.len() == n),
         line_residual,
     )?;
-    let local_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(LineEstimator::new()));
+    let local_optimizer = api_optimizer(settings.local_optimization, LineEstimator::new())?;
+    let final_optimizer = api_optimizer(settings.final_optimization, LineEstimator::new())?;
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
@@ -651,8 +670,10 @@ pub fn estimate_rigid_transform(
         rigid_transform_residual,
     )?;
 
-    let local_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(RigidTransformEstimator::new()));
+    let local_optimizer =
+        api_optimizer(settings.local_optimization, RigidTransformEstimator::new())?;
+    let final_optimizer =
+        api_optimizer(settings.final_optimization, RigidTransformEstimator::new())?;
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
@@ -726,8 +747,8 @@ pub fn estimate_plane(
         plane_residual,
     )?;
 
-    let local_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
-    let final_optimizer = Some(LeastSquaresOptimizer::new(PlaneEstimator::new()));
+    let local_optimizer = api_optimizer(settings.local_optimization, PlaneEstimator::new())?;
+    let final_optimizer = api_optimizer(settings.final_optimization, PlaneEstimator::new())?;
     let termination = crate::core::RansacTerminationCriterion {
         confidence: settings.confidence,
     };
