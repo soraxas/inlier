@@ -24,13 +24,21 @@ impl PlaneEstimator {
         Self
     }
 
-    fn point3(data: &DataMatrix, idx: usize) -> Vector3<f64> {
-        Vector3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2))
+    fn finite_point(data: &DataMatrix, idx: usize) -> Option<Vector3<f64>> {
+        if idx >= data.n_points() || data.n_dims() < 3 {
+            return None;
+        }
+        let p = Vector3::new(data.get(idx, 0), data.get(idx, 1), data.get(idx, 2));
+        p.iter().all(|v| v.is_finite()).then_some(p)
     }
 
-    fn finite_point(data: &DataMatrix, idx: usize) -> Option<Vector3<f64>> {
-        let p = Self::point3(data, idx);
-        p.iter().all(|v| v.is_finite()).then_some(p)
+    fn non_collinear(first: Vector3<f64>, second: Vector3<f64>, third: Vector3<f64>) -> bool {
+        let first_edge = second - first;
+        let second_edge = third - first;
+        let scale_squared = first_edge.norm_squared().max(second_edge.norm_squared());
+        scale_squared.is_finite()
+            && scale_squared > 1e-24
+            && first_edge.cross(&second_edge).norm() > 1e-10 * scale_squared
     }
 
     fn weight(weights: Option<&[f64]>, idx: usize) -> Option<f64> {
@@ -101,7 +109,7 @@ impl Estimator for PlaneEstimator {
                 }
             }
         }
-        // Non-collinear: cross product magnitude above threshold
+        // Non-collinear with a scale-aware tolerance.
         let Some(p0) = Self::finite_point(data, sample[0]) else {
             return false;
         };
@@ -111,7 +119,7 @@ impl Estimator for PlaneEstimator {
         let Some(p2) = Self::finite_point(data, sample[2]) else {
             return false;
         };
-        (p1 - p0).cross(&(p2 - p0)).norm() > 1e-10
+        Self::non_collinear(p0, p1, p2)
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Plane3> {
@@ -127,9 +135,12 @@ impl Estimator for PlaneEstimator {
         let Some(p2) = Self::finite_point(data, sample[2]) else {
             return vec![];
         };
+        if !Self::non_collinear(p0, p1, p2) {
+            return vec![];
+        }
         let cross = (p1 - p0).cross(&(p2 - p0));
         let norm = cross.norm();
-        if !norm.is_finite() || norm < 1e-10 {
+        if !norm.is_finite() || norm == 0.0 {
             return vec![];
         }
         vec![Plane3::from_normal_and_point(cross / norm, p0)]
@@ -151,7 +162,9 @@ impl Estimator for PlaneEstimator {
         _sample: &[usize],
         _threshold: f64,
     ) -> bool {
-        (model.normal.norm() - 1.0).abs() < 1e-5
+        model.normal.iter().all(|value| value.is_finite())
+            && model.d.is_finite()
+            && (model.normal.norm() - 1.0).abs() < 1e-5
     }
 }
 
@@ -224,5 +237,17 @@ mod tests {
             dot > 0.999,
             "normal should align with ground truth: dot={dot}"
         );
+    }
+
+    #[test]
+    fn minimal_fit_is_scale_aware_and_bounds_checked() {
+        let data =
+            DataMatrix::from_row_slice(3, 3, &[0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 1e-9, 0.0]);
+        let estimator = PlaneEstimator::new();
+
+        assert!(estimator.is_valid_sample(&data, &[0, 1, 2]));
+        assert_eq!(estimator.estimate_model(&data, &[0, 1, 2]).len(), 1);
+        assert!(!estimator.is_valid_sample(&data, &[0, 1, 3]));
+        assert!(estimator.estimate_model(&data, &[0, 1, 3]).is_empty());
     }
 }
