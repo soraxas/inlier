@@ -108,19 +108,19 @@ impl Estimator for AbsolutePoseEstimator {
             return false;
         }
         let mut world = [Vector3::zeros(); 3];
-        for (position, &index) in sample.iter().take(3).enumerate() {
+        for (position, &index) in sample.iter().enumerate() {
             if index >= data.n_points() {
                 return false;
             }
             let image_x = data.get(index, 0);
             let image_y = data.get(index, 1);
-            world[position] =
-                Vector3::new(data.get(index, 2), data.get(index, 3), data.get(index, 4));
-            if !image_x.is_finite()
-                || !image_y.is_finite()
-                || !world[position].iter().all(|v| v.is_finite())
+            let point = Vector3::new(data.get(index, 2), data.get(index, 3), data.get(index, 4));
+            if !image_x.is_finite() || !image_y.is_finite() || !point.iter().all(|v| v.is_finite())
             {
                 return false;
+            }
+            if position < world.len() {
+                world[position] = point;
             }
         }
 
@@ -135,7 +135,7 @@ impl Estimator for AbsolutePoseEstimator {
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         let n = sample.len();
-        if n < self.sample_size() || data.n_dims() < 5 {
+        if n < self.sample_size() || !self.is_valid_sample(data, sample) {
             return Vec::new();
         }
 
@@ -246,6 +246,9 @@ impl Estimator for AbsolutePoseEstimator {
         sample: &[usize],
         weights: Option<&[f64]>,
     ) -> Vec<Self::Model> {
+        if !self.is_valid_sample(data, sample) {
+            return Vec::new();
+        }
         if sample.len() < 4 {
             // For < 4 points, fall back to minimal estimation
             return self.estimate_model(data, sample);
@@ -360,6 +363,13 @@ impl Estimator for AbsolutePoseEstimator {
         // Check that rotation is proper
         let r = model.rotation.to_rotation_matrix();
         let det = r.matrix().determinant();
-        (det - 1.0).abs() < 1e-2 * _threshold.max(1.0)
+        model.rotation.coords.iter().all(|value| value.is_finite())
+            && model
+                .translation
+                .vector
+                .iter()
+                .all(|value| value.is_finite())
+            && det.is_finite()
+            && (det - 1.0).abs() < 1e-2 * _threshold.max(1.0)
     }
 }

@@ -3,7 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use inlier::core::Estimator;
 use inlier::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
-    LineEstimator, PlaneEstimator, RigidTransformEstimator,
+    LineEstimator, PlaneEstimator, RigidTransformEstimator, SimilarityTransformEstimator,
 };
 use inlier::types::DataMatrix;
 use proptest::prelude::*;
@@ -119,6 +119,26 @@ proptest! {
             .is_empty());
         prop_assert!(assert_no_panic(|| EssentialEstimator::new()
             .estimate_model(&correspondence_data, &[0, 1, 2, 3, 4]))
+            .is_empty());
+
+        let mut absolute_pose_data = DataMatrix::zeros(3, 5);
+        absolute_pose_data.set(0, 0, non_finite);
+        prop_assert!(assert_no_panic(|| AbsolutePoseEstimator::new()
+            .estimate_model(&absolute_pose_data, &[0, 1, 2]))
+            .is_empty());
+
+        let mut rigid_data = DataMatrix::zeros(3, 6);
+        rigid_data.set(0, 0, non_finite);
+        prop_assert!(assert_no_panic(|| RigidTransformEstimator::new()
+            .estimate_model(&rigid_data, &[0, 1, 2]))
+            .is_empty());
+        prop_assert!(assert_no_panic(|| SimilarityTransformEstimator::new()
+            .estimate_model(&rigid_data, &[0, 1, 2]))
+            .is_empty());
+
+        let mut line_data = DataMatrix::zeros(2, 2);
+        line_data.set(0, 0, non_finite);
+        prop_assert!(assert_no_panic(|| LineEstimator::new().estimate_model(&line_data, &[0, 1]))
             .is_empty());
     }
 }

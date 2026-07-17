@@ -45,6 +45,13 @@ impl Estimator for LineEstimator {
         if data.n_dims() < 2 {
             return false;
         }
+        if sample.iter().any(|&index| {
+            index >= data.n_points()
+                || !data.get(index, 0).is_finite()
+                || !data.get(index, 1).is_finite()
+        }) {
+            return false;
+        }
         // Check that points are not too close together (avoid degenerate case)
         if sample.len() >= 2 {
             let idx1 = sample[0];
@@ -70,7 +77,7 @@ impl Estimator for LineEstimator {
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
-        if sample.len() < self.sample_size() {
+        if sample.len() < self.sample_size() || !self.is_valid_sample(data, sample) {
             return Vec::new();
         }
 
@@ -114,7 +121,7 @@ impl Estimator for LineEstimator {
         weights: Option<&[f64]>,
     ) -> Vec<Self::Model> {
         let n = sample.len();
-        if n < self.sample_size() {
+        if n < self.sample_size() || !self.is_valid_sample(data, sample) {
             return Vec::new();
         }
         if let Some(weights) = weights {
@@ -240,7 +247,7 @@ impl Estimator for LineEstimator {
     ) -> bool {
         // Check that the line parameters are normalized
         let norm_sq = model.params[0] * model.params[0] + model.params[1] * model.params[1];
-        (norm_sq - 1.0).abs() < 1e-6
+        model.params.iter().all(|value| value.is_finite()) && (norm_sq - 1.0).abs() < 1e-6
     }
 }
 

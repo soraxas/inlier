@@ -69,6 +69,11 @@ impl Estimator for RigidTransformEstimator {
         if data.n_dims() < 6 {
             return false;
         }
+        if sample.iter().any(|&index| {
+            Self::point(data, index, 0).is_none() || Self::point(data, index, 3).is_none()
+        }) {
+            return false;
+        }
         let Some(source0) = Self::point(data, sample[0], 0) else {
             return false;
         };
@@ -94,10 +99,7 @@ impl Estimator for RigidTransformEstimator {
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         let n = sample.len();
-        if n < self.sample_size() || data.n_dims() < 6 {
-            return Vec::new();
-        }
-        if n == self.sample_size() && !self.is_valid_sample(data, sample) {
+        if n < self.sample_size() || !self.is_valid_sample(data, sample) {
             return Vec::new();
         }
 
@@ -161,8 +163,9 @@ impl Estimator for RigidTransformEstimator {
 
         // SVD: H = U * S * V^T, then R = V * U^T
         let svd = SVD::new(h, true, true);
-        let u = svd.u.unwrap();
-        let vt = svd.v_t.unwrap();
+        let (Some(u), Some(vt)) = (svd.u, svd.v_t) else {
+            return Vec::new();
+        };
         let v = vt.transpose();
 
         let mut r = &v * &u.transpose();
@@ -210,6 +213,13 @@ impl Estimator for RigidTransformEstimator {
         // Check that rotation is proper (determinant close to 1)
         let r = model.rotation.to_rotation_matrix();
         let det = r.matrix().determinant();
-        (det - 1.0).abs() < 1e-2 * _threshold.max(1.0)
+        model.rotation.coords.iter().all(|value| value.is_finite())
+            && model
+                .translation
+                .vector
+                .iter()
+                .all(|value| value.is_finite())
+            && det.is_finite()
+            && (det - 1.0).abs() < 1e-2 * _threshold.max(1.0)
     }
 }

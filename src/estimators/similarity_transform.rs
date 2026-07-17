@@ -39,12 +39,14 @@ impl Estimator for SimilarityTransformEstimator {
                 }
             }
         }
-        true
+        sample.iter().all(|&index| {
+            index < data.n_points() && (0..6).all(|column| data.get(index, column).is_finite())
+        })
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         let n = sample.len();
-        if n < self.sample_size() || data.n_dims() < 6 {
+        if n < self.sample_size() || !self.is_valid_sample(data, sample) {
             return Vec::new();
         }
 
@@ -132,6 +134,12 @@ impl Estimator for SimilarityTransformEstimator {
     ) -> bool {
         model.scale.is_finite()
             && model.scale > 0.0
+            && model.rotation.coords.iter().all(|value| value.is_finite())
+            && model
+                .translation
+                .vector
+                .iter()
+                .all(|value| value.is_finite())
             && (model.rotation.to_rotation_matrix().matrix().determinant() - 1.0).abs() < 1e-2
     }
 }
