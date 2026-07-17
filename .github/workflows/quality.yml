@@ -1,0 +1,87 @@
+name: Scheduled Quality
+
+on:
+  schedule:
+    # Targeted mutation testing and a short fuzz campaign.
+    - cron: "17 3 * * 1-6"
+    # A longer weekly campaign.
+    - cron: "23 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run the full mutation and extended fuzz campaign
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: scheduled-quality-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  properties:
+    name: Extended property tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+      - name: Run expanded numerical properties
+        env:
+          PROPTEST_CASES: 512
+        run: cargo nextest run -p inlier --test estimator_safety --test numerical_stability
+
+  mutants:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+      - name: Select mutation scope
+        id: scope
+        shell: bash
+        run: |
+          if [[ "${{ github.event.schedule }}" == "23 4 * * 0" || "${{ inputs.full }}" == "true" ]]; then
+            echo 'args=--package inlier' >> "$GITHUB_OUTPUT"
+          else
+            echo 'args=--file src/core.rs --file src/api.rs --file src/estimators/fundamental.rs --file src/scoring.rs' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run mutation tests
+        run: cargo mutants ${{ steps.scope.outputs.args }}
+
+  fuzz:
+    name: Public API fuzzing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Select fuzz duration
+        id: duration
+        shell: bash
+        run: |
+          if [[ "${{ github.event.schedule }}" == "23 4 * * 0" || "${{ inputs.full }}" == "true" ]]; then
+            echo 'seconds=900' >> "$GITHUB_OUTPUT"
+          else
+            echo 'seconds=120' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run public API fuzz target
+        run: cargo +nightly fuzz run public_api -- -max_total_time=${{ steps.duration.outputs.seconds }}
