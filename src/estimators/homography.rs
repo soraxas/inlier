@@ -1,12 +1,11 @@
-//! Homography estimator using 4-point DLT-style algorithm.
+//! Homography estimator using normalized direct linear transformation.
 
 use crate::core::Estimator;
 use crate::models::Homography;
 use crate::types::DataMatrix;
-use crate::utils::gauss_elimination;
-use nalgebra::{DMatrix, DVector, Matrix3};
+use nalgebra::{DMatrix, Matrix3, SVD};
 
-/// Minimal homography estimator using a 4-point DLT-style algorithm.
+/// Homography estimator using the four-point DLT algorithm.
 pub struct HomographyEstimator;
 
 impl Default for HomographyEstimator {
@@ -20,65 +19,183 @@ impl HomographyEstimator {
         Self
     }
 
-    /// Estimate minimal model using Gaussian elimination (matches C++ implementation).
-    fn estimate_minimal_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Homography> {
-        // Build 8x9 augmented matrix [A | b] where we fix h[8] = 1.0
-        // This matches the C++ implementation exactly
-        let mut augmented = DMatrix::<f64>::zeros(8, 9);
-
-        for (i, &idx) in sample.iter().enumerate() {
-            let x1 = data.get(idx, 0);
-            let y1 = data.get(idx, 1);
-            let x2 = data.get(idx, 2);
-            let y2 = data.get(idx, 3);
-
-            // Row 2*i
-            augmented[(2 * i, 0)] = -x1;
-            augmented[(2 * i, 1)] = -y1;
-            augmented[(2 * i, 2)] = -1.0;
-            augmented[(2 * i, 3)] = 0.0;
-            augmented[(2 * i, 4)] = 0.0;
-            augmented[(2 * i, 5)] = 0.0;
-            augmented[(2 * i, 6)] = x2 * x1;
-            augmented[(2 * i, 7)] = x2 * y1;
-            augmented[(2 * i, 8)] = -x2; // Inhomogeneous part
-
-            // Row 2*i + 1
-            augmented[(2 * i + 1, 0)] = 0.0;
-            augmented[(2 * i + 1, 1)] = 0.0;
-            augmented[(2 * i + 1, 2)] = 0.0;
-            augmented[(2 * i + 1, 3)] = -x1;
-            augmented[(2 * i + 1, 4)] = -y1;
-            augmented[(2 * i + 1, 5)] = -1.0;
-            augmented[(2 * i + 1, 6)] = y2 * x1;
-            augmented[(2 * i + 1, 7)] = y2 * y1;
-            augmented[(2 * i + 1, 8)] = -y2; // Inhomogeneous part
+    /// Apply Hartley normalization independently to both image planes.
+    fn normalize_points(
+        &self,
+        data: &DataMatrix,
+        sample: &[usize],
+        normalized: &mut DMatrix<f64>,
+        t1: &mut Matrix3<f64>,
+        t2: &mut Matrix3<f64>,
+    ) -> bool {
+        let n = sample.len();
+        if n == 0 {
+            return false;
         }
 
-        // Solve using Gaussian elimination
-        let mut h = DVector::<f64>::zeros(8);
-        if !gauss_elimination(&mut augmented, &mut h) {
+        let mut cx1 = 0.0;
+        let mut cy1 = 0.0;
+        let mut cx2 = 0.0;
+        let mut cy2 = 0.0;
+        for &index in sample {
+            cx1 += data.get(index, 0);
+            cy1 += data.get(index, 1);
+            cx2 += data.get(index, 2);
+            cy2 += data.get(index, 3);
+        }
+        let n = n as f64;
+        cx1 /= n;
+        cy1 /= n;
+        cx2 /= n;
+        cy2 /= n;
+
+        let mut distance1 = 0.0;
+        let mut distance2 = 0.0;
+        for &index in sample {
+            let dx1 = data.get(index, 0) - cx1;
+            let dy1 = data.get(index, 1) - cy1;
+            let dx2 = data.get(index, 2) - cx2;
+            let dy2 = data.get(index, 3) - cy2;
+            distance1 += (dx1 * dx1 + dy1 * dy1).sqrt();
+            distance2 += (dx2 * dx2 + dy2 * dy2).sqrt();
+        }
+        distance1 /= n;
+        distance2 /= n;
+        if !distance1.is_finite()
+            || !distance2.is_finite()
+            || distance1 < 1e-12
+            || distance2 < 1e-12
+        {
+            return false;
+        }
+
+        let scale1 = std::f64::consts::SQRT_2 / distance1;
+        let scale2 = std::f64::consts::SQRT_2 / distance2;
+        *t1 = Matrix3::new(
+            scale1,
+            0.0,
+            -scale1 * cx1,
+            0.0,
+            scale1,
+            -scale1 * cy1,
+            0.0,
+            0.0,
+            1.0,
+        );
+        *t2 = Matrix3::new(
+            scale2,
+            0.0,
+            -scale2 * cx2,
+            0.0,
+            scale2,
+            -scale2 * cy2,
+            0.0,
+            0.0,
+            1.0,
+        );
+
+        normalized.resize_mut(sample.len(), 4, 0.0);
+        for (row, &index) in sample.iter().enumerate() {
+            normalized[(row, 0)] = (data.get(index, 0) - cx1) * scale1;
+            normalized[(row, 1)] = (data.get(index, 1) - cy1) * scale1;
+            normalized[(row, 2)] = (data.get(index, 2) - cx2) * scale2;
+            normalized[(row, 3)] = (data.get(index, 3) - cy2) * scale2;
+        }
+        true
+    }
+
+    fn solve_dlt(
+        &self,
+        normalized: &DMatrix<f64>,
+        sample: &[usize],
+        weights: Option<&[f64]>,
+    ) -> Option<Matrix3<f64>> {
+        let n = normalized.nrows();
+        let mut coefficients = DMatrix::<f64>::zeros(2 * n, 9);
+        for row in 0..n {
+            let x1 = normalized[(row, 0)];
+            let y1 = normalized[(row, 1)];
+            let x2 = normalized[(row, 2)];
+            let y2 = normalized[(row, 3)];
+            let weight = weights.map(|values| values[sample[row]]).unwrap_or(1.0);
+            if !weight.is_finite() || weight < 0.0 {
+                return None;
+            }
+            let weight = weight.sqrt();
+
+            coefficients[(2 * row, 0)] = -weight * x1;
+            coefficients[(2 * row, 1)] = -weight * y1;
+            coefficients[(2 * row, 2)] = -weight;
+            coefficients[(2 * row, 6)] = weight * x2 * x1;
+            coefficients[(2 * row, 7)] = weight * x2 * y1;
+            coefficients[(2 * row, 8)] = weight * x2;
+
+            coefficients[(2 * row + 1, 3)] = -weight * x1;
+            coefficients[(2 * row + 1, 4)] = -weight * y1;
+            coefficients[(2 * row + 1, 5)] = -weight;
+            coefficients[(2 * row + 1, 6)] = weight * y2 * x1;
+            coefficients[(2 * row + 1, 7)] = weight * y2 * y1;
+            coefficients[(2 * row + 1, 8)] = weight * y2;
+        }
+
+        // A four-point minimal sample has only eight equations. Pad it to a
+        // square matrix so nalgebra retains the full right null-space vector.
+        let coefficients = if coefficients.nrows() < coefficients.ncols() {
+            let mut padded = DMatrix::<f64>::zeros(coefficients.ncols(), coefficients.ncols());
+            padded
+                .rows_mut(0, coefficients.nrows())
+                .copy_from(&coefficients);
+            padded
+        } else {
+            coefficients
+        };
+        let svd = SVD::new(coefficients, false, true);
+        let vt = svd.v_t?;
+        let solution = vt.row(vt.nrows() - 1);
+        if solution.iter().any(|value| !value.is_finite()) {
+            return None;
+        }
+        Some(Matrix3::new(
+            solution[0],
+            solution[1],
+            solution[2],
+            solution[3],
+            solution[4],
+            solution[5],
+            solution[6],
+            solution[7],
+            solution[8],
+        ))
+    }
+
+    fn estimate_normalized(
+        &self,
+        data: &DataMatrix,
+        sample: &[usize],
+        weights: Option<&[f64]>,
+    ) -> Vec<Homography> {
+        let mut normalized = DMatrix::<f64>::zeros(0, 0);
+        let mut t1 = Matrix3::<f64>::zeros();
+        let mut t2 = Matrix3::<f64>::zeros();
+        if !self.normalize_points(data, sample, &mut normalized, &mut t1, &mut t2) {
             return Vec::new();
         }
-
-        // Check for NaN
-        if h.iter().any(|&x| x.is_nan() || x.is_infinite()) {
+        let Some(h_normalized) = self.solve_dlt(&normalized, sample, weights) else {
+            return Vec::new();
+        };
+        let Some(inverse_t2) = t2.try_inverse() else {
+            return Vec::new();
+        };
+        let mut h = inverse_t2 * h_normalized * t1;
+        let scale = h[(2, 2)];
+        if !scale.is_finite() || scale.abs() < 1e-12 {
             return Vec::new();
         }
-
-        // Reshape into 3x3 matrix (h[8] = 1.0)
-        let mut h_mat = Matrix3::<f64>::zeros();
-        h_mat[(0, 0)] = h[0];
-        h_mat[(0, 1)] = h[1];
-        h_mat[(0, 2)] = h[2];
-        h_mat[(1, 0)] = h[3];
-        h_mat[(1, 1)] = h[4];
-        h_mat[(1, 2)] = h[5];
-        h_mat[(2, 0)] = h[6];
-        h_mat[(2, 1)] = h[7];
-        h_mat[(2, 2)] = 1.0;
-
-        vec![Homography::new(h_mat)]
+        h /= scale;
+        if h.iter().any(|value| !value.is_finite()) {
+            return Vec::new();
+        }
+        vec![Homography::new(h)]
     }
 }
 
@@ -93,7 +210,6 @@ impl Estimator for HomographyEstimator {
         if sample.len() < self.sample_size() {
             return false;
         }
-        // Ensure all indices are distinct.
         for i in 0..sample.len() {
             for j in (i + 1)..sample.len() {
                 if sample[i] == sample[j] {
@@ -105,18 +221,10 @@ impl Estimator for HomographyEstimator {
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
-        let n = sample.len();
-        if n < self.sample_size() {
+        if sample.len() < self.sample_size() {
             return Vec::new();
         }
-
-        // For minimal case (4 points), use Gaussian elimination like C++
-        if n == self.sample_size() {
-            return self.estimate_minimal_model(data, sample);
-        }
-
-        // For non-minimal case, use the non-minimal solver
-        self.estimate_model_nonminimal(data, sample, None)
+        self.estimate_normalized(data, sample, None)
     }
 
     fn estimate_model_nonminimal(
@@ -125,76 +233,10 @@ impl Estimator for HomographyEstimator {
         sample: &[usize],
         weights: Option<&[f64]>,
     ) -> Vec<Self::Model> {
-        let n = sample.len();
-        if n < self.sample_size() {
+        if sample.len() < self.sample_size() {
             return Vec::new();
         }
-
-        // Build the 2N x 8 coefficient matrix and 2N x 1 inhomogeneous vector
-        // (fixing h[8] = 1.0 like C++)
-        let mut coefficients = DMatrix::<f64>::zeros(2 * n, 8);
-        let mut inhomogeneous = DVector::<f64>::zeros(2 * n);
-
-        for (i, &idx) in sample.iter().enumerate() {
-            let x1 = data.get(idx, 0);
-            let y1 = data.get(idx, 1);
-            let x2 = data.get(idx, 2);
-            let y2 = data.get(idx, 3);
-
-            let weight = weights.map(|w| w[idx]).unwrap_or(1.0);
-            let minus_weight_x1 = -weight * x1;
-            let minus_weight_y1 = -weight * y1;
-            let weight_x2 = weight * x2;
-            let weight_y2 = weight * y2;
-
-            // Row 2*i
-            coefficients[(2 * i, 0)] = minus_weight_x1;
-            coefficients[(2 * i, 1)] = minus_weight_y1;
-            coefficients[(2 * i, 2)] = -weight;
-            coefficients[(2 * i, 3)] = 0.0;
-            coefficients[(2 * i, 4)] = 0.0;
-            coefficients[(2 * i, 5)] = 0.0;
-            coefficients[(2 * i, 6)] = weight_x2 * x1;
-            coefficients[(2 * i, 7)] = weight_x2 * y1;
-            inhomogeneous[2 * i] = -weight_x2;
-
-            // Row 2*i + 1
-            coefficients[(2 * i + 1, 0)] = 0.0;
-            coefficients[(2 * i + 1, 1)] = 0.0;
-            coefficients[(2 * i + 1, 2)] = 0.0;
-            coefficients[(2 * i + 1, 3)] = minus_weight_x1;
-            coefficients[(2 * i + 1, 4)] = minus_weight_y1;
-            coefficients[(2 * i + 1, 5)] = -weight;
-            coefficients[(2 * i + 1, 6)] = weight_y2 * x1;
-            coefficients[(2 * i + 1, 7)] = weight_y2 * y1;
-            inhomogeneous[2 * i + 1] = -weight_y2;
-        }
-
-        // Solve the overdetermined system with SVD. nalgebra's ColPivQR solver
-        // only supports square systems; local optimization supplies 2N x 8.
-        let h = match coefficients.svd(true, true).solve(&inhomogeneous, 1e-12) {
-            Ok(h) => h,
-            Err(_) => return Vec::new(),
-        };
-
-        // Check for NaN
-        if h.iter().any(|&x| x.is_nan() || x.is_infinite()) {
-            return Vec::new();
-        }
-
-        // Reshape into 3x3 matrix (h[8] = 1.0)
-        let mut h_mat = Matrix3::<f64>::zeros();
-        h_mat[(0, 0)] = h[0];
-        h_mat[(0, 1)] = h[1];
-        h_mat[(0, 2)] = h[2];
-        h_mat[(1, 0)] = h[3];
-        h_mat[(1, 1)] = h[4];
-        h_mat[(1, 2)] = h[5];
-        h_mat[(2, 0)] = h[6];
-        h_mat[(2, 1)] = h[7];
-        h_mat[(2, 2)] = 1.0;
-
-        vec![Homography::new(h_mat)]
+        self.estimate_normalized(data, sample, weights)
     }
 
     fn is_valid_model(
@@ -204,9 +246,7 @@ impl Estimator for HomographyEstimator {
         _sample: &[usize],
         _threshold: f64,
     ) -> bool {
-        let det = model.h.determinant().abs();
-        let min_det = 1e-4;
-        let max_det = 1e4;
-        det > min_det && det < max_det
+        let determinant = model.h.determinant().abs();
+        determinant > 1e-4 && determinant < 1e4
     }
 }

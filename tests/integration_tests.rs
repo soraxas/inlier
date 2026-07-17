@@ -68,6 +68,45 @@ fn test_estimate_homography_projective_transform() {
 }
 
 #[test]
+fn test_estimate_homography_large_pixel_coordinates() {
+    let homography = Matrix3::new(
+        1.000_3, -0.000_2, 45_000.0, 0.000_15, 0.999_7, -28_000.0, 2e-10, -3e-10, 1.0,
+    );
+    let n_points = 24;
+    let mut points1 = DataMatrix::zeros(n_points, 2);
+    let mut points2 = DataMatrix::zeros(n_points, 2);
+    for index in 0..n_points {
+        let source = Vector3::new(
+            1.0e8 + (index % 6) as f64 * 18_000.0,
+            -2.0e8 + (index / 6) as f64 * 22_000.0,
+            1.0,
+        );
+        let target = homography * source;
+        points1.set(index, 0, source.x);
+        points1.set(index, 1, source.y);
+        points2.set(index, 0, target.x / target.z);
+        points2.set(index, 1, target.y / target.z);
+    }
+
+    let settings = MetasacSettings {
+        min_iterations: 1_000,
+        max_iterations: 1_000,
+        rng_seed: Some(11),
+        ..Default::default()
+    };
+    let result = estimate_homography(&points1, &points2, 0.01, Some(settings))
+        .expect("normalized DLT should handle large pixel coordinates");
+    assert_eq!(result.inliers.len(), n_points);
+    for index in 0..n_points {
+        let projected =
+            result.model.h * Vector3::new(points1.get(index, 0), points1.get(index, 1), 1.0);
+        let dx = projected.x / projected.z - points2.get(index, 0);
+        let dy = projected.y / projected.z - points2.get(index, 1);
+        assert!((dx * dx + dy * dy).sqrt() < 0.01);
+    }
+}
+
+#[test]
 fn test_estimate_fundamental_matrix_synthetic() {
     // Create synthetic 2D point correspondences
     // Points on a plane with some noise
