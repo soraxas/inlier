@@ -52,10 +52,17 @@ impl Estimator for LineEstimator {
             if idx1 >= data.n_points() || idx2 >= data.n_points() {
                 return false;
             }
-            let dx = data.get(idx1, 0) - data.get(idx2, 0);
-            let dy = data.get(idx1, 1) - data.get(idx2, 1);
+            let x1 = data.get(idx1, 0);
+            let y1 = data.get(idx1, 1);
+            let x2 = data.get(idx2, 0);
+            let y2 = data.get(idx2, 1);
+            if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
+                return false;
+            }
+            let dx = x1 - x2;
+            let dy = y1 - y2;
             let dist_sq = dx * dx + dy * dy;
-            if dist_sq < 1e-10 {
+            if !dist_sq.is_finite() || dist_sq < 1e-10 {
                 return false; // Points are too close
             }
         }
@@ -224,5 +231,19 @@ impl Estimator for LineEstimator {
         // Check that the line parameters are normalized
         let norm_sq = model.params[0] * model.params[0] + model.params[1] * model.params[1];
         (norm_sq - 1.0).abs() < 1e-6
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_validation_rejects_non_finite_coordinates() {
+        let estimator = LineEstimator::new();
+        let mut data = DataMatrix::from_row_slice(2, 2, &[0.0, 0.0, 1.0, 1.0]);
+        data.set(1, 0, f64::NAN);
+
+        assert!(!estimator.is_valid_sample(&data, &[0, 1]));
     }
 }
