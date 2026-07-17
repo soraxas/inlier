@@ -102,4 +102,23 @@ proptest! {
         prop_assert!(!FundamentalEstimator::new().is_valid_sample(&correspondence_data, &[0, 1, 2, 3, 4, 5, 6]));
         prop_assert!(!EssentialEstimator::new().is_valid_sample(&correspondence_data, &[0, 1, 2, 3, 4]));
     }
+
+    #[test]
+    fn minimal_estimators_handle_non_finite_input_without_panicking(
+        index in 0usize..4,
+        non_finite in prop_oneof![Just(f64::NAN), Just(f64::INFINITY), Just(f64::NEG_INFINITY)],
+    ) {
+        let mut correspondence_data = DataMatrix::zeros(8, 4);
+        correspondence_data.set(0, index, non_finite);
+
+        prop_assert!(assert_no_panic(|| HomographyEstimator::new()
+            .estimate_model(&correspondence_data, &[0, 1, 2, 3]))
+            .is_empty());
+        prop_assert!(assert_no_panic(|| FundamentalEstimator::new()
+            .estimate_model(&correspondence_data, &[0, 1, 2, 3, 4, 5, 6]))
+            .is_empty());
+        prop_assert!(assert_no_panic(|| EssentialEstimator::new()
+            .estimate_model(&correspondence_data, &[0, 1, 2, 3, 4]))
+            .is_empty());
+    }
 }
