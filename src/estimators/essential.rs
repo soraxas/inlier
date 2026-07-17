@@ -140,15 +140,18 @@ impl Estimator for EssentialEstimator {
         _sample: &[usize],
         _threshold: f64,
     ) -> bool {
-        // Essential matrix should have determinant = 0 and two equal singular values
-        let det = model.e.determinant().abs();
-        det < 1e-3 * _threshold.max(1.0)
+        let norm = model.e.norm();
+        norm.is_finite()
+            && norm > 1e-12
+            && model.e.iter().all(|value| value.is_finite())
+            && model.e.determinant().abs() / norm.powi(3) < 1e-6
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::EssentialMatrix;
 
     #[test]
     fn sample_validation_only_inspects_the_minimal_sample() {
@@ -164,5 +167,16 @@ mod tests {
         let estimator = EssentialEstimator::new();
         assert!(estimator.is_valid_sample(&data, &[0, 1, 2, 3, 4]));
         assert!(!estimator.is_valid_sample(&data, &[0, 1, 2, 3, 5]));
+    }
+
+    #[test]
+    fn model_validation_rejects_the_zero_matrix() {
+        let estimator = EssentialEstimator::new();
+        assert!(!estimator.is_valid_model(
+            &EssentialMatrix::new(Matrix3::zeros()),
+            &DataMatrix::zeros(0, 4),
+            &[],
+            1.0,
+        ));
     }
 }

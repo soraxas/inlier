@@ -301,8 +301,12 @@ impl Estimator for FundamentalEstimator {
 
         // Denormalize: F = T2^T * F_norm * T1
         let f = t2.transpose() * self.enforce_rank_two(f_norm) * t1;
+        let norm = f.norm();
+        if !norm.is_finite() || norm < 1e-12 {
+            return Vec::new();
+        }
 
-        vec![FundamentalMatrix::new(f)]
+        vec![FundamentalMatrix::new(f / norm)]
     }
 
     fn estimate_model_nonminimal(
@@ -381,8 +385,12 @@ impl Estimator for FundamentalEstimator {
 
         // Denormalize: F = T2^T * F_norm * T1
         let f = t2.transpose() * self.enforce_rank_two(f_norm) * t1;
+        let norm = f.norm();
+        if !norm.is_finite() || norm < 1e-12 {
+            return Vec::new();
+        }
 
-        vec![FundamentalMatrix::new(f)]
+        vec![FundamentalMatrix::new(f / norm)]
     }
 
     fn is_valid_model(
@@ -392,15 +400,20 @@ impl Estimator for FundamentalEstimator {
         _sample: &[usize],
         _threshold: f64,
     ) -> bool {
-        // Basic sanity check: determinant should be small (rank-2 constraint)
-        let det = model.f.determinant().abs();
-        det < 1e-3 * _threshold.max(1.0)
+        let norm = model.f.norm();
+        norm.is_finite()
+            && norm > 1e-12
+            && model.f.iter().all(|value| value.is_finite())
+            // det(F) scales cubically with F, so compare a normalized rank
+            // residual instead of an absolute determinant.
+            && model.f.determinant().abs() / norm.powi(3) < 1e-6
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::FundamentalMatrix;
 
     fn calibrated_translation_correspondences(
         count: usize,
@@ -460,6 +473,17 @@ mod tests {
         let projected = estimator.enforce_rank_two(matrix);
 
         assert!(projected.determinant().abs() < 1e-12);
+    }
+
+    #[test]
+    fn model_validation_rejects_the_zero_matrix() {
+        let estimator = FundamentalEstimator::new();
+        assert!(!estimator.is_valid_model(
+            &FundamentalMatrix::new(Matrix3::zeros()),
+            &DataMatrix::zeros(0, 4),
+            &[],
+            1.0,
+        ));
     }
 
     #[test]
