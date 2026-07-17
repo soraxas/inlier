@@ -92,6 +92,14 @@ ensure-cargo-fuzz:
   fi
   cargo install cargo-fuzz --locked
 
+ensure-cargo-mutants:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if cargo mutants --version >/dev/null 2>&1; then
+    exit 0
+  fi
+  cargo install cargo-mutants --locked
+
 test-rust profile='--release': ensure-nextest
   cargo nextest run --workspace --all-targets {{profile}}
 
@@ -121,6 +129,10 @@ coverage-doctests lcov='lcov.info': ensure-nextest ensure-llvm-cov
 # or in scheduled CI; corpus and crash artifacts are intentionally ignored.
 fuzz-public-api duration='60': ensure-cargo-fuzz
   cargo fuzz run public_api -- -max_total_time={{duration}}
+
+# Target control flow and validation rather than expensive floating-point kernels.
+mutants path='src/core.rs': ensure-cargo-mutants
+  cargo mutants --file "{{path}}"
 
 # Run deterministic, synthetic end-to-end estimator benchmarks. Real-world benchmark assets
 # belong in the inlier-data submodule.

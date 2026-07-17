@@ -120,6 +120,14 @@ insta = "1"
 proptest = "1"
 spatialrust-inlier = { path = "crates/spatialrust-inlier" }
 
+# Property tests spend most of their time generating and shrinking cases.
+# Optimizing these dependencies keeps structured numerical testing practical.
+[profile.test.package.proptest]
+opt-level = 3
+
+[profile.test.package.rand_chacha]
+opt-level = 3
+
 [[example]]
 name = "plot_line_fitting"
 required-features = ["examples"]

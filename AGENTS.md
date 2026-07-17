@@ -44,6 +44,21 @@ cargo bench --bench rejection -- --quick
 extend properties in `tests/estimator_safety.rs` for finite output, scale
 stability, valid-input round trips, and degenerate-input rejection.
 
+For numerical algorithms, assert residuals or backward error rather than exact
+elements when multiple valid floating-point answers exist. Use absolute error
+near zero, relative error across scales, ULP bounds only for near-correctly
+rounded scalar operations, and `approx` assertions where appropriate. Compare
+small cases against an independent algorithm or high-precision oracle when a
+closed-form expected result is unavailable.
+
+Do not use uniform random floats as the only numerical input source. Maintain
+a deliberate adversarial corpus: signed zero, subnormals, extreme finite
+values, NaN/infinity rejection, cancellation, one-ULP neighbors, nearly
+singular/rank-deficient matrices, clustered eigenvalues, and dimensions around
+SIMD/block boundaries. Construct matrices with intended structure (SPD as
+`M^T M + alpha I`, controlled condition numbers, known spectra) instead of
+filtering arbitrary random matrices.
+
 `cargo-fuzz` targets untrusted byte input and must assert semantic safety, not
 only absence of panics. Run the bounded public API target with:
 
@@ -66,6 +81,14 @@ Nightly CI should run targeted `cargo mutants --package inlier` and short
 longer fuzzing campaigns. Run Miri when code introduces unsafe behavior or
 subtle memory assumptions; use Loom for concurrent algorithms and Kani only
 for small, critical bounded proofs.
+
+Every PR runs deterministic regressions, nextest, focused Proptest properties,
+and small differential tests. Nightly runs increase property-case counts and
+exercise multiple feature/backend configurations. Schedule wall-clock Criterion
+benchmarks on controlled hardware; benchmark sizes, shapes, layouts, data
+conditioning, throughput, allocation, and backend selection. Use
+Iai-Callgrind for instruction/cache regression signals when shared CI timing is
+too noisy.
 
 For runtime regressions, use Criterion (already used through CodSpeed) for
 statistical microbenchmarks. Use Iai-Callgrind when instruction-level,
