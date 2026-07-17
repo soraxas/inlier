@@ -19,6 +19,31 @@ impl RigidTransformEstimator {
     pub fn new() -> Self {
         Self
     }
+
+    fn point(data: &DataMatrix, index: usize, offset: usize) -> Option<nalgebra::Vector3<f64>> {
+        if index >= data.n_points() || data.n_dims() < offset + 3 {
+            return None;
+        }
+        let point = nalgebra::Vector3::new(
+            data.get(index, offset),
+            data.get(index, offset + 1),
+            data.get(index, offset + 2),
+        );
+        point.iter().all(|value| value.is_finite()).then_some(point)
+    }
+
+    fn forms_triangle(
+        first: nalgebra::Vector3<f64>,
+        second: nalgebra::Vector3<f64>,
+        third: nalgebra::Vector3<f64>,
+    ) -> bool {
+        let first_edge = second - first;
+        let second_edge = third - first;
+        let scale = first_edge.norm().max(second_edge.norm());
+        scale.is_finite()
+            && scale > 1e-12
+            && first_edge.cross(&second_edge).norm() > 1e-10 * scale * scale
+    }
 }
 
 impl Estimator for RigidTransformEstimator {
@@ -40,20 +65,39 @@ impl Estimator for RigidTransformEstimator {
                 }
             }
         }
-        // Check for collinearity (simplified: just ensure we have enough points)
-        if sample.len() < 3 {
-            return false;
-        }
-        // Basic check: ensure data has 6 columns (x1,y1,z1,x2,y2,z2)
+        // A rigid transform is not uniquely determined by collinear points.
         if data.n_dims() < 6 {
             return false;
         }
-        true
+        let Some(source0) = Self::point(data, sample[0], 0) else {
+            return false;
+        };
+        let Some(source1) = Self::point(data, sample[1], 0) else {
+            return false;
+        };
+        let Some(source2) = Self::point(data, sample[2], 0) else {
+            return false;
+        };
+        let Some(target0) = Self::point(data, sample[0], 3) else {
+            return false;
+        };
+        let Some(target1) = Self::point(data, sample[1], 3) else {
+            return false;
+        };
+        let Some(target2) = Self::point(data, sample[2], 3) else {
+            return false;
+        };
+
+        Self::forms_triangle(source0, source1, source2)
+            && Self::forms_triangle(target0, target1, target2)
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
         let n = sample.len();
         if n < self.sample_size() || data.n_dims() < 6 {
+            return Vec::new();
+        }
+        if n == self.sample_size() && !self.is_valid_sample(data, sample) {
             return Vec::new();
         }
 

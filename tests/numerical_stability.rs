@@ -368,6 +368,21 @@ fn rigid_and_similarity_estimators_reject_collapsed_correspondences() {
 }
 
 #[test]
+fn rigid_transform_estimator_rejects_collinear_minimal_samples() {
+    let data = DataMatrix::from_row_slice(
+        3,
+        6,
+        &[
+            0.0, 0.0, 0.0, 4.0, -2.0, 1.0, 1.0, 0.0, 0.0, 5.0, -2.0, 1.0, 2.0, 0.0, 0.0, 6.0, -2.0,
+            1.0,
+        ],
+    );
+    let estimator = RigidTransformEstimator::new();
+    assert!(!estimator.is_valid_sample(&data, &[0, 1, 2]));
+    assert!(estimator.estimate_model(&data, &[0, 1, 2]).is_empty());
+}
+
+#[test]
 fn estimate_rigid_transform_rejects_degenerate_public_inputs() {
     let two_src = DataMatrix::from_row_slice(2, 3, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
     let two_dst = DataMatrix::from_row_slice(2, 3, &[1.0, 2.0, 3.0, 2.0, 2.0, 3.0]);
@@ -376,6 +391,20 @@ fn estimate_rigid_transform_rejects_degenerate_public_inputs() {
     let src = DataMatrix::from_row_slice(3, 3, &[0.0, 0.0, 0.0, 1.0, f64::NAN, 0.0, 0.0, 1.0, 0.0]);
     let dst = DataMatrix::from_row_slice(3, 3, &[1.0, 2.0, 3.0, 2.0, 2.0, 3.0, 1.0, 3.0, 3.0]);
     assert!(estimate_rigid_transform(&src, &dst, 0.1, Some(ransac_settings(8))).is_err());
+
+    let collinear_src =
+        DataMatrix::from_row_slice(3, 3, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0]);
+    let collinear_dst =
+        DataMatrix::from_row_slice(3, 3, &[1.0, 2.0, 3.0, 2.0, 2.0, 3.0, 3.0, 2.0, 3.0]);
+    assert!(
+        estimate_rigid_transform(
+            &collinear_src,
+            &collinear_dst,
+            0.1,
+            Some(ransac_settings(8))
+        )
+        .is_err()
+    );
 }
 
 #[test]

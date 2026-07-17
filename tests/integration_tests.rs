@@ -282,9 +282,9 @@ fn test_estimate_rigid_transform_synthetic() {
 
     // Create points and apply a known rigid transform
     for i in 0..n_points {
-        let x = (i as f64) * 10.0;
-        let y = (i as f64) * 5.0;
-        let z = (i as f64) * 2.0;
+        let x = (i % 5) as f64 * 10.0;
+        let y = (i / 5) as f64 * 12.0;
+        let z = (i % 3) as f64 * 4.0;
         points1.set(i, 0, x);
         points1.set(i, 1, y);
         points1.set(i, 2, z);
