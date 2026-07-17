@@ -162,8 +162,14 @@ impl PlaneEstimator for GlobalPlanePeeling {
             // Fit the dominant plane over ALL remaining points.
             let sub: Vec<[f32; 3]> = remaining.iter().map(|&i| pts[i]).collect();
             let settings = Some(inlier::MetasacSettings {
+                min_iterations: self.max_iterations,
                 max_iterations: self.max_iterations,
+                max_sampling_attempts: 100,
                 confidence: self.confidence,
+                scoring: inlier::settings::ScoringType::Msac,
+                sampler: inlier::settings::SamplerType::Uniform,
+                local_optimization: inlier::settings::LocalOptimizationType::None,
+                final_optimization: inlier::settings::LocalOptimizationType::None,
                 // Peeling should be reproducible for a fixed point cloud. It
                 // also prevents rare test and pipeline variations caused by
                 // drawing a different minimal set on each invocation.
