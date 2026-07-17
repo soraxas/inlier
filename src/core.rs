@@ -733,6 +733,26 @@ where
 /// A meta-framework for Sample Consensus (RANSAC) algorithms.
 ///
 /// This is a structural analogue of the C++ `superansac::SupeRansac` class.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MetaSacDiagnostics {
+    /// Number of calls made to the sampler.
+    pub sampling_attempts: usize,
+    /// Samples rejected by the estimator before model fitting.
+    pub rejected_samples: usize,
+    /// Valid samples that produced no candidate model.
+    pub model_estimation_failures: usize,
+    /// Candidate models emitted by the minimal solver.
+    pub candidate_models: usize,
+    /// Candidate models rejected by model validation.
+    pub rejected_models: usize,
+    /// Models passed to the scoring function.
+    pub scored_models: usize,
+    /// Local-optimization invocations after a new best model.
+    pub local_optimization_runs: usize,
+    /// Final-optimization invocations after RANSAC completes.
+    pub final_optimization_runs: usize,
+}
+
 #[derive(Debug)]
 pub struct MetaSAC<E, Sa, Sc, LO, T, IS>
 where
@@ -758,6 +778,7 @@ where
     pub best_inliers: Vec<usize>,
     pub best_score: Option<Sc::Score>,
     pub iteration: usize,
+    pub diagnostics: MetaSacDiagnostics,
 }
 
 impl<E, Sa, Sc, LO, T, IS> MetaSAC<E, Sa, Sc, LO, T, IS>
@@ -795,6 +816,7 @@ where
             best_inliers: Vec::new(),
             best_score: None,
             iteration: 0,
+            diagnostics: MetaSacDiagnostics::default(),
         }
     }
 
@@ -816,6 +838,7 @@ where
         self.best_model = None;
         self.best_score = None;
         self.iteration = 0;
+        self.diagnostics = MetaSacDiagnostics::default();
 
         let threshold = self.scoring.threshold();
 
@@ -828,21 +851,29 @@ where
                 for _ in 0..self.settings.max_sampling_attempts {
                     // (i) take sample, (ii) check if sample is valid, (iii) estimate model
                     // if any failed, update sampler and continue
-                    if measure_block!(
+                    self.diagnostics.sampling_attempts += 1;
+                    let sampled = measure_block!(
                         "sample_draw",
                         self.sampler.sample(data, sample_size, &mut sample[..])
-                    ) && measure_block!(
-                        "sample_validity",
-                        self.estimator.is_valid_sample(data, &sample)
-                    ) {
+                    );
+                    let valid_sample = sampled
+                        && measure_block!(
+                            "sample_validity",
+                            self.estimator.is_valid_sample(data, &sample)
+                        );
+                    if valid_sample {
                         models = measure_block!("model_estimation", {
                             self.estimator.estimate_model(data, &sample)
                         });
 
                         if !models.is_empty() {
+                            self.diagnostics.candidate_models += models.len();
                             break;
                         }
-                    };
+                        self.diagnostics.model_estimation_failures += 1;
+                    } else {
+                        self.diagnostics.rejected_samples += 1;
+                    }
                     measure_block!("sampler_update_failed", {
                         self.sampler
                             .update(&sample, sample_size, self.iteration, 0.0)
@@ -865,8 +896,11 @@ where
                         self.estimator
                             .is_valid_model(&model, data, &sample, threshold)
                     }) {
+                        self.diagnostics.rejected_models += 1;
                         continue;
                     }
+
+                    self.diagnostics.scored_models += 1;
 
                     tmp_inliers.clear();
 
@@ -915,6 +949,7 @@ where
                         &self.best_model,
                         &self.best_score,
                     ) {
+                        self.diagnostics.local_optimization_runs += 1;
                         let (refined_model, _, _) =
                             lo.run(data, &self.best_inliers, best_model, best_score);
                         let mut refined_inliers = Vec::new();
@@ -962,6 +997,7 @@ where
             &self.best_score,
         ) && self.best_inliers.len() > sample_size
         {
+            self.diagnostics.final_optimization_runs += 1;
             let (refined_model, _, _) =
                 final_opt.run(data, &self.best_inliers, best_model, best_score);
             let mut refined_inliers = Vec::new();
@@ -1158,6 +1194,13 @@ mod tests {
         );
         assert_eq!(pipeline.best_score, Some(MockScore(2.0)));
         assert!(pipeline.best_model.expect("model").0);
+        assert!(pipeline.diagnostics.sampling_attempts >= 1);
+        assert!(pipeline.diagnostics.candidate_models >= 1);
+        assert!(pipeline.diagnostics.scored_models >= 1);
+        assert_eq!(pipeline.diagnostics.rejected_samples, 0);
+        assert_eq!(pipeline.diagnostics.rejected_models, 0);
+        assert_eq!(pipeline.diagnostics.local_optimization_runs, 1);
+        assert_eq!(pipeline.diagnostics.final_optimization_runs, 0);
         // We don't assert an exact iteration count here, only that `run`
         // completed without panicking and produced a consistent result.
     }

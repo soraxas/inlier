@@ -4,7 +4,7 @@
 //! similar to the Python API.
 
 use crate::choices::{LocalOptimizerChoice, SamplerChoice};
-use crate::core::{Estimator, MetaSAC, NoopInlierSelector, Scoring};
+use crate::core::{Estimator, MetaSAC, MetaSacDiagnostics, NoopInlierSelector, Scoring};
 use crate::estimators::{
     AbsolutePoseEstimator, EssentialEstimator, FundamentalEstimator, HomographyEstimator,
     LineEstimator, PlaneEstimator, RigidTransformEstimator,
@@ -32,6 +32,8 @@ pub struct EstimationResult<M> {
     pub score: Score,
     /// Number of iterations performed.
     pub iterations: usize,
+    /// Sampling and model-fitting counters collected during estimation.
+    pub diagnostics: MetaSacDiagnostics,
 }
 
 type Residual<M> = fn(&DataMatrix, &M, usize) -> f64;
@@ -355,6 +357,7 @@ pub fn estimate_homography(
             inliers: ransac.best_inliers.clone(),
             score: *score,
             iterations: ransac.iteration,
+            diagnostics: ransac.diagnostics.clone(),
         }),
         _ => Err("Failed to estimate homography".to_string()),
     }
@@ -442,6 +445,7 @@ pub fn estimate_fundamental_matrix(
             inliers: ransac.best_inliers.clone(),
             score: *score,
             iterations: ransac.iteration,
+            diagnostics: ransac.diagnostics.clone(),
         }),
         _ => Err("Failed to estimate fundamental matrix".to_string()),
     }
@@ -529,6 +533,7 @@ pub fn estimate_essential_matrix(
             inliers: ransac.best_inliers.clone(),
             score: *score,
             iterations: ransac.iteration,
+            diagnostics: ransac.diagnostics.clone(),
         }),
         _ => Err("Failed to estimate essential matrix".to_string()),
     }
@@ -608,6 +613,7 @@ pub fn estimate_absolute_pose(
             inliers: ransac.best_inliers.clone(),
             score: *score,
             iterations: ransac.iteration,
+            diagnostics: ransac.diagnostics.clone(),
         }),
         _ => Err("Failed to estimate absolute pose".to_string()),
     }
@@ -705,6 +711,7 @@ pub fn estimate_line(
             inliers: ransac.best_inliers.clone(),
             score: *score,
             iterations: ransac.iteration,
+            diagnostics: ransac.diagnostics.clone(),
         }),
         _ => Err("Failed to estimate line".to_string()),
     }
@@ -783,6 +790,7 @@ pub fn estimate_rigid_transform(
             inliers: ransac.best_inliers.clone(),
             score: *score,
             iterations: ransac.iteration,
+            diagnostics: ransac.diagnostics.clone(),
         }),
         _ => Err("Failed to estimate rigid transform".to_string()),
     }
@@ -851,6 +859,7 @@ pub fn estimate_plane(
             inliers: ransac.best_inliers.clone(),
             score: *score,
             iterations: ransac.iteration,
+            diagnostics: ransac.diagnostics.clone(),
         }),
         _ => Err("Failed to estimate plane".to_string()),
     }
