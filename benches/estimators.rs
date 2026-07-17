@@ -485,5 +485,106 @@ fn benchmark_estimators(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, benchmark_estimators);
+fn scaling_settings(seed: u64) -> MetasacSettings {
+    MetasacSettings {
+        min_iterations: 400,
+        max_iterations: 400,
+        max_sampling_attempts: 1,
+        rng_seed: Some(seed),
+        scoring: ScoringType::Msac,
+        sampler: SamplerType::Uniform,
+        local_optimization: inlier::settings::LocalOptimizationType::None,
+        final_optimization: inlier::settings::LocalOptimizationType::None,
+        ..Default::default()
+    }
+}
+
+fn benchmark_input_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("input_scaling");
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(3));
+
+    for count in [64, 256, 1_024] {
+        let settings = scaling_settings(SEED ^ count as u64);
+        let (source, target) = homography_correspondences(Scene::Outliers, count);
+        group.bench_with_input(
+            BenchmarkId::new("homography/msac_uniform", count),
+            &(source, target, settings.clone()),
+            |bench, (source, target, settings)| {
+                bench.iter(|| {
+                    black_box(
+                        estimate_homography(
+                            black_box(source),
+                            black_box(target),
+                            0.5,
+                            Some(settings.clone()),
+                        )
+                        .expect("benchmark scene must estimate a homography"),
+                    )
+                });
+            },
+        );
+
+        let (source, target) = image_correspondences(Scene::Outliers, count);
+        group.bench_with_input(
+            BenchmarkId::new("fundamental/msac_uniform", count),
+            &(source, target, settings.clone()),
+            |bench, (source, target, settings)| {
+                bench.iter(|| {
+                    black_box(
+                        estimate_fundamental_matrix(
+                            black_box(source),
+                            black_box(target),
+                            0.01,
+                            Some(settings.clone()),
+                        )
+                        .expect("benchmark scene must estimate a fundamental matrix"),
+                    )
+                });
+            },
+        );
+
+        let (source, target) = image_correspondences(Scene::Outliers, count);
+        group.bench_with_input(
+            BenchmarkId::new("essential/msac_uniform", count),
+            &(source, target, settings.clone()),
+            |bench, (source, target, settings)| {
+                bench.iter(|| {
+                    black_box(
+                        estimate_essential_matrix(
+                            black_box(source),
+                            black_box(target),
+                            0.01,
+                            Some(settings.clone()),
+                        )
+                        .expect("benchmark scene must estimate an essential matrix"),
+                    )
+                });
+            },
+        );
+
+        let (source, target) = rigid_correspondences(Scene::Outliers, count);
+        group.bench_with_input(
+            BenchmarkId::new("rigid_transform/msac_uniform", count),
+            &(source, target, settings),
+            |bench, (source, target, settings)| {
+                bench.iter(|| {
+                    black_box(
+                        estimate_rigid_transform(
+                            black_box(source),
+                            black_box(target),
+                            0.05,
+                            Some(settings.clone()),
+                        )
+                        .expect("benchmark scene must estimate a rigid transform"),
+                    )
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+criterion_group!(benches, benchmark_estimators, benchmark_input_scaling);
 criterion_main!(benches);
