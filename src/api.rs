@@ -298,6 +298,9 @@ pub fn estimate_homography(
     }
     validate_finite_matrix(points1, "points1")?;
     validate_finite_matrix(points2, "points2")?;
+    if points1.n_points() < 4 {
+        return Err("need at least 4 correspondences to fit a homography".to_string());
+    }
     if !has_non_collinear_2d_points(points1) || !has_non_collinear_2d_points(points2) {
         return Err(
             "homography correspondences must contain non-collinear points in both images"
@@ -382,6 +385,15 @@ pub fn estimate_fundamental_matrix(
     }
     validate_finite_matrix(points1, "points1")?;
     validate_finite_matrix(points2, "points2")?;
+    if points1.n_points() < 7 {
+        return Err("need at least 7 correspondences to fit a fundamental matrix".to_string());
+    }
+    if !has_non_collinear_2d_points(points1) || !has_non_collinear_2d_points(points2) {
+        return Err(
+            "fundamental correspondences must contain non-collinear points in both images"
+                .to_string(),
+        );
+    }
 
     // Combine into data matrix: [x1, y1, x2, y2]
     let n = points1.n_points();
@@ -460,6 +472,15 @@ pub fn estimate_essential_matrix(
     }
     validate_finite_matrix(points1, "points1")?;
     validate_finite_matrix(points2, "points2")?;
+    if points1.n_points() < 5 {
+        return Err("need at least 5 correspondences to fit an essential matrix".to_string());
+    }
+    if !has_non_collinear_2d_points(points1) || !has_non_collinear_2d_points(points2) {
+        return Err(
+            "essential correspondences must contain non-collinear points in both images"
+                .to_string(),
+        );
+    }
 
     // Combine into data matrix: [x1, y1, x2, y2]
     let n = points1.n_points();

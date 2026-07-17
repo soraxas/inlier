@@ -142,6 +142,16 @@ fn estimate_homography_rejects_collinear_correspondences_before_ransac() {
 }
 
 #[test]
+fn epipolar_apis_reject_collapsed_correspondences_before_ransac() {
+    let points = DataMatrix::zeros(8, 2);
+    let fundamental_error = estimate_fundamental_matrix(&points, &points, 1.0, None).unwrap_err();
+    assert!(fundamental_error.contains("non-collinear"));
+
+    let essential_error = estimate_essential_matrix(&points, &points, 1.0, None).unwrap_err();
+    assert!(essential_error.contains("non-collinear"));
+}
+
+#[test]
 fn high_level_apis_reject_invalid_ransac_settings() {
     let points = DataMatrix::from_row_slice(2, 2, &[0.0, 0.0, 1.0, 1.0]);
     let cases = [
