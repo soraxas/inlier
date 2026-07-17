@@ -2443,6 +2443,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "codspeed"
+version = "5.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7083f253260bcb4aaa3b4aa4c52973703dabc1a85c2f193997e2689aafa8a919"
+dependencies = [
+ "anyhow",
+ "cc",
+ "colored",
+ "getrandom 0.4.3",
+ "glob",
+ "libc",
+ "nix",
+ "serde",
+ "serde_json",
+ "statrs",
+]
+
+[[package]]
+name = "codspeed-criterion-compat"
+version = "5.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9f24251445188c69d50f10179d795424bd71b533b7e3f84fc03f26893b01af0"
+dependencies = [
+ "clap",
+ "codspeed",
+ "codspeed-criterion-compat-walltime",
+ "colored",
+ "regex",
+]
+
+[[package]]
+name = "codspeed-criterion-compat-walltime"
+version = "5.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c38205d56e2cb4fe04b708de7f9653a3f1b89edbe3a20b28f21e9e525e9e061"
+dependencies = [
+ "anes",
+ "cast",
+ "ciborium",
+ "clap",
+ "codspeed",
+ "criterion-plot",
+ "is-terminal",
+ "itertools 0.10.5",
+ "num-traits",
+ "once_cell",
+ "oorandom",
+ "plotters",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tinytemplate",
+ "walkdir",
+]
+
+[[package]]
 name = "color"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4265,7 +4323,7 @@ dependencies = [
  "anyhow",
  "approx 0.5.1",
  "argmin",
- "criterion",
+ "codspeed-criterion-compat",
  "derive_builder",
  "float-ord",
  "getrandom 0.3.4",
@@ -7223,6 +7281,16 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "statrs"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a3fe7c28c6512e766b0874335db33c94ad7b8f9054228ae1c2abd47ce7d335e"
+dependencies = [
+ "approx 0.5.1",
+ "num-traits",
+]
 
 [[package]]
 name = "strict-num"
