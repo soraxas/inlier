@@ -224,10 +224,11 @@ fn test_estimate_absolute_pose_synthetic() {
     let mut points_3d = DataMatrix::zeros(n_points, 3);
     let mut points_2d = DataMatrix::zeros(n_points, 2);
 
-    // Create points on a plane at z=5
+    // Create non-collinear points on a plane at z=5. P3P permits a planar
+    // scene, but each minimal sample must form a non-degenerate triangle.
     for i in 0..n_points {
-        let x = (i as f64) * 10.0 - 50.0;
-        let y = (i as f64) * 5.0 - 25.0;
+        let x = (i % 5) as f64 * 10.0 - 20.0;
+        let y = (i / 5) as f64 * 12.0 - 6.0;
         points_3d.set(i, 0, x);
         points_3d.set(i, 1, y);
         points_3d.set(i, 2, 5.0);
@@ -350,6 +351,20 @@ fn test_high_level_api_rejects_unimplemented_optimizer() {
     let error = estimate_line(&points, 0.1, Some(settings))
         .expect_err("IRLS is not available through the high-level API");
     assert!(error.contains("local optimization Irls is not implemented"));
+}
+
+#[test]
+fn test_absolute_pose_rejects_collapsed_world_points() {
+    let world = DataMatrix::zeros(4, 3);
+    let image = DataMatrix::zeros(4, 2);
+    let settings = MetasacSettings {
+        min_iterations: 16,
+        max_iterations: 16,
+        max_sampling_attempts: 1,
+        rng_seed: Some(13),
+        ..Default::default()
+    };
+    assert!(estimate_absolute_pose(&world, &image, 0.01, Some(settings)).is_err());
 }
 
 #[test]

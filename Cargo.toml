@@ -162,3 +162,7 @@ harness = false
 [[bench]]
 name = "components"
 harness = false
+
+[[bench]]
+name = "rejection"
+harness = false

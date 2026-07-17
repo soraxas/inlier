@@ -25,9 +25,15 @@ dimension only when the public API actually honors it: current API functions
 always use least-squares local/final optimization, and
 `IdentityPreconditioner` is the only implemented preconditioner.
 
+`benches/rejection.rs` tracks malformed/degenerate public inputs for every
+estimator. Rejection benchmarks must assert an `Err` result and use a bounded,
+deterministic iteration budget so they catch validation regressions without
+turning the CodSpeed job into a stress test.
+
 Run these locally with:
 
 ```bash
 cargo bench --bench estimators -- --list
 cargo bench --bench components -- --quick
+cargo bench --bench rejection -- --quick
 ```

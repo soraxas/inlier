@@ -107,7 +107,30 @@ impl Estimator for AbsolutePoseEstimator {
         if data.n_dims() < 5 {
             return false;
         }
-        true
+        let mut world = [Vector3::zeros(); 3];
+        for (position, &index) in sample.iter().take(3).enumerate() {
+            if index >= data.n_points() {
+                return false;
+            }
+            let image_x = data.get(index, 0);
+            let image_y = data.get(index, 1);
+            world[position] =
+                Vector3::new(data.get(index, 2), data.get(index, 3), data.get(index, 4));
+            if !image_x.is_finite()
+                || !image_y.is_finite()
+                || !world[position].iter().all(|v| v.is_finite())
+            {
+                return false;
+            }
+        }
+
+        let edge1 = world[1] - world[0];
+        let edge2 = world[2] - world[0];
+        let scale = edge1
+            .norm()
+            .max(edge2.norm())
+            .max((world[2] - world[1]).norm());
+        scale.is_finite() && scale > 1e-12 && edge1.cross(&edge2).norm() > 1e-10 * scale * scale
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
