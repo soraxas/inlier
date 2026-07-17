@@ -107,6 +107,33 @@ fn test_estimate_homography_large_pixel_coordinates() {
 }
 
 #[test]
+fn high_level_apis_reject_non_finite_coordinates_and_invalid_thresholds() {
+    let mut image_points = DataMatrix::zeros(8, 2);
+    image_points.set(0, 0, f64::NAN);
+    let clean_image_points = DataMatrix::zeros(8, 2);
+    assert!(estimate_homography(&image_points, &clean_image_points, 1.0, None).is_err());
+    assert!(estimate_fundamental_matrix(&image_points, &clean_image_points, 1.0, None).is_err());
+    assert!(estimate_essential_matrix(&image_points, &clean_image_points, 1.0, None).is_err());
+
+    let mut world_points = DataMatrix::zeros(4, 3);
+    world_points.set(0, 2, f64::INFINITY);
+    let clean_world_points = DataMatrix::zeros(4, 3);
+    let clean_image_points = DataMatrix::zeros(4, 2);
+    assert!(estimate_absolute_pose(&world_points, &clean_image_points, 1.0, None).is_err());
+    assert!(estimate_rigid_transform(&world_points, &clean_world_points, 1.0, None).is_err());
+    assert!(estimate_plane(&world_points, 1.0, None).is_err());
+
+    let mut line_points = DataMatrix::zeros(2, 2);
+    line_points.set(1, 1, f64::NEG_INFINITY);
+    assert!(estimate_line(&line_points, 1.0, None).is_err());
+
+    let valid_line_points = DataMatrix::from_row_slice(2, 2, &[0.0, 0.0, 1.0, 1.0]);
+    for invalid_threshold in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        assert!(estimate_line(&valid_line_points, invalid_threshold, None).is_err());
+    }
+}
+
+#[test]
 fn test_estimate_fundamental_matrix_synthetic() {
     // Create synthetic 2D point correspondences
     // Points on a plane with some noise

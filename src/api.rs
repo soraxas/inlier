@@ -36,6 +36,25 @@ pub struct EstimationResult<M> {
 
 type Residual<M> = fn(&DataMatrix, &M, usize) -> f64;
 
+fn validate_threshold(threshold: f64) -> Result<(), String> {
+    if threshold.is_finite() && threshold > 0.0 {
+        Ok(())
+    } else {
+        Err("threshold must be finite and greater than zero".to_string())
+    }
+}
+
+fn validate_finite_matrix(points: &DataMatrix, name: &str) -> Result<(), String> {
+    for row in 0..points.n_points() {
+        for column in 0..points.n_dims() {
+            if !points.get(row, column).is_finite() {
+                return Err(format!("{name} must contain only finite coordinates"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Runtime scoring selection for the high-level estimation APIs.
 enum ApiScoring<M> {
     Ransac(RansacInlierCountScoring<M, Residual<M>>),
@@ -221,12 +240,15 @@ pub fn estimate_homography(
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<Homography>, String> {
+    validate_threshold(threshold)?;
     if points1.n_points() != points2.n_points() {
         return Err("points1 and points2 must have the same number of points".to_string());
     }
     if points1.n_dims() != 2 || points2.n_dims() != 2 {
         return Err("points must be Nx2 matrices".to_string());
     }
+    validate_finite_matrix(points1, "points1")?;
+    validate_finite_matrix(points2, "points2")?;
 
     // Combine into data matrix: [x1, y1, x2, y2]
     let n = points1.n_points();
@@ -298,12 +320,15 @@ pub fn estimate_fundamental_matrix(
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<FundamentalMatrix>, String> {
+    validate_threshold(threshold)?;
     if points1.n_points() != points2.n_points() {
         return Err("points1 and points2 must have the same number of points".to_string());
     }
     if points1.n_dims() != 2 || points2.n_dims() != 2 {
         return Err("points must be Nx2 matrices".to_string());
     }
+    validate_finite_matrix(points1, "points1")?;
+    validate_finite_matrix(points2, "points2")?;
 
     // Combine into data matrix: [x1, y1, x2, y2]
     let n = points1.n_points();
@@ -375,12 +400,15 @@ pub fn estimate_essential_matrix(
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<EssentialMatrix>, String> {
+    validate_threshold(threshold)?;
     if points1.n_points() != points2.n_points() {
         return Err("points1 and points2 must have the same number of points".to_string());
     }
     if points1.n_dims() != 2 || points2.n_dims() != 2 {
         return Err("points must be Nx2 matrices".to_string());
     }
+    validate_finite_matrix(points1, "points1")?;
+    validate_finite_matrix(points2, "points2")?;
 
     // Combine into data matrix: [x1, y1, x2, y2]
     let n = points1.n_points();
@@ -452,12 +480,15 @@ pub fn estimate_absolute_pose(
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<AbsolutePose>, String> {
+    validate_threshold(threshold)?;
     if points_3d.n_points() != points_2d.n_points() {
         return Err("points_3d and points_2d must have the same number of points".to_string());
     }
     if points_3d.n_dims() != 3 || points_2d.n_dims() != 2 {
         return Err("points_3d must be Nx3 and points_2d must be Nx2".to_string());
     }
+    validate_finite_matrix(points_3d, "points_3d")?;
+    validate_finite_matrix(points_2d, "points_2d")?;
 
     // Combine into data matrix: [x2d, y2d, x3d, y3d, z3d]
     let n = points_3d.n_points();
@@ -552,6 +583,7 @@ pub fn estimate_line(
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<Line>, String> {
+    validate_threshold(threshold)?;
     if points.n_dims() != 2 {
         return Err("points must be Nx2 matrix (each row is [x, y])".to_string());
     }
@@ -561,13 +593,7 @@ pub fn estimate_line(
     if n < 2 {
         return Err("need at least 2 points to fit a line".to_string());
     }
-    for idx in 0..n {
-        for dim in 0..2 {
-            if !points.get(idx, dim).is_finite() {
-                return Err("points must contain only finite coordinates".to_string());
-            }
-        }
-    }
+    validate_finite_matrix(points, "points")?;
     let mut data = DataMatrix::zeros(n, 2);
     for i in 0..n {
         data.set(i, 0, points.get(i, 0));
@@ -627,6 +653,7 @@ pub fn estimate_rigid_transform(
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<RigidTransform>, String> {
+    validate_threshold(threshold)?;
     if points_src.n_points() != points_tgt.n_points() {
         return Err("points_src and points_tgt must have the same number of points".to_string());
     }
@@ -638,13 +665,8 @@ pub fn estimate_rigid_transform(
     if n < 3 {
         return Err("need at least 3 correspondences to fit a rigid transform".to_string());
     }
-    for idx in 0..n {
-        for dim in 0..3 {
-            if !points_src.get(idx, dim).is_finite() || !points_tgt.get(idx, dim).is_finite() {
-                return Err("points must contain only finite coordinates".to_string());
-            }
-        }
-    }
+    validate_finite_matrix(points_src, "points_src")?;
+    validate_finite_matrix(points_tgt, "points_tgt")?;
     let mut data = DataMatrix::zeros(n, 6);
     for i in 0..n {
         data.set(i, 0, points_src.get(i, 0));
@@ -716,6 +738,7 @@ pub fn estimate_plane(
     threshold: f64,
     settings_opt: Option<MetasacSettings>,
 ) -> Result<EstimationResult<Plane3>, String> {
+    validate_threshold(threshold)?;
     if points.n_dims() != 3 {
         return Err("points must be an Nx3 matrix (each row is [x, y, z])".to_string());
     }
@@ -723,13 +746,7 @@ pub fn estimate_plane(
     if n < 3 {
         return Err("need at least 3 points to fit a plane".to_string());
     }
-    for idx in 0..n {
-        for dim in 0..3 {
-            if !points.get(idx, dim).is_finite() {
-                return Err("points must contain only finite coordinates".to_string());
-            }
-        }
-    }
+    validate_finite_matrix(points, "points")?;
 
     let settings = settings_opt.unwrap_or_default();
     let estimator = PlaneEstimator::new();

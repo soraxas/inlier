@@ -56,7 +56,7 @@ impl Estimator for EssentialEstimator {
     }
 
     fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
-        if sample.len() < self.sample_size() {
+        if sample.len() < self.sample_size() || data.n_dims() < 4 {
             return false;
         }
         // Check for distinct indices
@@ -68,7 +68,9 @@ impl Estimator for EssentialEstimator {
             }
         }
 
-        (0..data.n_points()).all(|index| (0..4).all(|column| data.get(index, column).is_finite()))
+        sample.iter().all(|&index| {
+            index < data.n_points() && (0..4).all(|column| data.get(index, column).is_finite())
+        })
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
@@ -141,5 +143,26 @@ impl Estimator for EssentialEstimator {
         // Essential matrix should have determinant = 0 and two equal singular values
         let det = model.e.determinant().abs();
         det < 1e-3 * _threshold.max(1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_validation_only_inspects_the_minimal_sample() {
+        let mut data = DataMatrix::zeros(6, 4);
+        for row in 0..5 {
+            data.set(row, 0, row as f64 * 0.1);
+            data.set(row, 1, row as f64 * -0.2);
+            data.set(row, 2, row as f64 * 0.3);
+            data.set(row, 3, row as f64 * -0.4);
+        }
+        data.set(5, 0, f64::NAN);
+
+        let estimator = EssentialEstimator::new();
+        assert!(estimator.is_valid_sample(&data, &[0, 1, 2, 3, 4]));
+        assert!(!estimator.is_valid_sample(&data, &[0, 1, 2, 3, 5]));
     }
 }

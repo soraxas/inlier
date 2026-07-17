@@ -213,8 +213,8 @@ impl Estimator for FundamentalEstimator {
         7
     }
 
-    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
-        if sample.len() < self.sample_size() {
+    fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
+        if sample.len() < self.sample_size() || data.n_dims() < 4 {
             return false;
         }
         // Check for distinct indices
@@ -225,7 +225,9 @@ impl Estimator for FundamentalEstimator {
                 }
             }
         }
-        true
+        sample.iter().all(|&index| {
+            index < data.n_points() && (0..4).all(|column| data.get(index, column).is_finite())
+        })
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
