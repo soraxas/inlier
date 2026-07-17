@@ -33,8 +33,11 @@ pub fn sampson_error(f: &Matrix3<f64>, x1: &Vector2<f64>, x2: &Vector2<f64>) -> 
     let j_c_3 = f_x1_part[1];
     let n_j_c = (j_c_0 * j_c_0 + j_c_1 * j_c_1 + j_c_2 * j_c_2 + j_c_3 * j_c_3).sqrt();
 
-    if n_j_c < 1e-10 {
-        return 0.0;
+    if !c.is_finite() || !n_j_c.is_finite() || n_j_c < 1e-10 {
+        // The Sampson approximation is undefined when the epipolar-constraint
+        // Jacobian vanishes. Treat it as an invalid correspondence, never as
+        // a perfect inlier.
+        return f64::INFINITY;
     }
 
     // Sampson error: r = C / ||J_C||
@@ -426,4 +429,30 @@ pub fn refine_absolute_pose(
         optimized_params[5],
     );
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sampson_error_rejects_a_singular_epipolar_constraint() {
+        let error = sampson_error(
+            &Matrix3::zeros(),
+            &Vector2::new(0.2, -0.1),
+            &Vector2::new(-0.3, 0.4),
+        );
+        assert!(error.is_infinite() && error.is_sign_positive());
+    }
+
+    #[test]
+    fn sampson_error_is_zero_for_an_exact_valid_constraint() {
+        let fundamental = Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let error = sampson_error(
+            &fundamental,
+            &Vector2::new(0.2, -0.1),
+            &Vector2::new(0.2, -0.1),
+        );
+        assert!(error.abs() < 1e-12);
+    }
 }
