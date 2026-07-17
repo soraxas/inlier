@@ -55,6 +55,31 @@ fn validate_finite_matrix(points: &DataMatrix, name: &str) -> Result<(), String>
     Ok(())
 }
 
+fn has_non_collinear_2d_points(points: &DataMatrix) -> bool {
+    if points.n_points() < 3 || points.n_dims() < 2 {
+        return false;
+    }
+    let origin = Vector2::new(points.get(0, 0), points.get(0, 1));
+    let Some((_, direction, scale_squared)) = (1..points.n_points())
+        .map(|index| {
+            let point = Vector2::new(points.get(index, 0), points.get(index, 1));
+            let direction = point - origin;
+            (index, direction, direction.norm_squared())
+        })
+        .max_by(|left, right| left.2.total_cmp(&right.2))
+    else {
+        return false;
+    };
+    if !scale_squared.is_finite() || scale_squared < 1e-24 {
+        return false;
+    }
+    (1..points.n_points()).any(|index| {
+        let point = Vector2::new(points.get(index, 0), points.get(index, 1));
+        let offset = point - origin;
+        (direction.x * offset.y - direction.y * offset.x).abs() > 1e-10 * scale_squared
+    })
+}
+
 fn validate_settings(settings: &MetasacSettings, point_count: usize) -> Result<(), String> {
     if settings.min_iterations > settings.max_iterations {
         return Err("min_iterations must not exceed max_iterations".to_string());
@@ -273,6 +298,12 @@ pub fn estimate_homography(
     }
     validate_finite_matrix(points1, "points1")?;
     validate_finite_matrix(points2, "points2")?;
+    if !has_non_collinear_2d_points(points1) || !has_non_collinear_2d_points(points2) {
+        return Err(
+            "homography correspondences must contain non-collinear points in both images"
+                .to_string(),
+        );
+    }
 
     // Combine into data matrix: [x1, y1, x2, y2]
     let n = points1.n_points();

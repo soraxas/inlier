@@ -19,6 +19,25 @@ impl HomographyEstimator {
         Self
     }
 
+    fn non_collinear_triplet(
+        data: &DataMatrix,
+        first: usize,
+        second: usize,
+        third: usize,
+        offset: usize,
+    ) -> bool {
+        let first = nalgebra::Vector2::new(data.get(first, offset), data.get(first, offset + 1));
+        let second = nalgebra::Vector2::new(data.get(second, offset), data.get(second, offset + 1));
+        let third = nalgebra::Vector2::new(data.get(third, offset), data.get(third, offset + 1));
+        let first_edge = second - first;
+        let second_edge = third - first;
+        let scale_squared = first_edge.norm_squared().max(second_edge.norm_squared());
+        scale_squared.is_finite()
+            && scale_squared > 1e-24
+            && (first_edge.x * second_edge.y - first_edge.y * second_edge.x).abs()
+                > 1e-10 * scale_squared
+    }
+
     /// Apply Hartley normalization independently to both image planes.
     fn normalize_points(
         &self,
@@ -206,14 +225,40 @@ impl Estimator for HomographyEstimator {
         4
     }
 
-    fn is_valid_sample(&self, _data: &DataMatrix, sample: &[usize]) -> bool {
-        if sample.len() < self.sample_size() {
+    fn is_valid_sample(&self, data: &DataMatrix, sample: &[usize]) -> bool {
+        if sample.len() < self.sample_size() || data.n_dims() < 4 {
             return false;
         }
         for i in 0..sample.len() {
             for j in (i + 1)..sample.len() {
                 if sample[i] == sample[j] {
                     return false;
+                }
+            }
+        }
+        if sample.iter().any(|&index| {
+            index >= data.n_points() || (0..4).any(|column| !data.get(index, column).is_finite())
+        }) {
+            return false;
+        }
+        for first in 0..sample.len() {
+            for second in (first + 1)..sample.len() {
+                for third in (second + 1)..sample.len() {
+                    if !Self::non_collinear_triplet(
+                        data,
+                        sample[first],
+                        sample[second],
+                        sample[third],
+                        0,
+                    ) || !Self::non_collinear_triplet(
+                        data,
+                        sample[first],
+                        sample[second],
+                        sample[third],
+                        2,
+                    ) {
+                        return false;
+                    }
                 }
             }
         }

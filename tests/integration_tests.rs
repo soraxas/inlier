@@ -134,6 +134,14 @@ fn high_level_apis_reject_non_finite_coordinates_and_invalid_thresholds() {
 }
 
 #[test]
+fn estimate_homography_rejects_collinear_correspondences_before_ransac() {
+    let points1 = DataMatrix::from_row_slice(4, 2, &[0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0]);
+    let points2 = DataMatrix::from_row_slice(4, 2, &[5.0, 1.0, 6.0, 1.0, 7.0, 1.0, 8.0, 1.0]);
+    let error = estimate_homography(&points1, &points2, 1.0, None).unwrap_err();
+    assert!(error.contains("non-collinear"));
+}
+
+#[test]
 fn high_level_apis_reject_invalid_ransac_settings() {
     let points = DataMatrix::from_row_slice(2, 2, &[0.0, 0.0, 1.0, 1.0]);
     let cases = [
