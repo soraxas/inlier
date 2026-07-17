@@ -1,7 +1,7 @@
 //! Essential matrix estimator using calibrated five-point hypotheses.
 
 use crate::core::Estimator;
-use crate::estimators::fundamental::FundamentalEstimator;
+use crate::estimators::fundamental::{FundamentalEstimator, has_non_collinear_2d_sample};
 use crate::models::EssentialMatrix;
 use crate::nister_stewenius::five_points_relative_pose;
 use crate::types::DataMatrix;
@@ -70,7 +70,8 @@ impl Estimator for EssentialEstimator {
 
         sample.iter().all(|&index| {
             index < data.n_points() && (0..4).all(|column| data.get(index, column).is_finite())
-        })
+        }) && has_non_collinear_2d_sample(data, sample, 0)
+            && has_non_collinear_2d_sample(data, sample, 2)
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
@@ -156,17 +157,35 @@ mod tests {
     #[test]
     fn sample_validation_only_inspects_the_minimal_sample() {
         let mut data = DataMatrix::zeros(6, 4);
-        for row in 0..5 {
-            data.set(row, 0, row as f64 * 0.1);
-            data.set(row, 1, row as f64 * -0.2);
-            data.set(row, 2, row as f64 * 0.3);
-            data.set(row, 3, row as f64 * -0.4);
+        for (row, (x, y)) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (0.3, 0.7)]
+            .iter()
+            .enumerate()
+        {
+            data.set(row, 0, *x);
+            data.set(row, 1, *y);
+            data.set(row, 2, x + 0.2);
+            data.set(row, 3, y - 0.1);
         }
         data.set(5, 0, f64::NAN);
 
         let estimator = EssentialEstimator::new();
         assert!(estimator.is_valid_sample(&data, &[0, 1, 2, 3, 4]));
         assert!(!estimator.is_valid_sample(&data, &[0, 1, 2, 3, 5]));
+    }
+
+    #[test]
+    fn sample_validation_rejects_collinear_image_points() {
+        let estimator = EssentialEstimator::new();
+        let mut data = DataMatrix::zeros(5, 4);
+        for row in 0..5 {
+            let coordinate = row as f64;
+            data.set(row, 0, coordinate);
+            data.set(row, 1, -coordinate);
+            data.set(row, 2, coordinate + 0.1);
+            data.set(row, 3, -coordinate + 0.2);
+        }
+
+        assert!(!estimator.is_valid_sample(&data, &[0, 1, 2, 3, 4]));
     }
 
     #[test]

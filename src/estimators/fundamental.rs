@@ -6,6 +6,54 @@ use crate::types::DataMatrix;
 use crate::utils::solve_cubic_real;
 use nalgebra::{DMatrix, Matrix3, SVD};
 
+pub(crate) fn has_non_collinear_2d_sample(
+    data: &DataMatrix,
+    sample: &[usize],
+    first_column: usize,
+) -> bool {
+    if sample.len() < 3 || data.n_dims() < first_column + 2 {
+        return false;
+    }
+
+    let origin_index = sample[0];
+    if origin_index >= data.n_points() {
+        return false;
+    }
+    let origin_x = data.get(origin_index, first_column);
+    let origin_y = data.get(origin_index, first_column + 1);
+    if !origin_x.is_finite() || !origin_y.is_finite() {
+        return false;
+    }
+
+    let mut direction = (0.0, 0.0);
+    let mut scale_squared = 0.0_f64;
+    for &index in &sample[1..] {
+        if index >= data.n_points() {
+            return false;
+        }
+        let dx = data.get(index, first_column) - origin_x;
+        let dy = data.get(index, first_column + 1) - origin_y;
+        let distance_squared = dx.mul_add(dx, dy * dy);
+        if !distance_squared.is_finite() {
+            return false;
+        }
+        if distance_squared > scale_squared {
+            direction = (dx, dy);
+            scale_squared = distance_squared;
+        }
+    }
+
+    if scale_squared < 1e-24 {
+        return false;
+    }
+
+    sample[1..].iter().any(|&index| {
+        let dx = data.get(index, first_column) - origin_x;
+        let dy = data.get(index, first_column + 1) - origin_y;
+        (direction.0 * dy - direction.1 * dx).abs() > 1e-10 * scale_squared
+    })
+}
+
 /// Fundamental matrix estimator using the 8-point algorithm.
 pub struct FundamentalEstimator;
 
@@ -227,7 +275,8 @@ impl Estimator for FundamentalEstimator {
         }
         sample.iter().all(|&index| {
             index < data.n_points() && (0..4).all(|column| data.get(index, column).is_finite())
-        })
+        }) && has_non_collinear_2d_sample(data, sample, 0)
+            && has_non_collinear_2d_sample(data, sample, 2)
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
@@ -484,6 +533,21 @@ mod tests {
             &[],
             1.0,
         ));
+    }
+
+    #[test]
+    fn sample_validation_rejects_collinear_image_points() {
+        let estimator = FundamentalEstimator::new();
+        let mut data = DataMatrix::zeros(7, 4);
+        for row in 0..7 {
+            let coordinate = row as f64;
+            data.set(row, 0, coordinate);
+            data.set(row, 1, 2.0 * coordinate);
+            data.set(row, 2, coordinate + 1.0);
+            data.set(row, 3, 2.0 * coordinate - 1.0);
+        }
+
+        assert!(!estimator.is_valid_sample(&data, &[0, 1, 2, 3, 4, 5, 6]));
     }
 
     #[test]
