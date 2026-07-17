@@ -164,6 +164,10 @@ impl PlaneEstimator for GlobalPlanePeeling {
             let settings = Some(inlier::MetasacSettings {
                 max_iterations: self.max_iterations,
                 confidence: self.confidence,
+                // Peeling should be reproducible for a fixed point cloud. It
+                // also prevents rare test and pipeline variations caused by
+                // drawing a different minimal set on each invocation.
+                rng_seed: Some(0x504C_414E_4550_4545),
                 ..inlier::MetasacSettings::default()
             });
             let Some((nrm, d)) =
