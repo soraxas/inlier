@@ -225,6 +225,26 @@ impl Plane3 {
 mod tests {
     use super::*;
 
+    fn project(matrix: &Matrix3<f64>, point: Vector3<f64>) -> Vector3<f64> {
+        let projected = matrix * point;
+        projected / projected.z
+    }
+
+    #[test]
+    fn homography_forward_inverse_round_trip_preserves_points() {
+        let homography = Homography::new(Matrix3::new(
+            1.2, -0.1, 3.0, 0.2, 0.9, -2.0, 0.001, -0.0005, 1.0,
+        ));
+        let inverse = homography
+            .h
+            .try_inverse()
+            .expect("homography is invertible");
+        let point = Vector3::new(0.7, -1.4, 1.0);
+        let recovered = project(&inverse, project(&homography.h, point));
+
+        assert!((recovered - point).norm() < 1e-12);
+    }
+
     #[test]
     fn rigid_matrix_round_trip_preserves_points() {
         let transform = RigidTransform::new(

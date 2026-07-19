@@ -29,3 +29,39 @@ where
         (*model).clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Line;
+
+    #[test]
+    fn identity_preconditioner_is_exactly_idempotent() {
+        let data = DataMatrix::from_row_slice(2, 2, &[1.0, -2.0, 3.5, 4.25]);
+        let model = Line::new(1.0, -2.0, 3.0);
+        let preconditioner = IdentityPreconditioner;
+
+        let (normalized, normalization) =
+            <IdentityPreconditioner as Preconditioner<Line>>::normalize(&preconditioner, &data);
+        let (normalized_twice, _) = <IdentityPreconditioner as Preconditioner<Line>>::normalize(
+            &preconditioner,
+            &normalized,
+        );
+        let restored = <IdentityPreconditioner as Preconditioner<Line>>::denormalize(
+            &preconditioner,
+            &model,
+            &normalization,
+        );
+
+        for matrix in [&normalized, &normalized_twice] {
+            assert_eq!(matrix.n_points(), data.n_points());
+            assert_eq!(matrix.n_dims(), data.n_dims());
+            for point in 0..data.n_points() {
+                for dimension in 0..data.n_dims() {
+                    assert_eq!(matrix.get(point, dimension), data.get(point, dimension));
+                }
+            }
+        }
+        assert_eq!(restored.params, model.params);
+    }
+}
