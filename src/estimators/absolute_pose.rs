@@ -325,7 +325,7 @@ impl Estimator for AbsolutePoseEstimator {
             let k = [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
             if let Ok(res) = solve_pnp(&world, &image, &k, None, PnPMethod::EPnPDefault) {
-                let r = nalgebra::Matrix3::<f64>::from_row_slice(&[
+                let mut r = nalgebra::Matrix3::<f64>::from_row_slice(&[
                     res.rotation[0][0] as f64,
                     res.rotation[0][1] as f64,
                     res.rotation[0][2] as f64,
@@ -336,10 +336,32 @@ impl Estimator for AbsolutePoseEstimator {
                     res.rotation[2][1] as f64,
                     res.rotation[2][2] as f64,
                 ]);
-                let t = Vector3::new(
+                let mut t = Vector3::new(
                     res.translation[0] as f64,
                     res.translation[1] as f64,
                     res.translation[2] as f64,
+                );
+                let refine_points_2d: Vec<_> = points_2d
+                    .iter()
+                    .map(|point| Vector2::new(point[0], point[1]))
+                    .collect();
+                let refine_points_3d: Vec<_> = points_3d
+                    .iter()
+                    .map(|point| Vector3::new(point[0], point[1], point[2]))
+                    .collect();
+                let refine_weights: Option<Vec<f64>> = weights.map(|all_weights| {
+                    sample
+                        .iter()
+                        .filter_map(|&index| all_weights.get(index).copied())
+                        .collect()
+                });
+                let _ = refine_absolute_pose(
+                    &refine_points_2d,
+                    &refine_points_3d,
+                    &mut r,
+                    &mut t,
+                    refine_weights.as_deref(),
+                    100,
                 );
                 return vec![AbsolutePose::from_rt(r, t)];
             }

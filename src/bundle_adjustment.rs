@@ -4,7 +4,7 @@
 //! geometric models using argmin.
 
 use argmin::core::{CostFunction, Gradient};
-use nalgebra::{DVector, Matrix3, Quaternion, UnitQuaternion, Vector2, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, UnitQuaternion, Vector2, Vector3};
 
 /// Sampson error for fundamental matrix refinement.
 /// Minimizes the Sampson distance: r = (x2^T * F * x1) / ||J_C||
@@ -368,13 +368,16 @@ pub fn refine_absolute_pose(
         return false;
     }
 
-    // Convert to Vec
-    let points_2d_vec: Vec<Vector2<f64>> = points_2d.to_vec();
-    let points_3d_vec: Vec<Vector3<f64>> = points_3d.to_vec();
-    let weights_vec = weights.map(|w| w.to_vec());
+    if weights.is_some_and(|values| {
+        values.len() != points_2d.len()
+            || values
+                .iter()
+                .any(|weight| !weight.is_finite() || *weight < 0.0)
+    }) {
+        return false;
+    }
 
-    // Initialize parameters from current pose
-    // Convert rotation to axis-angle
+    // Initialize a six-parameter axis-angle pose from the current estimate.
     let r_rot = nalgebra::Rotation3::from_matrix_unchecked(*r);
     let axis_angle = r_rot.axis_angle();
     let mut params = DVector::<f64>::zeros(6);
@@ -387,23 +390,91 @@ pub fn refine_absolute_pose(
     params[4] = t.y;
     params[5] = t.z;
 
-    // Create cost function
-    let cost = AbsolutePoseCostFunction::new(points_2d_vec, points_3d_vec, weights_vec);
-
-    // Use gradient descent for optimization
-    let alpha = 0.01;
     let mut current_params = params;
-
-    for _iter in 0..max_iterations {
-        let grad_result = cost.gradient(&current_params);
-        match grad_result {
-            Ok(grad) => {
-                if grad.norm() < 1e-6 {
-                    break;
-                }
-                current_params = &current_params - &(alpha * &grad);
+    let residuals = |parameters: &DVector<f64>| -> Option<DVector<f64>> {
+        let axis_angle = Vector3::new(parameters[0], parameters[1], parameters[2]);
+        let angle = axis_angle.norm();
+        let rotation = if angle <= 1e-12 {
+            Matrix3::identity()
+        } else {
+            let axis = axis_angle / angle;
+            let cross = Matrix3::new(
+                0.0, -axis.z, axis.y, axis.z, 0.0, -axis.x, -axis.y, axis.x, 0.0,
+            );
+            Matrix3::identity() + angle.sin() * cross + (1.0 - angle.cos()) * (cross * cross)
+        };
+        let translation = Vector3::new(parameters[3], parameters[4], parameters[5]);
+        let mut result = DVector::zeros(points_2d.len() * 2);
+        for (index, (point_2d, point_3d)) in points_2d.iter().zip(points_3d).enumerate() {
+            let projected = rotation * point_3d + translation;
+            if !projected.iter().all(|value| value.is_finite()) || projected.z <= 1e-12 {
+                return None;
             }
-            Err(_) => break,
+            let weight = weights
+                .and_then(|values| values.get(index))
+                .copied()
+                .unwrap_or(1.0)
+                .sqrt();
+            result[2 * index] = weight * (projected.x / projected.z - point_2d.x);
+            result[2 * index + 1] = weight * (projected.y / projected.z - point_2d.y);
+        }
+        result
+            .iter()
+            .all(|value| value.is_finite())
+            .then_some(result)
+    };
+
+    let mut current_residuals = match residuals(&current_params) {
+        Some(values) => values,
+        None => return false,
+    };
+    let mut current_cost = current_residuals.norm_squared();
+    let mut damping = 1e-3;
+
+    // A damped Gauss-Newton step has translation units derived from the local
+    // Jacobian. Unlike the old fixed learning rate, it remains effective for
+    // camera translations ranging from centimetres to thousands of units.
+    for _ in 0..max_iterations {
+        let mut jacobian = DMatrix::zeros(current_residuals.len(), 6);
+        for parameter in 0..6 {
+            let step = 1e-6 * current_params[parameter].abs().max(1.0);
+            let mut perturbed = current_params.clone();
+            perturbed[parameter] += step;
+            let Some(perturbed_residuals) = residuals(&perturbed) else {
+                return false;
+            };
+            for row in 0..current_residuals.len() {
+                jacobian[(row, parameter)] =
+                    (perturbed_residuals[row] - current_residuals[row]) / step;
+            }
+        }
+
+        let jacobian_t = jacobian.transpose();
+        let mut normal = &jacobian_t * &jacobian;
+        for diagonal in 0..6 {
+            normal[(diagonal, diagonal)] += damping * normal[(diagonal, diagonal)].max(1.0);
+        }
+        let gradient = &jacobian_t * &current_residuals;
+        let Some(delta) = normal.lu().solve(&(-gradient)) else {
+            return false;
+        };
+        if !delta.iter().all(|value| value.is_finite()) || delta.norm() < 1e-10 {
+            break;
+        }
+
+        let candidate = &current_params + &delta;
+        let Some(candidate_residuals) = residuals(&candidate) else {
+            damping = (damping * 10.0).min(1e12);
+            continue;
+        };
+        let candidate_cost = candidate_residuals.norm_squared();
+        if candidate_cost < current_cost {
+            current_params = candidate;
+            current_residuals = candidate_residuals;
+            current_cost = candidate_cost;
+            damping = (damping * 0.3).max(1e-12);
+        } else {
+            damping = (damping * 10.0).min(1e12);
         }
     }
 
@@ -416,13 +487,15 @@ pub fn refine_absolute_pose(
         optimized_params[2],
     );
     let angle = axis_angle.norm();
-    if angle > 1e-10 {
+    *r = if angle <= 1e-12 {
+        Matrix3::identity()
+    } else {
         let axis = axis_angle / angle;
-        let k = nalgebra::Matrix3::new(
+        let cross = Matrix3::new(
             0.0, -axis.z, axis.y, axis.z, 0.0, -axis.x, -axis.y, axis.x, 0.0,
         );
-        *r = Matrix3::identity() + angle.sin() * k + (1.0 - angle.cos()) * (k * k);
-    }
+        Matrix3::identity() + angle.sin() * cross + (1.0 - angle.cos()) * (cross * cross)
+    };
     *t = Vector3::new(
         optimized_params[3],
         optimized_params[4],
@@ -454,5 +527,43 @@ mod tests {
             &Vector2::new(0.2, -0.1),
         );
         assert!(error.abs() < 1e-12);
+    }
+
+    #[test]
+    fn absolute_pose_refinement_reduces_large_translation_error() {
+        let rotation = nalgebra::Rotation3::from_euler_angles(0.12, -0.08, 0.04);
+        let truth_rotation = *rotation.matrix();
+        let truth_translation = Vector3::new(152.0, 88.0, 900.0);
+        let points_3d: Vec<_> = (0..12)
+            .map(|index| {
+                Vector3::new(
+                    (index as f64 * 0.37).sin() * 25.0 + 10.0,
+                    (index as f64 * 0.61).cos() * 20.0 + 4.0,
+                    (index as f64 * 0.23).sin() * 18.0 + 5.0,
+                )
+            })
+            .collect();
+        let points_2d: Vec<_> = points_3d
+            .iter()
+            .map(|point| {
+                let projected = truth_rotation * point + truth_translation;
+                Vector2::new(projected.x / projected.z, projected.y / projected.z)
+            })
+            .collect();
+        let mut estimated_rotation = truth_rotation;
+        let mut estimated_translation = truth_translation + Vector3::new(3.0, -2.0, 18.0);
+        let initial_error = estimated_translation.metric_distance(&truth_translation);
+
+        assert!(refine_absolute_pose(
+            &points_2d,
+            &points_3d,
+            &mut estimated_rotation,
+            &mut estimated_translation,
+            None,
+            30,
+        ));
+
+        assert!(estimated_translation.metric_distance(&truth_translation) < initial_error * 0.1);
+        assert!((estimated_rotation - truth_rotation).norm() < 1e-5);
     }
 }

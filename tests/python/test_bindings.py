@@ -107,11 +107,14 @@ def test_homography_against_benchmark_pairs():
     )
     runtime = time.time() - start
 
-    # Compose back to original pixel coordinates: H_full = T2 * H * T1
+    # `a_norm = N1 @ a` and `b_norm = N2 @ b`, so restore the original
+    # coordinate frame as H_full = N2^-1 @ H_norm @ N1.
     H = np.asarray(result["model"], dtype=float)
-    T1 = np.array([[s, 0.0, c1[0]], [0.0, s, c1[1]], [0.0, 0.0, 1.0]])
-    T2 = np.array([[1.0 / s, 0.0, 0.0], [0.0, 1.0 / s, 0.0], [0.0, 0.0, 1.0]])
-    est = T2 @ H @ T1
+    N1 = np.array(
+        [[1.0 / s, 0.0, -c1[0] / s], [0.0, 1.0 / s, -c1[1] / s], [0.0, 0.0, 1.0]]
+    )
+    N2_inverse = np.array([[s, 0.0, c2[0]], [0.0, s, c2[1]], [0.0, 0.0, 1.0]])
+    est = N2_inverse @ H @ N1
 
     assert runtime < 0.5, "pipeline should run quickly on small benchmark"
     assert result["inliers"] is not None
