@@ -38,27 +38,60 @@ impl AbsolutePoseEstimator {
             return Vec::new();
         }
 
+        let mut world_points = [Vector3::zeros(); 3];
         let mut world = [[0f32; 3]; 3];
         let mut bearings = [[0f32; 3]; 3];
 
         for (i, &idx) in sample.iter().enumerate() {
-            let u = data.get(idx, 0) as f32;
-            let v = data.get(idx, 1) as f32;
-            let x = data.get(idx, 2) as f32;
-            let y = data.get(idx, 3) as f32;
-            let z = data.get(idx, 4) as f32;
-
-            world[i] = [x, y, z];
-
-            let mut b = [u, v, 1.0f32];
-            let norm = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt();
-            if norm < 1e-6 {
+            if idx >= data.n_points() {
                 return Vec::new();
             }
-            b[0] /= norm;
-            b[1] /= norm;
-            b[2] /= norm;
-            bearings[i] = b;
+            let u = data.get(idx, 0);
+            let v = data.get(idx, 1);
+            let point = Vector3::new(data.get(idx, 2), data.get(idx, 3), data.get(idx, 4));
+            if !u.is_finite() || !v.is_finite() || point.iter().any(|value| !value.is_finite()) {
+                return Vec::new();
+            }
+
+            let norm = u.hypot(v).hypot(1.0);
+            if !norm.is_finite() || norm <= f64::EPSILON {
+                return Vec::new();
+            }
+            let bearing = [u / norm, v / norm, 1.0 / norm];
+            if bearing
+                .iter()
+                .any(|value| !value.is_finite() || !(*value as f32).is_finite())
+            {
+                return Vec::new();
+            }
+            bearings[i] = [bearing[0] as f32, bearing[1] as f32, bearing[2] as f32];
+            world_points[i] = point;
+        }
+
+        // Nordberg's implementation operates on f32 and unconditionally inverts
+        // a matrix derived from the minimal 3D triangle. Centering and scaling
+        // avoids a finite f64 triangle collapsing after conversion to f32.
+        let centroid = (world_points[0] + world_points[1] + world_points[2]) / 3.0;
+        let scale = (world_points[1] - world_points[0])
+            .norm()
+            .max((world_points[2] - world_points[0]).norm())
+            .max((world_points[2] - world_points[1]).norm());
+        if !scale.is_finite() || scale <= 1e-12 {
+            return Vec::new();
+        }
+        for (index, point) in world_points.iter().enumerate() {
+            let normalized = (*point - centroid) / scale;
+            if normalized
+                .iter()
+                .any(|value| !value.is_finite() || !(*value as f32).is_finite())
+            {
+                return Vec::new();
+            }
+            world[index] = [
+                normalized.x as f32,
+                normalized.y as f32,
+                normalized.z as f32,
+            ];
         }
 
         let poses = match std::panic::catch_unwind(|| nordberg::solve(&world, &bearings)) {
@@ -67,18 +100,20 @@ impl AbsolutePoseEstimator {
         };
         poses
             .into_iter()
-            .map(|pose| {
+            .filter_map(|pose| {
                 // Pose stores quaternion as [x, y, z, w] (real part last).
                 let [qx, qy, qz, qw] = pose.rotation;
                 let quat = nalgebra::Quaternion::new(qw as f64, qx as f64, qy as f64, qz as f64);
                 let rot = nalgebra::UnitQuaternion::from_quaternion(quat).to_rotation_matrix();
                 let r = *rot.matrix();
-                let t = Vector3::new(
+                let normalized_t = Vector3::new(
                     pose.translation[0] as f64,
                     pose.translation[1] as f64,
                     pose.translation[2] as f64,
                 );
-                AbsolutePose::from_rt(r, t)
+                let t = scale * normalized_t - r * centroid;
+                (r.iter().all(|value| value.is_finite()) && t.iter().all(|value| value.is_finite()))
+                    .then(|| AbsolutePose::from_rt(r, t))
             })
             .collect()
     }
@@ -130,7 +165,10 @@ impl Estimator for AbsolutePoseEstimator {
             .norm()
             .max(edge2.norm())
             .max((world[2] - world[1]).norm());
-        scale.is_finite() && scale > 1e-12 && edge1.cross(&edge2).norm() > 1e-10 * scale * scale
+        // The P3P backend works in f32 and explicitly inverts the triangle
+        // basis. A much weaker f64-only collinearity check admits triangles
+        // that become singular in that backend.
+        scale.is_finite() && scale > 1e-12 && edge1.cross(&edge2).norm() > 1e-6 * scale * scale
     }
 
     fn estimate_model(&self, data: &DataMatrix, sample: &[usize]) -> Vec<Self::Model> {
@@ -372,5 +410,43 @@ impl Estimator for AbsolutePoseEstimator {
                 .all(|value| value.is_finite())
             && det.is_finite()
             && (det - 1.0).abs() < 1e-2 * _threshold.max(1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_a_skinny_minimal_triangle_before_p3p() {
+        let data = DataMatrix::from_row_slice(
+            3,
+            5,
+            &[
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.0, 1.0, 0.0, 0.0, 0.0, 0.1, 2.0, 1e-8, 0.0,
+            ],
+        );
+        assert!(!AbsolutePoseEstimator::new().is_valid_sample(&data, &[0, 1, 2]));
+    }
+
+    #[test]
+    fn p3p_returns_finite_pose_for_a_well_conditioned_triangle() {
+        let data = DataMatrix::from_row_slice(
+            3,
+            5,
+            &[
+                0.0, 0.0, 0.0, 0.0, 5.0, 0.2, 0.0, 1.0, 0.0, 5.0, 0.0, 0.2, 0.0, 1.0, 5.0,
+            ],
+        );
+        let models = AbsolutePoseEstimator::new().estimate_model(&data, &[0, 1, 2]);
+        assert!(!models.is_empty());
+        assert!(models.iter().all(|model| {
+            model.rotation.coords.iter().all(|value| value.is_finite())
+                && model
+                    .translation
+                    .vector
+                    .iter()
+                    .all(|value| value.is_finite())
+        }));
     }
 }

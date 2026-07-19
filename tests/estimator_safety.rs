@@ -6,6 +6,7 @@ use inlier::estimators::{
     LineEstimator, PlaneEstimator, RigidTransformEstimator, SimilarityTransformEstimator,
 };
 use inlier::types::DataMatrix;
+use inlier::{MetasacSettings, estimate_absolute_pose};
 use proptest::prelude::*;
 
 fn matrix(rows: usize, columns: usize, values: &[f64]) -> DataMatrix {
@@ -14,6 +15,40 @@ fn matrix(rows: usize, columns: usize, values: &[f64]) -> DataMatrix {
 
 fn assert_no_panic<T>(operation: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(operation)).expect("estimator must not panic on finite input")
+}
+
+#[test]
+fn absolute_pose_rejects_f32_degenerate_p3p_geometry_without_panicking() {
+    // These values are finite in f64 but their first two world coordinates
+    // collapse when converted to f32. The P3P backend must reject the skinny
+    // triangle instead of reaching its internal unchecked matrix inverse.
+    let points_3d = DataMatrix::from_row_slice(
+        3,
+        3,
+        &[
+            -8577.50588235294,
+            -8577.50588235294,
+            -8577.50588235294,
+            -8577.505912870518,
+            -8577.50588235294,
+            -2.0,
+            -8577.50588235294,
+            -8577.505882353405,
+            4.771396027503818e-305,
+        ],
+    );
+    let points_2d = DataMatrix::from_row_slice(3, 2, &[-3.25, -8577.5, -2.0, -8577.5, 0.0, 1.0]);
+    let settings = MetasacSettings {
+        min_iterations: 1,
+        max_iterations: 1,
+        max_sampling_attempts: 1,
+        rng_seed: Some(0),
+        ..Default::default()
+    };
+
+    let result =
+        assert_no_panic(|| estimate_absolute_pose(&points_3d, &points_2d, 1.0, Some(settings)));
+    assert!(result.is_err());
 }
 
 proptest! {
