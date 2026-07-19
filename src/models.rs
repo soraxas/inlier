@@ -83,7 +83,7 @@ impl RigidTransform {
     pub fn to_matrix4(&self) -> Matrix4<f64> {
         let r = self.rotation.to_homogeneous();
         let t = self.translation.to_homogeneous();
-        r * t
+        t * r
     }
 }
 
@@ -108,10 +108,10 @@ impl SimilarityTransform {
         let r = self.rotation.to_homogeneous();
         let t = self.translation.to_homogeneous();
         // Apply uniform scale.
-        let mut m = r * t;
+        let mut m = r;
         m.fixed_view_mut::<3, 3>(0, 0)
             .apply(|val| *val *= self.scale);
-        m
+        t * m
     }
 }
 
@@ -218,5 +218,47 @@ impl Plane3 {
     /// Plane parameters as a 4-vector [a, b, c, d].
     pub fn to_vec4(&self) -> Vector4<f64> {
         Vector4::new(self.normal.x, self.normal.y, self.normal.z, self.d)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rigid_matrix_round_trip_preserves_points() {
+        let transform = RigidTransform::new(
+            UnitQuaternion::from_euler_angles(0.2, -0.3, 0.4),
+            Translation3::new(2.0, -1.0, 0.5),
+        );
+        let point = Vector4::new(0.7, -1.2, 3.0, 1.0);
+        let matrix = transform.to_matrix4();
+        let recovered =
+            matrix.try_inverse().expect("rigid transform is invertible") * (matrix * point);
+
+        assert!((recovered - point).norm() < 1e-12);
+        assert!(
+            (matrix.fixed_view::<3, 1>(0, 3).into_owned() - transform.translation.vector).norm()
+                < 1e-12
+        );
+    }
+
+    #[test]
+    fn similarity_matrix_round_trip_preserves_points() {
+        let transform = SimilarityTransform::new(
+            1.75,
+            UnitQuaternion::from_euler_angles(-0.1, 0.25, 0.3),
+            Translation3::new(-0.5, 1.5, 2.0),
+        );
+        let point = Vector4::new(1.0, 2.0, -0.5, 1.0);
+        let matrix = transform.to_matrix4();
+        let recovered =
+            matrix.try_inverse().expect("non-zero scale is invertible") * (matrix * point);
+
+        assert!((recovered - point).norm() < 1e-12);
+        assert!(
+            (matrix.fixed_view::<3, 1>(0, 3).into_owned() - transform.translation.vector).norm()
+                < 1e-12
+        );
     }
 }
