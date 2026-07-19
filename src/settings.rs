@@ -126,8 +126,10 @@ impl Default for NeighborhoodSettings {
 
 /// Main configuration object for the MetaSAC pipeline.
 ///
-/// This is a direct Rust analogue of the C++ `superansac::MetasacSettings`
-/// with the same default values.
+/// This is a direct Rust analogue of the C++ `superansac::MetasacSettings`.
+/// The Rust defaults keep the declared iteration budget bounded by making one
+/// minimal-solver attempt per iteration unless callers explicitly request
+/// retries.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetasacSettings {
     /// Minimum number of iterations.
