@@ -224,30 +224,34 @@ fn test_estimate_fundamental_matrix_synthetic() {
 
 #[test]
 fn test_estimate_essential_matrix_synthetic() {
-    // Create synthetic 2D point correspondences (calibrated)
+    // Use a non-planar calibrated two-view scene. A 2D rotation is a
+    // homography/pure-rotation degeneracy and does not define an essential
+    // matrix success case.
     let n_points = 15;
     let mut points1 = DataMatrix::zeros(n_points, 2);
     let mut points2 = DataMatrix::zeros(n_points, 2);
+    let rotation = Rotation3::from_euler_angles(0.08, -0.11, 0.03);
+    let translation = Vector3::new(0.28, -0.09, 0.16);
 
     for i in 0..n_points {
-        let angle = (i as f64) * 2.0 * std::f64::consts::PI / (n_points as f64);
-        let radius = 50.0;
-        points1.set(i, 0, radius * angle.cos());
-        points1.set(i, 1, radius * angle.sin());
-        points2.set(i, 0, radius * (angle + 0.1).cos());
-        points2.set(i, 1, radius * (angle + 0.1).sin());
+        let point = Vector3::new(
+            (i as f64 * 0.41).sin() * 0.9,
+            (i as f64 * 0.73).cos() * 0.7,
+            2.5 + (i % 5) as f64 * 0.4,
+        );
+        let transformed = rotation * point + translation;
+        points1.set(i, 0, point.x / point.z);
+        points1.set(i, 1, point.y / point.z);
+        points2.set(i, 0, transformed.x / transformed.z);
+        points2.set(i, 1, transformed.y / transformed.z);
     }
 
-    let threshold = 1.0;
+    let threshold = 1e-4;
     let result = estimate_essential_matrix(&points1, &points2, threshold, None);
 
-    // RANSAC might not always succeed with minimal synthetic data
-    if let Ok(result) = result {
-        assert!(
-            !result.inliers.is_empty(),
-            "Should find some inliers if estimation succeeds"
-        );
-    }
+    let result =
+        result.expect("non-planar calibrated correspondences should estimate an essential matrix");
+    assert_eq!(result.inliers.len(), n_points);
 }
 
 #[test]
