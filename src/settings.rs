@@ -194,7 +194,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_ransac_settings_match_cpp_defaults() {
+    fn default_ransac_settings_use_bounded_work() {
         let cfg = MetasacSettings::default();
         assert_eq!(cfg.min_iterations, 1000);
         assert_eq!(cfg.max_iterations, 5000);
