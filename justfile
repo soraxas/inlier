@@ -101,7 +101,7 @@ ensure-cargo-mutants:
   cargo install cargo-mutants --locked
 
 test-rust profile='--release': ensure-nextest
-  cargo nextest run --workspace --all-targets {{profile}}
+  cargo nextest run --workspace {{profile}}
 
 check-rust-python:
   cargo check -p inlier --features python --lib
@@ -115,13 +115,13 @@ test-python profile='--release':
 
 coverage: ensure-nextest ensure-llvm-cov
   rustup component add llvm-tools-preview
-  cargo llvm-cov nextest --workspace --all-targets
+  cargo llvm-cov nextest --workspace
 
 coverage-doctests lcov='lcov.info': ensure-nextest ensure-llvm-cov
   #!/usr/bin/env bash
   set -euo pipefail
   rustup toolchain install nightly --component llvm-tools-preview
-  RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report nextest --workspace --all-targets
+  RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report nextest --workspace
   RUSTUP_TOOLCHAIN=nightly cargo llvm-cov --no-report --doc --workspace
   RUSTUP_TOOLCHAIN=nightly cargo llvm-cov report --doctests --lcov --output-path "{{lcov}}"
 

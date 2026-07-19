@@ -22,7 +22,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@nextest
       - name: Run Rust tests
-        run: cargo nextest run --workspace --all-targets
+        # `--all-targets` also executes Criterion/CodSpeed benchmark binaries.
+        # Those have their own CodSpeed workflow; keep this job focused on
+        # unit, integration, and binary tests.
+        run: cargo nextest run --workspace
       - name: Check Python feature
         run: cargo check -p inlier --features python --lib
       - name: Run doctests
@@ -52,7 +55,7 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - name: Collect coverage data
         run: |
-          cargo llvm-cov --no-report nextest --workspace --all-targets
+          cargo llvm-cov --no-report nextest --workspace
           cargo llvm-cov --no-report --doc --workspace
           cargo llvm-cov report --doctests --lcov --output-path lcov.info
       - name: Upload coverage reports to Codecov
