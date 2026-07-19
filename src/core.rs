@@ -899,6 +899,15 @@ where
             if models.is_empty() {
                 // No valid model could be generated for this iteration.
                 self.iteration += 1;
+                // A multi-attempt iteration is specifically configured to
+                // recover from an occasional invalid minimal sample. If it
+                // exhausts every attempt without a model, repeating that
+                // costly loop for the full RANSAC budget only turns a
+                // degenerate input into an unbounded runtime. Single-attempt
+                // users retain normal iteration-by-iteration retry behavior.
+                if self.settings.max_sampling_attempts > 1 {
+                    break;
+                }
                 continue;
             }
 
@@ -1078,6 +1087,34 @@ mod tests {
         }
     }
 
+    struct RejectingEstimator;
+
+    impl Estimator for RejectingEstimator {
+        type Model = MockModel;
+
+        fn sample_size(&self) -> usize {
+            2
+        }
+
+        fn is_valid_sample(&self, _data: &DataMatrix, _sample: &[usize]) -> bool {
+            false
+        }
+
+        fn estimate_model(&self, _data: &DataMatrix, _sample: &[usize]) -> Vec<Self::Model> {
+            Vec::new()
+        }
+
+        fn is_valid_model(
+            &self,
+            _model: &Self::Model,
+            _data: &DataMatrix,
+            _sample: &[usize],
+            _threshold: f64,
+        ) -> bool {
+            false
+        }
+    }
+
     struct MockSampler {
         pub sample_calls: usize,
         pub update_calls: usize,
@@ -1226,5 +1263,36 @@ mod tests {
         assert_eq!(pipeline.diagnostics.final_optimization_runs, 0);
         // We don't assert an exact iteration count here, only that `run`
         // completed without panicking and produced a consistent result.
+    }
+
+    #[test]
+    fn exhausted_multi_attempt_sampling_stops_without_repeating_the_budget() {
+        let data = DataMatrix::zeros(4, 2);
+        let settings = MetasacSettings {
+            min_iterations: 1_000,
+            max_iterations: 5_000,
+            max_sampling_attempts: 3,
+            ..Default::default()
+        };
+        let mut pipeline = MetaSAC::new(
+            settings,
+            RejectingEstimator,
+            MockSampler {
+                sample_calls: 0,
+                update_calls: 0,
+            },
+            MockScoring,
+            None::<MockLocalOptimizer>,
+            None::<MockLocalOptimizer>,
+            MockTerminationCriterion { called: 0 },
+            None::<MockInlierSelector>,
+        );
+
+        pipeline.run(&data);
+
+        assert!(pipeline.best_model.is_none());
+        assert_eq!(pipeline.iteration, 1);
+        assert_eq!(pipeline.diagnostics.sampling_attempts, 3);
+        assert_eq!(pipeline.diagnostics.rejected_samples, 3);
     }
 }

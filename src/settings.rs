@@ -126,10 +126,8 @@ impl Default for NeighborhoodSettings {
 
 /// Main configuration object for the MetaSAC pipeline.
 ///
-/// This is a direct Rust analogue of the C++ `superansac::MetasacSettings`.
-/// The Rust defaults keep the declared iteration budget bounded by making one
-/// minimal-solver attempt per iteration unless callers explicitly request
-/// retries.
+/// This is a direct Rust analogue of the C++ `superansac::MetasacSettings`
+/// with the same default values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetasacSettings {
     /// Minimum number of iterations.
@@ -181,10 +179,7 @@ impl Default for MetasacSettings {
             final_optimization_settings: LocalOptimizationSettings::default(),
             neighborhood_settings: NeighborhoodSettings::default(),
             point_priors: None,
-            // One minimal-solver attempt is the conventional RANSAC unit of
-            // work. Retrying 100 times here silently turns a 5,000-iteration
-            // budget into up to 500,000 expensive solves on degenerate data.
-            max_sampling_attempts: 1,
+            max_sampling_attempts: 100,
         }
     }
 }
@@ -194,7 +189,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_ransac_settings_use_bounded_work() {
+    fn default_ransac_settings_match_cpp_defaults() {
         let cfg = MetasacSettings::default();
         assert_eq!(cfg.min_iterations, 1000);
         assert_eq!(cfg.max_iterations, 5000);
@@ -209,7 +204,7 @@ mod tests {
         assert_eq!(cfg.termination_criterion, TerminationType::Ransac);
         assert_eq!(cfg.inlier_selector, InlierSelectorType::None);
         assert!(cfg.point_priors.is_none());
-        assert_eq!(cfg.max_sampling_attempts, 1);
+        assert_eq!(cfg.max_sampling_attempts, 100);
     }
 
     #[test]
