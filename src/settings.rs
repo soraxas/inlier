@@ -179,7 +179,10 @@ impl Default for MetasacSettings {
             final_optimization_settings: LocalOptimizationSettings::default(),
             neighborhood_settings: NeighborhoodSettings::default(),
             point_priors: None,
-            max_sampling_attempts: 100,
+            // One minimal-solver attempt is the conventional RANSAC unit of
+            // work. Retrying 100 times here silently turns a 5,000-iteration
+            // budget into up to 500,000 expensive solves on degenerate data.
+            max_sampling_attempts: 1,
         }
     }
 }
@@ -204,6 +207,7 @@ mod tests {
         assert_eq!(cfg.termination_criterion, TerminationType::Ransac);
         assert_eq!(cfg.inlier_selector, InlierSelectorType::None);
         assert!(cfg.point_priors.is_none());
+        assert_eq!(cfg.max_sampling_attempts, 1);
     }
 
     #[test]

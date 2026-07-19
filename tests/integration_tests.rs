@@ -189,23 +189,28 @@ fn high_level_apis_reject_invalid_ransac_settings() {
 
 #[test]
 fn test_estimate_fundamental_matrix_synthetic() {
-    // Create synthetic 2D point correspondences
-    // Points on a plane with some noise
+    // Project non-planar 3D points into two calibrated cameras. A planar
+    // rotation/translation in image space is homography-degenerate and is not
+    // a valid success case for fundamental-matrix estimation.
     let n_points = 15;
     let mut points1 = DataMatrix::zeros(n_points, 2);
     let mut points2 = DataMatrix::zeros(n_points, 2);
+    let (sin_angle, cos_angle) = 0.19_f64.sin_cos();
 
     for i in 0..n_points {
-        let angle = (i as f64) * 2.0 * std::f64::consts::PI / (n_points as f64);
-        let radius = 100.0;
-        points1.set(i, 0, radius * angle.cos() + 200.0);
-        points1.set(i, 1, radius * angle.sin() + 200.0);
-        // Simple transformation: rotation + translation
-        points2.set(i, 0, radius * (angle + 0.1).cos() + 210.0);
-        points2.set(i, 1, radius * (angle + 0.1).sin() + 210.0);
+        let x = (i as f64 * 0.37).sin() * 1.2;
+        let y = (i as f64 * 0.61).cos() * 0.8;
+        let z = 3.0 + (i % 5) as f64 * 0.45;
+        points1.set(i, 0, x / z);
+        points1.set(i, 1, y / z);
+
+        let rotated_x = cos_angle * x + sin_angle * z;
+        let rotated_z = -sin_angle * x + cos_angle * z;
+        points2.set(i, 0, (rotated_x + 0.35) / (rotated_z + 0.2));
+        points2.set(i, 1, (y - 0.12) / (rotated_z + 0.2));
     }
 
-    let threshold = 2.0;
+    let threshold = 0.01;
     let result = estimate_fundamental_matrix(&points1, &points2, threshold, None);
 
     assert!(
