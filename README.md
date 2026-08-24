@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/soraxas/inlier/graph/badge.svg?token=KxZ6CvFGkT)](https://codecov.io/gh/soraxas/inlier)
+
 # Inlier
 
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/soraxas/inlier?utm_source=badge)
