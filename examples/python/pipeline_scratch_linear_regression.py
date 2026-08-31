@@ -7,9 +7,9 @@ classes, wired through the `Pipeline` builder exposed by the `inlier` crate.
 from __future__ import annotations
 
 import sys
-import numpy as np
 
 import inlier
+import numpy as np
 
 
 class RandomSampler:
@@ -47,7 +47,7 @@ class LineEstimator:
         b = y1 - m * x1
         return [[float(m), float(b)]]  # list of models
 
-    def is_valid_model(self, model, data, sample, threshold) -> bool:  # noqa: ARG002
+    def is_valid_model(self, model, data, sample, threshold) -> bool:
         return True
 
 
