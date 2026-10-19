@@ -15,13 +15,14 @@ For SYNTHETIC data, use this pattern:
 import argparse
 import sys
 from pathlib import Path
+
 import numpy as np
 import open3d as o3d
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from inlier.pcr import PCRConfig, register_nonrigid
 import matplotlib.pyplot as plt
+from inlier.pcr import PCRConfig, register_nonrigid
 
 
 def visualize_scale_field(
