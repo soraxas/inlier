@@ -1,10 +1,10 @@
-import pytest
-from pathlib import Path
 import csv
 import time
-import numpy as np
+from pathlib import Path
 
 import inlier
+import numpy as np
+import pytest
 
 
 class DummyEstimator:

@@ -7,10 +7,9 @@ that the Rust port implements.
 
 The new \\(\sigma\\)-consensus++ (MAGSAC++) quality function comes from the iteratively reweighted least
 squares formulation explained in the paper: every point receives a weight
-\\[
-w(r) = \int g(r \mid \sigma) f(\sigma) \, d\sigma,
+\\[w(r) = \int g(r \mid \sigma) f(\sigma) \, d\sigma,
 \\]
- where the density \\(g\\) depends on the
+where the density \\(g\\) depends on the
 \\(\chi\\)-distribution and the maximum noise scale \\(\sigma_{\text{max\\).
 
 Rather than approximating the integrals at runtime, this crate precomputes the incomplete
@@ -26,8 +25,7 @@ const COEFFS: [f64; 9] = [
 ```
 
 `COEFFS` are the standard Lanczos constants used when evaluating
-\\[
-    \ln \Gamma(x) \text{ for } x > 0.
+\\[\ln \Gamma(x) \text{ for } x > 0.
 \\]
 [build.rs](../../build.rs) computes both the upper and lower incomplete gamma functions and stores them in a
 generated `sigma_lut.rs` file inside `OUT_DIR`. This file is included into
@@ -45,8 +43,7 @@ consistent as they bubble up into `SuperRansac`.
 ## Weight computation and LUT usage
 
 Weights inside `IRLSOptimizer` are computed with a simple MSAC-style formula
-\\[
-    w = 1 - \frac{r^2}{\tau^2}
+\\[w = 1 - \frac{r^2}{\tau^2}
 \\]
 for inliers and zero for outliers. Still, the same LUT used for
 \\(\sigma\\)-consensus++ can be plugged in later if you want to replace the simplified MSAC weights with the
