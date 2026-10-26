@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import inlier
 import numpy as np
 import pytest
-
-import inlier
 
 
 @pytest.mark.filterwarnings("ignore:.*numpy.*")
