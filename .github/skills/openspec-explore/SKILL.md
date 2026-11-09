@@ -1,12 +1,13 @@
 ---
+
 name: openspec-explore
 description: Enter explore mode - a thinking partner for exploring ideas, investigating problems, and clarifying requirements. Use when the user wants to think through something before or during a change.
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:
-  author: openspec
-  version: "1.0"
-  generatedBy: "1.2.0"
+author: openspec
+version: "1.0"
+generatedBy: "1.2.0"
 ---
 
 Enter explore mode. Think deeply. Visualize freely. Follow the conversation wherever it goes.
@@ -114,14 +115,14 @@ If the user mentions a change or you detect one is relevant:
 
 3. **Offer to capture when decisions are made**
 
-   | Insight Type | Where to Capture |
-   |--------------|------------------|
+   | Insight Type               | Where to Capture             |
+   | -------------------------- | ---------------------------- |
    | New requirement discovered | `specs/<capability>/spec.md` |
-   | Requirement changed | `specs/<capability>/spec.md` |
-   | Design decision made | `design.md` |
-   | Scope changed | `proposal.md` |
-   | New work identified | `tasks.md` |
-   | Assumption invalidated | Relevant artifact |
+   | Requirement changed        | `specs/<capability>/spec.md` |
+   | Design decision made       | `design.md`                  |
+   | Scope changed              | `proposal.md`                |
+   | New work identified        | `tasks.md`                   |
+   | Assumption invalidated     | Relevant artifact            |
 
    Example offers:
    - "That's a design decision. Capture it in design.md?"
