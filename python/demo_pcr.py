@@ -6,13 +6,14 @@ point cloud registration with scale variation.
 """
 
 import sys
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 # Add parent directory to path for local development
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from inlier.pcr import register_rigid, register_nonrigid, load_ply
+from inlier.pcr import load_ply, register_nonrigid, register_rigid
 
 
 def demo_synthetic():
