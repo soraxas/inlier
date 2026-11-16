@@ -1,12 +1,13 @@
 ---
+
 name: openspec-archive-change
 description: Archive a completed change in the experimental workflow. Use when the user wants to finalize and archive a change after implementation is complete.
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:
-  author: openspec
-  version: "1.0"
-  generatedBy: "1.2.0"
+author: openspec
+version: "1.0"
+generatedBy: "1.2.0"
 ---
 
 Archive a completed change in the experimental workflow.
@@ -68,6 +69,7 @@ Archive a completed change in the experimental workflow.
 5. **Perform the archive**
 
    Create the archive directory if it doesn't exist:
+
    ```bash
    mkdir -p openspec/changes/archive
    ```
