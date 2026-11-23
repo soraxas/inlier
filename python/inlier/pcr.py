@@ -26,11 +26,12 @@ Examples:
     ...     print(f"Inliers: {result['inlier_count']}/{result['total_correspondences']}")
 """
 
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 import numpy as np
 from numpy.typing import NDArray
 
-from ._inlier_rs import PCRConfig, register_rigid_py, register_nonrigid_py
+from ._inlier_rs import PCRConfig, register_nonrigid_py, register_rigid_py
 
 
 def register_rigid(
@@ -204,8 +205,8 @@ def load_ply(filepath: str) -> NDArray[np.float64]:
 
 
 __all__ = [
-    "register_rigid",
-    "register_nonrigid",
-    "load_ply",
     "PCRConfig",
+    "load_ply",
+    "register_nonrigid",
+    "register_rigid",
 ]

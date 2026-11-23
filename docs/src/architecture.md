@@ -144,6 +144,7 @@ Because the execution model is linear per hypothesis and components are swappabl
 ## Parallel scoring with early abort (non-greedy parallelism)
 
 To exploit parallelism without greediness:
+
 - Score hypotheses in stages (P1/P2/…); after each stage compute an optimistic bound `UB = s(k) + (n−k)·q_max`.
 - Keep the best score in an atomic `S_best`; if `UB <= S_best`, abort scoring that hypothesis.
 - When a task finishes all stages and improves `S_best`, atomically publish the new best model/inliers; other tasks will see the tighter bound and self-prune.
